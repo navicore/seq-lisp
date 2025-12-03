@@ -1,0 +1,11 @@
+# Build artifacts
+/target/
+*.o
+
+# Editor
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store
