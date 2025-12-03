@@ -85,16 +85,21 @@
       # Whitespace
       drop handle-space tokenize-loop
     else
-      dup 40 = if
-        # Left paren
-        drop handle-lparen tokenize-loop
+      dup 59 = if
+        # Semicolon - start of comment, skip to end of line
+        drop handle-comment tokenize-loop
       else
-        41 = if
-          # Right paren
-          handle-rparen tokenize-loop
+        dup 40 = if
+          # Left paren
+          drop handle-lparen tokenize-loop
         else
-          # Regular char
-          handle-char tokenize-loop
+          41 = if
+            # Right paren
+            handle-rparen tokenize-loop
+          else
+            # Regular char
+            handle-char tokenize-loop
+          then
         then
       then
     then
@@ -160,6 +165,41 @@
     ")" swap tcons
     "" swap
     make-state nip
+  then
+;
+
+# Skip comment (everything from ; to end of line)
+: handle-comment ( Variant -- Variant )
+  # First flush any current token
+  dup state-tok string-empty if
+    skip-to-eol
+  else
+    # Flush token first, then skip
+    dup state-input
+    over state-pos
+    2 pick state-list
+    3 pick state-tok
+    swap tcons
+    "" swap
+    make-state nip
+    skip-to-eol
+  then
+;
+
+# Skip characters until newline or end of input
+: skip-to-eol ( Variant -- Variant )
+  dup state-input string-length
+  over state-pos <= if
+    # End of input, done
+  else
+    dup state-input over state-pos string-char-at
+    10 = if
+      # Found newline, advance past it
+      advance-pos
+    else
+      # Keep skipping
+      advance-pos skip-to-eol
+    then
   then
 ;
 

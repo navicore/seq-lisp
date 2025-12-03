@@ -1,3 +1,2 @@
-;; Hello World in SeqLisp
-
-(print "Hello, World!")
+;; Hello World in SeqLisp - prints a simple value
+(print 42)
