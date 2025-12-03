@@ -1,38 +1,70 @@
-# SeqLisp Build System
+# SeqLisp - A Lisp interpreter written in Seq
 #
 # Requires: seqc (the Seq compiler) on PATH
-# Note: seqc has embedded stdlib - no local stdlib directory needed
 
 default:
     @just --list
 
-# Run all tests
+# Build the REPL
+build:
+    @echo "Building SeqLisp REPL..."
+    @mkdir -p target
+    seqc src/repl.seq -o target/seqlisp
+    @echo "Built: target/seqlisp"
+
+# Run the REPL
+run: build
+    ./target/seqlisp
+
+# Run interpreter tests
 test:
     #!/usr/bin/env bash
     set -euo pipefail
     echo "Running SeqLisp tests..."
-    for test in test_*.seq; do
+    mkdir -p target
+    for test in src/test_*.seq; do
         name=$(basename "$test" .seq)
         echo "  $name..."
-        seqc "$test" -o "/tmp/$name" && "/tmp/$name" > /dev/null
+        seqc "$test" -o "target/$name" && "./target/$name" > /dev/null
     done
-    echo "✅ All tests passed!"
+    echo "All tests passed!"
 
 # Run tests with output
 test-verbose:
     #!/usr/bin/env bash
     set -euo pipefail
-    for test in test_*.seq; do
+    mkdir -p target
+    for test in src/test_*.seq; do
         name=$(basename "$test" .seq)
         echo "=== $name ==="
-        seqc "$test" -o "/tmp/$name" && "/tmp/$name"
+        seqc "$test" -o "target/$name" && "./target/$name"
         echo ""
     done
 
-# Build the REPL (coming soon)
-build:
-    @echo "REPL not yet implemented"
+# Run a Lisp example
+example file: build
+    @echo "Running {{file}}..."
+    @echo "{{file}}" | ./target/seqlisp
+
+# Run all examples
+examples: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Running Lisp examples..."
+    for example in examples/*.lisp; do
+        echo "=== $(basename $example) ==="
+        cat "$example" | ./target/seqlisp
+        echo ""
+    done
 
 # Clean build artifacts
 clean:
-    rm -f /tmp/test_*
+    rm -rf target
+
+# Format check (placeholder for future linter)
+fmt:
+    @echo "No formatter yet - contributions welcome!"
+
+# Full CI: test + build
+ci: test build
+    @echo "CI passed!"

@@ -1,11 +1,12 @@
 # Build artifacts
 /target/
-*.o
 
 # Editor
 .vscode/
+.idea/
 *.swp
 *~
 
 # OS
 .DS_Store
+Thumbs.db
