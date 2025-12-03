@@ -75,6 +75,20 @@ include "parser"
     then
   then ;
 
+# Concatenate two environments (Env1 bindings prepended to Env2)
+: env-concat ( Variant Variant -- Variant )
+  # Stack: Env1 Env2 -> Result where Env1 bindings come first
+  swap  # Env2 Env1
+  dup snil? if
+    drop  # If Env1 is empty, return Env2
+  else
+    dup scar  # Env2 Env1 Binding
+    swap scdr  # Env2 Binding Env1-rest
+    rot  # Binding Env1-rest Env2
+    env-concat  # Binding ConcatRest
+    scons  # Result
+  then ;
+
 # ============================================
 # Main Evaluator
 # ============================================
@@ -166,17 +180,57 @@ include "parser"
         dup "/" string-equal if
           drop eval-div-with-env
         else
-          dup "if" string-equal if
-            drop eval-if-with-env
+          dup "<" string-equal if
+            drop eval-lt-with-env
           else
-            dup "let" string-equal if
-              drop eval-let-with-env
+            dup ">" string-equal if
+              drop eval-gt-with-env
             else
-              dup "lambda" string-equal if
-                drop eval-lambda-with-env
+              dup "<=" string-equal if
+                drop eval-lte-with-env
               else
-                # Unknown function - return list as-is
-                drop drop slist
+                dup ">=" string-equal if
+                  drop eval-gte-with-env
+                else
+                  dup "=" string-equal if
+                    drop eval-eq-with-env
+                  else
+                    dup "if" string-equal if
+                    drop eval-if-with-env
+                  else
+                    dup "let" string-equal if
+                      drop eval-let-with-env
+                    else
+                      dup "lambda" string-equal if
+                        drop eval-lambda-with-env
+                      else
+                        dup "print" string-equal if
+                          drop eval-print-with-env
+                        else
+                          dup "define" string-equal if
+                            drop eval-define-with-env
+                          else
+                            # Unknown function - look up in environment
+                            # Stack: List Env FuncName
+                            over  # List Env FuncName Env
+                            env-lookup  # List Env Value
+                            dup closure? if
+                              # Apply the closure
+                              # Stack: List Env Closure
+                              rot  # Env Closure List
+                              scdr  # Env Closure Args (skip function name)
+                              rot  # Closure Args Env
+                              apply-closure
+                            else
+                              # Not a closure, return as list
+                              drop drop slist
+                            then
+                          then
+                        then
+                      then
+                    then
+                  then
+                then
               then
             then
           then
@@ -184,6 +238,7 @@ include "parser"
       then
     then
   then
+then
 ;
 
 # ============================================
@@ -307,6 +362,89 @@ include "parser"
 ;
 
 # ============================================
+# Comparison Operations
+# ============================================
+
+: eval-lt-with-env ( Variant Variant -- Variant )
+  # Stack: List Env
+  # (< a b) returns 1 if a < b, else 0
+  swap scdr  # Skip the < -> Env Args
+  dup scar 2 pick eval-with-env snum-val  # Eval first arg
+  swap scdr scar 2 pick eval-with-env snum-val  # Eval second arg
+  # Stack: Env First Second
+  < if 1 else 0 then snum nip
+;
+
+: eval-gt-with-env ( Variant Variant -- Variant )
+  swap scdr
+  dup scar 2 pick eval-with-env snum-val
+  swap scdr scar 2 pick eval-with-env snum-val
+  > if 1 else 0 then snum nip
+;
+
+: eval-lte-with-env ( Variant Variant -- Variant )
+  swap scdr
+  dup scar 2 pick eval-with-env snum-val
+  swap scdr scar 2 pick eval-with-env snum-val
+  <= if 1 else 0 then snum nip
+;
+
+: eval-gte-with-env ( Variant Variant -- Variant )
+  swap scdr
+  dup scar 2 pick eval-with-env snum-val
+  swap scdr scar 2 pick eval-with-env snum-val
+  >= if 1 else 0 then snum nip
+;
+
+: eval-eq-with-env ( Variant Variant -- Variant )
+  swap scdr
+  dup scar 2 pick eval-with-env snum-val
+  swap scdr scar 2 pick eval-with-env snum-val
+  = if 1 else 0 then snum nip
+;
+
+# ============================================
+# Print
+# ============================================
+
+: eval-print-with-env ( Variant Variant -- Variant )
+  # Stack: List Env
+  # (print expr) - evaluate expr, print result, return result
+  swap scdr scar  # Get the expression to print
+  swap eval-with-env  # Evaluate it
+  dup sexpr-to-string write_line  # Print it
+  # Return the value
+;
+
+# ============================================
+# Define (returns a special result for REPL)
+# ============================================
+
+# Define result: tag 70, fields: (Name, Value)
+: make-define-result ( String Variant -- Variant )
+  70 make-variant-2 ;
+
+: define-result? ( Variant -- Int )
+  variant-tag 70 = ;
+
+: define-result-name ( Variant -- String )
+  0 variant-field-at ;
+
+: define-result-value ( Variant -- Variant )
+  1 variant-field-at ;
+
+: eval-define-with-env ( Variant Variant -- Variant )
+  # Stack: List Env
+  # (define name value) - evaluate value, return special result
+  swap scdr  # Skip 'define' -> Env Args
+  dup scar ssym-val  # Get name string -> Env Args Name
+  swap scdr scar  # Get value expr -> Env Name ValueExpr
+  rot  # -> Name ValueExpr Env
+  eval-with-env  # Evaluate value -> Name Value
+  make-define-result  # Return (Name, Value) tagged result
+;
+
+# ============================================
 # Conditional (if)
 # ============================================
 
@@ -381,7 +519,7 @@ include "parser"
   # Stack: Closure Args CallerEnv
   # For simplicity, support single-parameter lambdas
   # 1. Evaluate the single argument
-  # 2. Bind param to value in closure's env
+  # 2. Bind param to value in merged env (closure + caller for recursion)
   # 3. Evaluate body in extended env
   over scar  # -> Closure Args CallerEnv ArgExpr
   over eval-with-env  # -> Closure Args CallerEnv ArgVal
@@ -389,6 +527,7 @@ include "parser"
   3 pick closure-params scar ssym-val  # -> Closure Args CallerEnv ArgVal ParamName
   swap  # -> Closure Args CallerEnv ParamName ArgVal
   4 pick closure-env  # -> Closure Args CallerEnv ParamName ArgVal ClosureEnv
+  3 pick env-concat  # -> Closure Args CallerEnv ParamName ArgVal MergedEnv
   env-extend  # -> Closure Args CallerEnv ExtendedEnv
   # Evaluate body
   3 pick closure-body  # -> Closure Args CallerEnv ExtendedEnv Body

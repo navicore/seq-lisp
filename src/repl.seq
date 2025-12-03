@@ -5,16 +5,29 @@
 
 include "eval"
 
-# Simple REPL that evaluates expressions
-: repl-loop ( -- )
+# REPL with persistent environment
+: repl-loop ( Variant -- )
+    # Stack: Env
     "seqlisp> " write_line
     read_line dup string-empty if
-        drop
+        drop drop  # Drop input and env
         "Goodbye!" write_line
     else
-        # Evaluate the expression
-        eval-print
-        repl-loop
+        # Parse and evaluate with current environment
+        parse over eval-with-env
+        # Check if result is a define
+        dup define-result? if
+            # Extract name and value, extend environment
+            dup define-result-name
+            swap define-result-value
+            rot env-extend
+            # Continue with new environment
+            repl-loop
+        else
+            # Print result and continue with same environment
+            sexpr-to-string write_line
+            repl-loop
+        then
     then
 ;
 
@@ -22,5 +35,5 @@ include "eval"
     "SeqLisp REPL" write_line
     "Type Lisp expressions to evaluate, empty line to exit" write_line
     "" write_line
-    repl-loop
+    env-empty repl-loop
 ;
