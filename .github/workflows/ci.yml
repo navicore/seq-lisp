@@ -38,7 +38,7 @@ jobs:
         uses: extractions/setup-just@v2
 
       - name: Install seqc
-        run: cargo install seq-compiler
+        run: cargo install seq-compiler --force
 
       - name: Run CI
         run: just ci
