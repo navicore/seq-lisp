@@ -1,0 +1,26 @@
+# SeqLisp REPL - Interactive Lisp interpreter
+#
+# This is the main entry point for SeqLisp.
+# Run with: seqc src/repl.seq -o repl && ./repl
+
+include "eval"
+
+# Simple REPL that evaluates expressions
+: repl-loop ( -- )
+    "seqlisp> " write_line
+    read_line dup string-empty if
+        drop
+        "Goodbye!" write_line
+    else
+        # Evaluate the expression
+        eval-print
+        repl-loop
+    then
+;
+
+: main ( -- )
+    "SeqLisp REPL" write_line
+    "Type Lisp expressions to evaluate, empty line to exit" write_line
+    "" write_line
+    repl-loop
+;
