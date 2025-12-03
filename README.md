@@ -75,6 +75,11 @@ SeqLisp supports:
 (print (factorial 5))  ;; 120
 ```
 
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md) - How the interpreter works
+- [Roadmap](docs/ROADMAP.md) - Future plans and vision
+
 ## License
 
 MIT
