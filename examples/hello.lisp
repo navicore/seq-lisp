@@ -1,2 +1,5 @@
-;; Hello World in SeqLisp - prints a simple value
+;; Hello World in SeqLisp
+;;
+;; The simplest SeqLisp program
+
 (print 42)
