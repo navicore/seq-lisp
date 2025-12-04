@@ -5,13 +5,12 @@
 default:
     @just --list
 
-# Build the REPL and file runner
+# Build SeqLisp
 build:
-    @echo "Building SeqLisp REPL..."
+    @echo "Building SeqLisp..."
     @mkdir -p target
     seqc src/repl.seq -o target/seqlisp
-    seqc src/run.seq -o target/seqlisp-run
-    @echo "Built: target/seqlisp (REPL), target/seqlisp-run (file runner)"
+    @echo "Built: target/seqlisp"
 
 # Run the interactive REPL
 repl: build
@@ -19,7 +18,7 @@ repl: build
 
 # Run a Lisp file
 run file: build
-    ./target/seqlisp-run {{file}}
+    ./target/seqlisp {{file}}
 
 # Run interpreter tests
 test:
@@ -53,7 +52,7 @@ examples: build
     echo "Running Lisp examples..."
     for example in examples/*.lisp; do
         echo "=== $(basename $example) ==="
-        ./target/seqlisp-run "$example"
+        ./target/seqlisp "$example"
         echo ""
     done
 
