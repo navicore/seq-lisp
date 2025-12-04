@@ -1,4 +1,6 @@
 # Build artifacts
+repl
+seqlisp
 /target/
 ./test*
 # Editor
