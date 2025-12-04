@@ -1,39 +1,127 @@
-# SeqLisp REPL - Interactive Lisp interpreter
+# SeqLisp - A Lisp interpreter written in Seq
 #
-# This is the main entry point for SeqLisp.
-# Run with: seqc src/repl.seq -o repl && ./repl
+# Usage:
+#   ./seqlisp              - Interactive mode (Ctrl+D to run)
+#   ./seqlisp file.lisp    - Run a file
+#   cat file.lisp | ./seqlisp - Piped input (reads until EOF)
+#
+# Build: seqc src/repl.seq -o seqlisp
 
 include "eval"
 
-# REPL with persistent environment
-: repl-loop ( Variant -- )
-    # Stack: Env
-    "seqlisp> " write_line
-    read_line dup string-empty if
-        drop drop  # Drop input and env
-        "Goodbye!" write_line
+# ============================================
+# File Mode - Read file, parse all, evaluate
+# ============================================
+
+# Parse all expressions from token list
+: parse-all ( Variant -- Variant )
+    snil parse-all-loop list-reverse
+;
+
+: parse-all-loop ( Variant Variant -- Variant )
+    # Stack: Tokens Exprs
+    over tnil? if
+        nip  # No more tokens, return expressions
     else
-        # Parse and evaluate with current environment
-        parse over eval-with-env
-        # Check if result is a define
+        swap parse-tokens  # -> Exprs ParseResult
+        dup result-expr swap result-tokens  # -> Exprs Expr RemainingTokens
+        rot rot swap scons  # -> RemainingTokens NewExprs
+        parse-all-loop
+    then
+;
+
+# Evaluate all expressions with persistent environment (no output)
+: eval-all-quiet ( Variant Variant -- Variant )
+    # Stack: Exprs Env -> FinalEnv
+    swap dup snil? if
+        drop  # Return env
+    else
+        dup scar 2 pick eval-with-env
         dup define-result? if
-            # Extract name and value, extend environment
-            dup define-result-name
-            swap define-result-value
-            rot env-extend
-            # Continue with new environment
-            repl-loop
+            dup define-result-name swap define-result-value
+            3 pick env-extend
+            rot drop swap scdr swap
+            eval-all-quiet
         else
-            # Print result and continue with same environment
-            sexpr-to-string write_line
-            repl-loop
+            drop scdr swap
+            eval-all-quiet
         then
     then
 ;
 
+# Evaluate all expressions, print non-trivial results
+: eval-all-print ( Variant Variant -- Variant )
+    # Stack: Exprs Env -> FinalEnv
+    swap dup snil? if
+        drop  # Return env
+    else
+        dup scar 2 pick eval-with-env
+        dup define-result? if
+            dup define-result-name swap define-result-value
+            3 pick env-extend
+            rot drop swap scdr swap
+            eval-all-print
+        else
+            # Print if not empty list
+            dup variant-tag 3 = if
+                dup slist-val snil? if
+                    drop
+                else
+                    sexpr-to-string write_line
+                then
+            else
+                sexpr-to-string write_line
+            then
+            scdr swap
+            eval-all-print
+        then
+    then
+;
+
+# Run a file
+: run-file ( String -- )
+    file-slurp tokenize parse-all
+    env-empty eval-all-print drop
+;
+
+# ============================================
+# Stdin Mode - Read all lines, then evaluate
+# ============================================
+
+# Read all lines until EOF (preserves newlines for comments)
+: read-all-stdin ( String -- String )
+    read_line+
+    0 = if
+        # EOF reached
+        drop
+    else
+        # Got a line - append to accumulator (keep newline for comments)
+        string-concat
+        read-all-stdin
+    then
+;
+
+# Run from stdin
+: run-stdin ( -- )
+    "" read-all-stdin
+    dup string-empty if
+        drop "Goodbye!" write_line
+    else
+        tokenize parse-all
+        env-empty eval-all-print drop
+    then
+;
+
+# ============================================
+# Main Entry Point
+# ============================================
+
 : main ( -- )
-    "SeqLisp REPL" write_line
-    "Type Lisp expressions to evaluate, empty line to exit" write_line
-    "" write_line
-    env-empty repl-loop
+    arg-count 1 > if
+        1 arg run-file
+    else
+        "SeqLisp" write_line
+        "Enter code (Ctrl+D to run):" write_line
+        run-stdin
+    then
 ;
