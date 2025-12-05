@@ -3,11 +3,13 @@
 # Usage:
 #   ./seqlisp              - Interactive mode (Ctrl+D to run)
 #   ./seqlisp file.lisp    - Run a file
+#   ./seqlisp --version    - Print version
 #   cat file.lisp | ./seqlisp - Piped input (reads until EOF)
 #
 # Build: seqc src/repl.seq -o seqlisp
 
 include "eval"
+include "version"
 
 # ============================================
 # File Mode - Read file, parse all, evaluate
@@ -116,11 +118,29 @@ include "eval"
 # Main Entry Point
 # ============================================
 
+# Check if argument is a version flag
+: is-version-flag ( String -- Int )
+    dup "--version" string-equal if
+        drop 1
+    else
+        "-v" string-equal
+    then
+;
+
+# Print version information
+: print-version ( -- )
+    "seqlisp " seqlisp-version string-concat write_line
+;
+
 : main ( -- )
     arg-count 1 > if
-        1 arg run-file
+        1 arg dup is-version-flag if
+            drop print-version
+        else
+            run-file
+        then
     else
-        "SeqLisp" write_line
+        "SeqLisp " seqlisp-version string-concat write_line
         "Enter code (Ctrl+D to run):" write_line
         run-stdin
     then

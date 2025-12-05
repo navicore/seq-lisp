@@ -1,0 +1,9 @@
+# SeqLisp Version
+#
+# This file defines the development version. During release builds,
+# the CI workflow overwrites this with the actual version from the git tag.
+# The repo always shows "dev" - released binaries have the real version.
+
+: seqlisp-version ( -- String )
+    "dev"
+;
