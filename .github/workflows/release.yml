@@ -1,0 +1,136 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    name: Build and Release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x86_64
+          - os: macos-latest
+            target: macos-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-release
+
+      - name: Install just
+        uses: extractions/setup-just@v2
+
+      - name: Install seqc
+        run: cargo install seq-compiler --force
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION"
+
+      - name: Update version.seq
+        run: |
+          cat > src/version.seq << 'EOF'
+          # SeqLisp Version
+          #
+          # This file is updated by the release workflow from git tags.
+          # Do not edit manually - changes will be overwritten on release.
+
+          : seqlisp-version ( -- String )
+              "${{ steps.version.outputs.version }}"
+          ;
+          EOF
+
+      - name: Build SeqLisp
+        run: just build
+
+      - name: Test
+        run: just test
+
+      - name: Rename binary for release
+        run: |
+          mv target/seqlisp target/seqlisp-${{ matrix.target }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: seqlisp-${{ matrix.target }}
+          path: target/seqlisp-${{ matrix.target }}
+
+  create-release:
+    name: Create GitHub Release
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-version:
+    name: Update version in main
+    needs: create-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Update version.seq in main
+        run: |
+          cat > src/version.seq << 'EOF'
+          # SeqLisp Version
+          #
+          # This file is updated by the release workflow from git tags.
+          # Do not edit manually - changes will be overwritten on release.
+
+          : seqlisp-version ( -- String )
+              "${{ steps.version.outputs.version }}"
+          ;
+          EOF
+
+      - name: Commit version update
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add src/version.seq
+          git diff --staged --quiet || git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
+          git push

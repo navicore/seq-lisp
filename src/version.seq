@@ -1,0 +1,8 @@
+# SeqLisp Version
+#
+# This file is updated by the release workflow from git tags.
+# Do not edit manually - changes will be overwritten on release.
+
+: seqlisp-version ( -- String )
+    "dev"
+;
