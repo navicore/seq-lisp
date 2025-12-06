@@ -37,6 +37,16 @@ jobs:
           cargo build --release -p seq-compiler
           cp target/release/seqc /usr/local/bin/
 
+      - name: Setup static clang wrapper
+        run: |
+          # Create wrapper that forces static linking
+          mv /usr/bin/clang /usr/bin/clang-real
+          cat > /usr/bin/clang << 'EOF'
+          #!/bin/sh
+          exec /usr/bin/clang-real -static "$@"
+          EOF
+          chmod +x /usr/bin/clang
+
       - name: Extract version from tag
         id: version
         run: |
@@ -60,8 +70,13 @@ jobs:
 
       - name: Verify static linking
         run: |
-          # Check it's statically linked (no dynamic interpreter)
-          ! readelf -l target/seqlisp 2>/dev/null | grep -q "INTERP" && echo "Statically linked" || echo "Warning: may be dynamically linked"
+          # Fail if binary has dynamic interpreter (means it's not static)
+          if readelf -l target/seqlisp | grep -q "INTERP"; then
+            echo "ERROR: Binary is dynamically linked!"
+            readelf -l target/seqlisp | grep INTERP
+            exit 1
+          fi
+          echo "Verified: Binary is statically linked"
 
       - name: Rename binary
         run: mv target/seqlisp target/seqlisp-linux-x86_64
