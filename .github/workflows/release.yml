@@ -23,7 +23,8 @@ jobs:
             clang lld \
             musl-dev \
             git \
-            bash
+            bash \
+            binutils
 
       - name: Install just
         run: |
@@ -59,8 +60,8 @@ jobs:
 
       - name: Verify static linking
         run: |
-          file target/seqlisp
-          # Should show "statically linked"
+          # Check it's statically linked (no dynamic interpreter)
+          ! readelf -l target/seqlisp 2>/dev/null | grep -q "INTERP" && echo "Statically linked" || echo "Warning: may be dynamically linked"
 
       - name: Rename binary
         run: mv target/seqlisp target/seqlisp-linux-x86_64
