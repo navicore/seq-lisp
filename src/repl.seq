@@ -16,11 +16,11 @@ include "version"
 # ============================================
 
 # Parse all expressions from token list
-: parse-all ( Variant -- Variant )
+: parse-all ( TokenList -- SexprList )
     snil parse-all-loop list-reverse
 ;
 
-: parse-all-loop ( Variant Variant -- Variant )
+: parse-all-loop ( TokenList SexprList -- SexprList )
     # Stack: Tokens Exprs
     over tnil? if
         nip  # No more tokens, return expressions
@@ -33,7 +33,7 @@ include "version"
 ;
 
 # Evaluate all expressions with persistent environment (no output)
-: eval-all-quiet ( Variant Variant -- Variant )
+: eval-all-quiet ( SexprList Env -- Env )
     # Stack: Exprs Env -> FinalEnv
     swap dup snil? if
         drop  # Return env
@@ -52,7 +52,7 @@ include "version"
 ;
 
 # Evaluate all expressions, print non-trivial results
-: eval-all-print ( Variant Variant -- Variant )
+: eval-all-print ( SexprList Env -- Env )
     # Stack: Exprs Env -> FinalEnv
     swap dup snil? if
         drop  # Return env
@@ -65,7 +65,7 @@ include "version"
             eval-all-print
         else
             # Print if not empty list
-            dup variant-tag 3 = if
+            dup variant-tag 2 = if
                 dup slist-val snil? if
                     drop
                 else
