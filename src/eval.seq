@@ -4,38 +4,32 @@
 # - Numbers: return as-is
 # - Symbols: lookup in environment
 # - Arithmetic: +, -, *, /
+# - Comparisons: <, >, <=, >=, =
 # - let: local binding
 # - if: conditional
 # - lambda: anonymous functions
+# - define: global definitions
+# - print: output
 
 include "parser"
 
 # ============================================
-# Environment (Association List)
+# Environment Types
 #
-# Env is a list of (Symbol . Value) pairs
-# Using scons/snil for the list structure
-# Each binding is a 2-field variant (tag 50)
+# Env is a list of bindings (name -> value pairs)
 # ============================================
 
-: make-binding ( String Variant -- Variant )
-  50 make-variant-2 ;
+union Binding {
+  Bind { name: String, value: Sexpr }
+}
 
-: binding-name ( Variant -- String )
-  0 variant-field-at ;
-
-: binding-value ( Variant -- Variant )
-  1 variant-field-at ;
-
-: env-empty ( -- Variant )
-  snil ;
-
-: env-extend ( String Variant Variant -- Variant )
-  # Stack: Name Value Env
-  rot rot make-binding swap scons ;
+union Env {
+  EnvEmpty
+  EnvExtend { binding: Binding, parent: Env }
+}
 
 # ============================================
-# Closure (Lambda Value)
+# Closure Type
 #
 # Closure is a 3-field variant (tag 60):
 # - Field 0: Parameter list (cons list of symbols)
@@ -43,73 +37,130 @@ include "parser"
 # - Field 2: Captured environment
 # ============================================
 
-: make-closure ( Variant Variant Variant -- Variant )
+# ============================================
+# Define Result Type
+#
+# Define result: tag 70, fields: (Name, Value)
+# ============================================
+
+# ============================================
+# Binding Constructors and Accessors
+# ============================================
+
+: make-binding ( String Sexpr -- Binding )
+  Make-Bind ;
+
+: binding-name ( Binding -- String )
+  0 variant-field-at ;
+
+: binding-value ( Binding -- Sexpr )
+  1 variant-field-at ;
+
+# ============================================
+# Environment Constructors and Accessors
+# ============================================
+
+: env-empty ( -- Env )
+  Make-EnvEmpty ;
+
+: env-extend ( String Sexpr Env -- Env )
+  # Stack: Name Value Env
+  rot rot make-binding swap Make-EnvExtend ;
+
+: env-lookup ( String Env -- Sexpr )
+  # Stack: Name Env
+  # Returns the value or snil if not found
+  dup variant-tag 0 = if
+    # EnvEmpty - not found
+    drop drop 0 snum
+  else
+    # EnvExtend - extract binding and parent
+    dup 0 variant-field-at  # Name Env Binding
+    dup binding-name        # Name Env Binding BindingName
+    3 pick string-equal if
+      # Found it
+      binding-value         # Name Env Value
+      nip nip               # Value
+    else
+      # Keep looking
+      drop                  # Name Env
+      1 variant-field-at    # Name Parent
+      env-lookup
+    then
+  then ;
+
+# Concatenate two environments (Env1 bindings prepended to Env2)
+: env-concat ( Env Env -- Env )
+  # Stack: Env1 Env2 -> Result where Env1 bindings come first
+  swap  # Env2 Env1
+  dup variant-tag 0 = if
+    # EnvEmpty - just return Env2
+    drop
+  else
+    # EnvExtend - extract binding and parent
+    dup 0 variant-field-at  # Env2 Env1 Binding
+    swap 1 variant-field-at # Env2 Binding Parent
+    rot                     # Binding Parent Env2
+    env-concat              # Binding ConcatResult
+    Make-EnvExtend          # Result
+  then ;
+
+# ============================================
+# Closure Constructors and Accessors
+# ============================================
+
+: make-closure ( Sexpr Sexpr Env -- Variant )
   60 make-variant-3 ;
 
 : closure? ( Variant -- Int )
   variant-tag 60 = ;
 
-: closure-params ( Variant -- Variant )
+: closure-params ( Variant -- Sexpr )
   0 variant-field-at ;
 
-: closure-body ( Variant -- Variant )
+: closure-body ( Variant -- Sexpr )
   1 variant-field-at ;
 
-: closure-env ( Variant -- Variant )
+: closure-env ( Variant -- Env )
   2 variant-field-at ;
 
-: env-lookup ( String Variant -- Variant )
-  # Stack: Name Env
-  # Returns the value or snil if not found
-  dup snil? if
-    # Not found - return snil
-    nip
-  else
-    dup scar binding-name
-    2 pick string-equal if
-      # Found it
-      nip scar binding-value
-    else
-      # Keep looking
-      scdr env-lookup
-    then
-  then ;
+# ============================================
+# Define Result Constructors and Accessors
+# ============================================
 
-# Concatenate two environments (Env1 bindings prepended to Env2)
-: env-concat ( Variant Variant -- Variant )
-  # Stack: Env1 Env2 -> Result where Env1 bindings come first
-  swap  # Env2 Env1
-  dup snil? if
-    drop  # If Env1 is empty, return Env2
-  else
-    dup scar  # Env2 Env1 Binding
-    swap scdr  # Env2 Binding Env1-rest
-    rot  # Binding Env1-rest Env2
-    env-concat  # Binding ConcatRest
-    scons  # Result
-  then ;
+: make-define-result ( String Sexpr -- Variant )
+  70 make-variant-2 ;
+
+: define-result? ( Variant -- Int )
+  variant-tag 70 = ;
+
+: define-result-name ( Variant -- String )
+  0 variant-field-at ;
+
+: define-result-value ( Variant -- Sexpr )
+  1 variant-field-at ;
 
 # ============================================
 # Main Evaluator
 # ============================================
 
 # Simple eval without environment (for backward compatibility)
-: eval ( Variant -- Variant )
+: eval ( Sexpr -- Sexpr )
   env-empty eval-with-env ;
 
 # Eval with explicit environment
-: eval-with-env ( Variant Variant -- Variant )
+: eval-with-env ( Sexpr Env -- Sexpr )
   # Stack: Expr Env
   over variant-tag
-  dup 1 = if
+  dup 0 = if
     # SNum - return as-is
     drop drop
   else
-    dup 2 = if
+    dup 1 = if
       # SSym - lookup in environment
       drop swap ssym-val swap env-lookup
     else
-      3 = if
+      2 = if
         # SList - function application
         eval-list-with-env
       else
@@ -124,7 +175,7 @@ include "parser"
 # List Evaluation (Function Application)
 # ============================================
 
-: eval-list-with-env ( Variant Variant -- Variant )
+: eval-list-with-env ( Sexpr Env -- Sexpr )
   # Stack: Expr Env
   swap slist-val
   dup snil? if
@@ -165,7 +216,7 @@ include "parser"
 # Built-in Function Dispatch
 # ============================================
 
-: eval-builtin-with-env ( String Variant Variant -- Variant )
+: eval-builtin-with-env ( String SexprList Env -- Sexpr )
   # Stack: FuncName List Env
   rot
   dup "+" string-equal if
@@ -245,13 +296,13 @@ then
 # Arithmetic Operations
 # ============================================
 
-: eval-add-with-env ( Variant Variant -- Variant )
+: eval-add-with-env ( SexprList Env -- Sexpr )
   # Stack: List Env
   swap scdr swap  # Skip the + -> RestList Env
   0 swap eval-fold-add-with-env snum
 ;
 
-: eval-fold-add-with-env ( Variant Int Variant -- Int )
+: eval-fold-add-with-env ( SexprList Int Env -- Int )
   # Stack: List Acc Env
   2 pick snil? if
     # List is empty, return Acc
@@ -268,7 +319,7 @@ then
   then
 ;
 
-: eval-sub-with-env ( Variant Variant -- Variant )
+: eval-sub-with-env ( SexprList Env -- Sexpr )
   # Stack: List Env
   swap scdr
   dup snil? if
@@ -287,7 +338,7 @@ then
   then
 ;
 
-: eval-fold-sub-with-env ( Variant Int Variant -- Int )
+: eval-fold-sub-with-env ( SexprList Int Env -- Int )
   # Stack: List Acc Env
   2 pick snil? if
     # List is empty, return Acc
@@ -304,13 +355,13 @@ then
   then
 ;
 
-: eval-mul-with-env ( Variant Variant -- Variant )
+: eval-mul-with-env ( SexprList Env -- Sexpr )
   # Stack: List Env
   swap scdr swap  # Skip the * -> RestList Env
   1 swap eval-fold-mul-with-env snum
 ;
 
-: eval-fold-mul-with-env ( Variant Int Variant -- Int )
+: eval-fold-mul-with-env ( SexprList Int Env -- Int )
   # Stack: List Acc Env
   2 pick snil? if
     # List is empty, return Acc
@@ -327,7 +378,7 @@ then
   then
 ;
 
-: eval-div-with-env ( Variant Variant -- Variant )
+: eval-div-with-env ( SexprList Env -- Sexpr )
   # Stack: List Env
   swap scdr
   dup snil? if
@@ -344,7 +395,7 @@ then
   then
 ;
 
-: eval-fold-div-with-env ( Variant Int Variant -- Int )
+: eval-fold-div-with-env ( SexprList Int Env -- Int )
   # Stack: List Acc Env
   2 pick snil? if
     # List is empty, return Acc
@@ -365,7 +416,7 @@ then
 # Comparison Operations
 # ============================================
 
-: eval-lt-with-env ( Variant Variant -- Variant )
+: eval-lt-with-env ( SexprList Env -- Sexpr )
   # Stack: List Env
   # (< a b) returns 1 if a < b, else 0
   swap scdr  # Skip the < -> Env Args
@@ -375,28 +426,28 @@ then
   < if 1 else 0 then snum nip
 ;
 
-: eval-gt-with-env ( Variant Variant -- Variant )
+: eval-gt-with-env ( SexprList Env -- Sexpr )
   swap scdr
   dup scar 2 pick eval-with-env snum-val
   swap scdr scar 2 pick eval-with-env snum-val
   > if 1 else 0 then snum nip
 ;
 
-: eval-lte-with-env ( Variant Variant -- Variant )
+: eval-lte-with-env ( SexprList Env -- Sexpr )
   swap scdr
   dup scar 2 pick eval-with-env snum-val
   swap scdr scar 2 pick eval-with-env snum-val
   <= if 1 else 0 then snum nip
 ;
 
-: eval-gte-with-env ( Variant Variant -- Variant )
+: eval-gte-with-env ( SexprList Env -- Sexpr )
   swap scdr
   dup scar 2 pick eval-with-env snum-val
   swap scdr scar 2 pick eval-with-env snum-val
   >= if 1 else 0 then snum nip
 ;
 
-: eval-eq-with-env ( Variant Variant -- Variant )
+: eval-eq-with-env ( SexprList Env -- Sexpr )
   swap scdr
   dup scar 2 pick eval-with-env snum-val
   swap scdr scar 2 pick eval-with-env snum-val
@@ -407,7 +458,7 @@ then
 # Print
 # ============================================
 
-: eval-print-with-env ( Variant Variant -- Variant )
+: eval-print-with-env ( SexprList Env -- Sexpr )
   # Stack: List Env
   # (print expr) - evaluate expr, print result, return result
   swap scdr scar  # Get the expression to print
@@ -420,20 +471,7 @@ then
 # Define (returns a special result for REPL)
 # ============================================
 
-# Define result: tag 70, fields: (Name, Value)
-: make-define-result ( String Variant -- Variant )
-  70 make-variant-2 ;
-
-: define-result? ( Variant -- Int )
-  variant-tag 70 = ;
-
-: define-result-name ( Variant -- String )
-  0 variant-field-at ;
-
-: define-result-value ( Variant -- Variant )
-  1 variant-field-at ;
-
-: eval-define-with-env ( Variant Variant -- Variant )
+: eval-define-with-env ( SexprList Env -- DefineResult )
   # Stack: List Env
   # (define name value) - evaluate value, return special result
   swap scdr  # Skip 'define' -> Env Args
@@ -448,7 +486,7 @@ then
 # Conditional (if)
 # ============================================
 
-: eval-if-with-env ( Variant Variant -- Variant )
+: eval-if-with-env ( SexprList Env -- Sexpr )
   # Stack: List Env
   # List is (if cond then-expr else-expr)
   swap scdr  # Skip the if -> Env Args
@@ -478,7 +516,7 @@ then
 # Let Binding
 # ============================================
 
-: eval-let-with-env ( Variant Variant -- Variant )
+: eval-let-with-env ( SexprList Env -- Sexpr )
   # Stack: List Env
   # List is (let name value body)
   swap scdr  # Skip the 'let' -> Env Args
@@ -500,7 +538,7 @@ then
 # Lambda
 # ============================================
 
-: eval-lambda-with-env ( Variant Variant -- Variant )
+: eval-lambda-with-env ( SexprList Env -- Variant )
   # Stack: List Env
   # List is (lambda (params) body)
   swap scdr  # Skip 'lambda' -> Env Args
@@ -515,7 +553,7 @@ then
 # Closure Application
 # ============================================
 
-: apply-closure ( Variant Variant Variant -- Variant )
+: apply-closure ( Variant SexprList Env -- Sexpr )
   # Stack: Closure Args CallerEnv
   # For simplicity, support single-parameter lambdas
   # 1. Evaluate the single argument
