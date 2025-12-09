@@ -291,6 +291,9 @@ union LispClosure {
                                             dup "list?" string-equal if
                                               drop eval-list?-with-env
                                             else
+                                              dup "begin" string-equal if
+                                                drop eval-begin-with-env
+                                              else
                                               # Unknown function - look up in environment
                                               # Stack: List Env FuncName
                                               over  # List Env FuncName Env
@@ -305,6 +308,7 @@ union LispClosure {
                                               else
                                                 # Not a closure, return as list
                                                 drop drop slist
+                                              then
                                               then
                                             then
                                           then
@@ -653,6 +657,35 @@ then
   swap scdr scar  # Skip 'list?', get arg -> Env Arg
   swap eval-with-env  # Eval arg -> Result
   slist? if 1 else 0 then snum
+;
+
+# ============================================
+# Begin (sequencing)
+# ============================================
+
+: eval-begin-with-env ( SexprList Env -- Sexpr )
+  # Stack: List Env
+  # (begin expr1 expr2 ... exprN) - evaluate all, return last result
+  swap scdr  # Skip 'begin' -> Env Exprs
+  swap eval-begin-exprs
+;
+
+: eval-begin-exprs ( SexprList Env -- Sexpr )
+  # Stack: Exprs Env
+  # Evaluate expressions in sequence, return last result
+  over snil? if
+    # No expressions - return empty list
+    drop drop snil slist
+  else
+    over scdr snil? if
+      # Last expression - evaluate and return
+      swap scar swap eval-with-env
+    else
+      # More expressions - evaluate this one, discard result, continue
+      over scar over eval-with-env drop
+      swap scdr swap eval-begin-exprs
+    then
+  then
 ;
 
 # ============================================
