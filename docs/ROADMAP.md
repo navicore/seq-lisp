@@ -33,7 +33,7 @@ A working interpreter with:
 - [ ] Command history (if Seq gets readline support)
 
 ### Core Lisp Features
-- [ ] `quote` and `'` syntax
+- [x] `quote` and `'` syntax
 - [ ] List operations: `cons`, `car`, `cdr`, `list`
 - [ ] Predicates: `null?`, `number?`, `symbol?`, `list?`
 - [ ] Boolean literals: `#t`, `#f` (or `true`, `false`)

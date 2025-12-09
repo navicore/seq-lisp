@@ -37,6 +37,9 @@ union ParseResult {
 : is-rparen ( String -- Int )
   ")" string-equal ;
 
+: is-quote ( String -- Int )
+  "'" string-equal ;
+
 : is-digit ( Int -- Int )
   dup 48 >= swap 57 <= and ;
 
@@ -81,15 +84,34 @@ union ParseResult {
         # Unexpected ) - error, just skip
         drop tcdr parse-tokens
       else
-        # Atom (number or symbol)
-        dup is-number-token if
-          string->int drop snum swap tcdr make-parse-result
+        dup is-quote if
+          # Quote: 'expr -> (quote expr)
+          drop tcdr parse-quote
         else
-          ssym swap tcdr make-parse-result
+          # Atom (number or symbol)
+          dup is-number-token if
+            string->int drop snum swap tcdr make-parse-result
+          else
+            ssym swap tcdr make-parse-result
+          then
         then
       then
     then
   then
+;
+
+# Parse quote: expand 'expr to (quote expr)
+: parse-quote ( TokenList -- ParseResult )
+  # Parse the next expression
+  parse-tokens
+  # Stack: ParseResult
+  dup result-expr   # ParseResult Expr
+  swap result-tokens  # Expr RemTokens
+  # Build (quote expr) -> SList of (SSym "quote", expr)
+  swap snil scons  # RemTokens (expr)
+  "quote" ssym swap scons  # RemTokens (quote expr)
+  slist  # RemTokens SList
+  swap make-parse-result
 ;
 
 # Parse list contents until )

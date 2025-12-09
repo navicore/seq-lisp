@@ -44,4 +44,9 @@ include "eval"
 
   # Closure capturing environment
   "(let y 10 ((lambda (x) (+ x y)) 5))" eval-print
+
+  # Quote - returns unevaluated
+  "'x" eval-print
+  "'(1 2 3)" eval-print
+  "(quote (+ 1 2))" eval-print
 ;

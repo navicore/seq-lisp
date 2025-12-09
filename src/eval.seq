@@ -264,6 +264,9 @@ union LispClosure {
                           dup "define" string-equal if
                             drop eval-define-with-env
                           else
+                            dup "quote" string-equal if
+                              drop eval-quote-with-env
+                            else
                             # Unknown function - look up in environment
                             # Stack: List Env FuncName
                             over  # List Env FuncName Env
@@ -278,6 +281,7 @@ union LispClosure {
                             else
                               # Not a closure, return as list
                               drop drop slist
+                            then
                             then
                           then
                         then
@@ -483,6 +487,17 @@ then
   rot  # -> Name ValueExpr Env
   eval-with-env  # Evaluate value -> Name Value
   make-define-result  # Return (Name, Value) tagged result
+;
+
+# ============================================
+# Quote (returns argument unevaluated)
+# ============================================
+
+: eval-quote-with-env ( SexprList Env -- Sexpr )
+  # Stack: List Env
+  # (quote expr) - return expr without evaluating
+  drop  # Drop environment, not needed
+  scdr scar  # Skip 'quote', get the expression
 ;
 
 # ============================================
