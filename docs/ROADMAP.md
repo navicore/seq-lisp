@@ -46,6 +46,10 @@ A working interpreter with:
   - All `eval-*-with-env` functions return `EvalResult`
   - REPL matches on `EvalResult` variants instead of checking tag 70
   - Enables proper type safety and idiomatic Seq ADT usage
+- [ ] Refactor builtin dispatch to reduce nesting
+  - Current dispatch uses 18+ levels of nested if-else
+  - Consider lookup table or function pointer approach
+  - Improves maintainability as more builtins are added
 
 ### Error Handling
 - [ ] Graceful error messages with context
