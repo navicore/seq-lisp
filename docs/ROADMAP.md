@@ -23,6 +23,7 @@ A working interpreter with:
 - [x] Interactive REPL
 - [x] Test suite
 - [x] CI/CD
+- [x] ADT unions for type-safe data structures (Sexpr, SexprList, Env, Binding, LispClosure)
 
 ## Short Term
 
@@ -38,6 +39,13 @@ A working interpreter with:
 - [ ] Boolean literals: `#t`, `#f` (or `true`, `false`)
 - [ ] `begin` for sequencing
 - [ ] `cond` as multi-way conditional
+
+### Code Quality
+- [ ] Refactor to use `EvalResult` union type instead of magic tag numbers
+  - Create `union EvalResult { Value { result: Sexpr }, Definition { name: String, value: Sexpr } }`
+  - All `eval-*-with-env` functions return `EvalResult`
+  - REPL matches on `EvalResult` variants instead of checking tag 70
+  - Enables proper type safety and idiomatic Seq ADT usage
 
 ### Error Handling
 - [ ] Graceful error messages with context
