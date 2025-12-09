@@ -38,7 +38,7 @@ A working interpreter with:
 - [x] Predicates: `null?`, `number?`, `symbol?`, `list?`, `boolean?`
 - [x] Boolean literals: `#t`, `#f`
 - [x] `begin` for sequencing
-- [ ] `cond` as multi-way conditional
+- [x] `cond` as multi-way conditional
 
 ### Code Quality
 - [ ] Refactor to use `EvalResult` union type instead of magic tag numbers

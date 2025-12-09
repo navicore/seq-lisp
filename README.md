@@ -58,8 +58,12 @@ SeqLisp supports:
 
 - **Arithmetic**: `+`, `-`, `*`, `/`
 - **Comparisons**: `<`, `>`, `<=`, `>=`, `=`
-- **Definitions**: `define`, `lambda`
-- **Conditionals**: `if`
+- **Booleans**: `#t`, `#f`
+- **Definitions**: `define`, `lambda`, `let`
+- **Conditionals**: `if`, `cond`
+- **Lists**: `cons`, `car`, `cdr`, `list`, `quote` (`'`)
+- **Predicates**: `null?`, `number?`, `symbol?`, `list?`, `boolean?`
+- **Sequencing**: `begin`
 - **Output**: `print`
 
 ### Example

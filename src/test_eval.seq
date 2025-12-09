@@ -89,4 +89,12 @@ include "eval"
   "(boolean? 42)" eval-print
   "(boolean? 'x)" eval-print
   "(if '() 'yes 'no)" eval-print
+
+  # Cond (multi-way conditional)
+  "(cond (#t 'yes))" eval-print
+  "(cond (#f 'no) (#t 'yes))" eval-print
+  "(cond ((< 1 2) 'less) (else 'other))" eval-print
+  "(cond ((> 1 2) 'greater) (else 'not-greater))" eval-print
+  "(cond (#f 'a) (#f 'b) (else 'c))" eval-print
+  "(cond (#t 1 2 3))" eval-print
 ;
