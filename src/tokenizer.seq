@@ -105,12 +105,17 @@ union TokState {
           # Left paren
           drop handle-lparen tokenize-loop
         else
-          41 = if
+          dup 41 = if
             # Right paren
-            handle-rparen tokenize-loop
+            drop handle-rparen tokenize-loop
           else
-            # Regular char
-            handle-char tokenize-loop
+            39 = if
+              # Single quote - emit as its own token
+              handle-quote tokenize-loop
+            else
+              # Regular char
+              handle-char tokenize-loop
+            then
           then
         then
       then
@@ -175,6 +180,29 @@ union TokState {
     3 pick state-tok
     swap tcons
     ")" swap tcons
+    "" swap
+    make-state nip
+  then
+;
+
+# Flush token, add "'", advance
+: handle-quote ( TokState -- TokState )
+  dup state-tok string-empty if
+    # Just add "'" to list and advance
+    dup state-input
+    over state-pos 1 add
+    2 pick state-list
+    "'" swap tcons
+    "" swap
+    make-state nip
+  else
+    # Flush token, then add "'"
+    dup state-input
+    over state-pos 1 add
+    2 pick state-list
+    3 pick state-tok
+    swap tcons
+    "'" swap tcons
     "" swap
     make-state nip
   then
