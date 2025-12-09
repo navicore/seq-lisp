@@ -75,6 +75,18 @@ A working interpreter with:
 - [ ] Quasiquote (`` ` ``), unquote (`,`), splice (`,@`)
 - [ ] Macro expansion phase
 
+### Tooling
+- [ ] LSP (Language Server Protocol) support
+  - Rust-based language server
+  - Diagnostics (parse errors, undefined symbols)
+  - Hover (builtin docs, function info)
+  - Completion (builtins, defined symbols)
+  - Go to Definition
+  - Document Symbols
+- [ ] Code formatter
+  - Consistent indentation based on nesting
+  - Preserve comments
+
 ## Long Term
 
 ### The Compiler Question
@@ -116,6 +128,12 @@ This is research territory - traditional Lisp is dynamically typed.
 ### Self-Hosting
 
 The ultimate test: implement enough of SeqLisp to write SeqLisp in itself.
+
+### Self-Hosted Tools (requires macros)
+- [ ] Linter written in SeqLisp
+  - Analyze code as data (homoiconicity)
+  - User-extensible lint rules
+  - Pattern matching on S-expressions
 
 ## Non-Goals
 
