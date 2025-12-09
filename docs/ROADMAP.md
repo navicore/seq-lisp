@@ -37,7 +37,7 @@ A working interpreter with:
 - [x] List operations: `cons`, `car`, `cdr`, `list`
 - [x] Predicates: `null?`, `number?`, `symbol?`, `list?`
 - [ ] Boolean literals: `#t`, `#f` (or `true`, `false`)
-- [ ] `begin` for sequencing
+- [x] `begin` for sequencing
 - [ ] `cond` as multi-way conditional
 
 ### Code Quality

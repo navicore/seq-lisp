@@ -71,4 +71,9 @@ include "eval"
   "(number? (+ 1 2))" eval-print
   "(list? (list 1 2))" eval-print
   "(null? (car '(())))" eval-print
+
+  # Begin (sequencing)
+  "(begin 1 2 3)" eval-print
+  "(begin (+ 1 2))" eval-print
+  "(begin (+ 1 1) (+ 2 2) (+ 3 3))" eval-print
 ;
