@@ -68,4 +68,6 @@ include "eval"
   "(symbol? 42)" eval-print
   "(list? '(1 2 3))" eval-print
   "(list? 42)" eval-print
+  "(number? (+ 1 2))" eval-print
+  "(list? (list 1 2))" eval-print
 ;
