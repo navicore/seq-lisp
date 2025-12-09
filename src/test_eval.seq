@@ -76,4 +76,12 @@ include "eval"
   "(begin 1 2 3)" eval-print
   "(begin (+ 1 2))" eval-print
   "(begin (+ 1 1) (+ 2 2) (+ 3 3))" eval-print
+
+  # Boolean literals
+  "#t" eval-print
+  "#f" eval-print
+  "(if #t 'yes 'no)" eval-print
+  "(if #f 'yes 'no)" eval-print
+  "(< 1 2)" eval-print
+  "(> 1 2)" eval-print
 ;

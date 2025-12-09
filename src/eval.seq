@@ -160,8 +160,15 @@ union LispClosure {
     drop drop
   else
     dup 1 = if
-      # SSym - lookup in environment
-      drop swap ssym-val swap env-lookup
+      # SSym - check for self-evaluating symbols (#t, #f) or lookup
+      drop swap dup ssym-val
+      dup "#t" string-equal over "#f" string-equal or if
+        # Boolean literal - return as-is
+        drop nip
+      else
+        # Regular symbol - lookup in environment
+        swap drop swap env-lookup
+      then
     else
       2 = if
         # SList - function application
@@ -461,40 +468,40 @@ then
 
 : eval-lt-with-env ( SexprList Env -- Sexpr )
   # Stack: List Env
-  # (< a b) returns 1 if a < b, else 0
+  # (< a b) returns #t if a < b, else #f
   swap scdr  # Skip the < -> Env Args
   dup scar 2 pick eval-with-env snum-val  # Eval first arg
   swap scdr scar 2 pick eval-with-env snum-val  # Eval second arg
   # Stack: Env First Second
-  < if 1 else 0 then snum nip
+  < if "#t" else "#f" then ssym nip
 ;
 
 : eval-gt-with-env ( SexprList Env -- Sexpr )
   swap scdr
   dup scar 2 pick eval-with-env snum-val
   swap scdr scar 2 pick eval-with-env snum-val
-  > if 1 else 0 then snum nip
+  > if "#t" else "#f" then ssym nip
 ;
 
 : eval-lte-with-env ( SexprList Env -- Sexpr )
   swap scdr
   dup scar 2 pick eval-with-env snum-val
   swap scdr scar 2 pick eval-with-env snum-val
-  <= if 1 else 0 then snum nip
+  <= if "#t" else "#f" then ssym nip
 ;
 
 : eval-gte-with-env ( SexprList Env -- Sexpr )
   swap scdr
   dup scar 2 pick eval-with-env snum-val
   swap scdr scar 2 pick eval-with-env snum-val
-  >= if 1 else 0 then snum nip
+  >= if "#t" else "#f" then ssym nip
 ;
 
 : eval-eq-with-env ( SexprList Env -- Sexpr )
   swap scdr
   dup scar 2 pick eval-with-env snum-val
   swap scdr scar 2 pick eval-with-env snum-val
-  = if 1 else 0 then snum nip
+  = if "#t" else "#f" then ssym nip
 ;
 
 # ============================================
@@ -624,39 +631,39 @@ then
 
 : eval-null?-with-env ( SexprList Env -- Sexpr )
   # Stack: List Env
-  # (null? expr) - returns 1 if expr is empty list, 0 otherwise
+  # (null? expr) - returns #t if expr is empty list, #f otherwise
   swap scdr scar  # Skip 'null?', get arg -> Env Arg
   swap eval-with-env  # Eval arg -> Result
   dup slist? if
-    slist-val snil? if 1 else 0 then
+    slist-val snil? if "#t" else "#f" then
   else
-    drop 0
+    drop "#f"
   then
-  snum
+  ssym
 ;
 
 : eval-number?-with-env ( SexprList Env -- Sexpr )
   # Stack: List Env
-  # (number? expr) - returns 1 if expr is a number, 0 otherwise
+  # (number? expr) - returns #t if expr is a number, #f otherwise
   swap scdr scar  # Skip 'number?', get arg -> Env Arg
   swap eval-with-env  # Eval arg -> Result
-  snum? if 1 else 0 then snum
+  snum? if "#t" else "#f" then ssym
 ;
 
 : eval-symbol?-with-env ( SexprList Env -- Sexpr )
   # Stack: List Env
-  # (symbol? expr) - returns 1 if expr is a symbol, 0 otherwise
+  # (symbol? expr) - returns #t if expr is a symbol, #f otherwise
   swap scdr scar  # Skip 'symbol?', get arg -> Env Arg
   swap eval-with-env  # Eval arg -> Result
-  ssym? if 1 else 0 then snum
+  ssym? if "#t" else "#f" then ssym
 ;
 
 : eval-list?-with-env ( SexprList Env -- Sexpr )
   # Stack: List Env
-  # (list? expr) - returns 1 if expr is a list, 0 otherwise
+  # (list? expr) - returns #t if expr is a list, #f otherwise
   swap scdr scar  # Skip 'list?', get arg -> Env Arg
   swap eval-with-env  # Eval arg -> Result
-  slist? if 1 else 0 then snum
+  slist? if "#t" else "#f" then ssym
 ;
 
 # ============================================
@@ -700,7 +707,7 @@ then
   dup scar   # -> Env Args CondExpr
   2 pick     # -> Env Args CondExpr Env
   eval-with-env  # -> Env Args CondResult
-  # Check if condition is numeric 0 (false)
+  # Check if condition is false (numeric 0 or #f)
   dup snum? if
     snum-val 0 = if
       # False (0) - eval else branch
@@ -712,9 +719,20 @@ then
       scdr scar swap eval-with-env
     then
   else
-    # Non-numeric condition - treat as true
-    drop  # Drop CondResult -> Env Args
-    scdr scar swap eval-with-env
+    # Check for #f symbol
+    dup ssym? if
+      ssym-val "#f" string-equal if
+        # False (#f) - eval else branch
+        scdr scdr scar swap eval-with-env
+      else
+        # Other symbol - treat as true
+        scdr scar swap eval-with-env
+      then
+    else
+      # Non-numeric, non-symbol - treat as true
+      drop  # Drop CondResult -> Env Args
+      scdr scar swap eval-with-env
+    then
   then
 ;
 
