@@ -49,4 +49,13 @@ include "eval"
   "'x" eval-print
   "'(1 2 3)" eval-print
   "(quote (+ 1 2))" eval-print
+
+  # List operations
+  "(list 1 2 3)" eval-print
+  "(list (+ 1 2) (* 3 4))" eval-print
+  "(car '(1 2 3))" eval-print
+  "(cdr '(1 2 3))" eval-print
+  "(cons 1 '(2 3))" eval-print
+  "(cons 'a '())" eval-print
+  "(car (cdr '(1 2 3)))" eval-print
 ;
