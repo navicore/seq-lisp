@@ -279,6 +279,18 @@ union LispClosure {
                                     dup "list" string-equal if
                                       drop eval-list-builtin-with-env
                                     else
+                                      dup "null?" string-equal if
+                                        drop eval-null?-with-env
+                                      else
+                                        dup "number?" string-equal if
+                                          drop eval-number?-with-env
+                                        else
+                                          dup "symbol?" string-equal if
+                                            drop eval-symbol?-with-env
+                                          else
+                                            dup "list?" string-equal if
+                                              drop eval-list?-with-env
+                                            else
                             # Unknown function - look up in environment
                             # Stack: List Env FuncName
                             over  # List Env FuncName Env
@@ -294,6 +306,10 @@ union LispClosure {
                               # Not a closure, return as list
                               drop drop slist
                             then
+                                            then
+                                          then
+                                        then
+                                      then
                                     then
                                   then
                                 then
@@ -596,6 +612,47 @@ then
     rot scdr rot rot  # -> RestArgs NewAcc Env
     eval-list-items
   then
+;
+
+# ============================================
+# Predicates (null?, number?, symbol?, list?)
+# ============================================
+
+: eval-null?-with-env ( SexprList Env -- Sexpr )
+  # Stack: List Env
+  # (null? expr) - returns 1 if expr is empty list, 0 otherwise
+  swap scdr scar  # Skip 'null?', get arg -> Env Arg
+  swap eval-with-env  # Eval arg -> Result
+  dup slist? if
+    slist-val snil? if 1 else 0 then
+  else
+    drop 0
+  then
+  snum
+;
+
+: eval-number?-with-env ( SexprList Env -- Sexpr )
+  # Stack: List Env
+  # (number? expr) - returns 1 if expr is a number, 0 otherwise
+  swap scdr scar  # Skip 'number?', get arg -> Env Arg
+  swap eval-with-env  # Eval arg -> Result
+  snum? if 1 else 0 then snum
+;
+
+: eval-symbol?-with-env ( SexprList Env -- Sexpr )
+  # Stack: List Env
+  # (symbol? expr) - returns 1 if expr is a symbol, 0 otherwise
+  swap scdr scar  # Skip 'symbol?', get arg -> Env Arg
+  swap eval-with-env  # Eval arg -> Result
+  ssym? if 1 else 0 then snum
+;
+
+: eval-list?-with-env ( SexprList Env -- Sexpr )
+  # Stack: List Env
+  # (list? expr) - returns 1 if expr is a list, 0 otherwise
+  swap scdr scar  # Skip 'list?', get arg -> Env Arg
+  swap eval-with-env  # Eval arg -> Result
+  slist? if 1 else 0 then snum
 ;
 
 # ============================================
