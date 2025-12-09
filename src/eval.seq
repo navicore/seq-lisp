@@ -267,6 +267,18 @@ union LispClosure {
                             dup "quote" string-equal if
                               drop eval-quote-with-env
                             else
+                              dup "cons" string-equal if
+                                drop eval-cons-with-env
+                              else
+                                dup "car" string-equal if
+                                  drop eval-car-with-env
+                                else
+                                  dup "cdr" string-equal if
+                                    drop eval-cdr-with-env
+                                  else
+                                    dup "list" string-equal if
+                                      drop eval-list-builtin-with-env
+                                    else
                             # Unknown function - look up in environment
                             # Stack: List Env FuncName
                             over  # List Env FuncName Env
@@ -282,6 +294,10 @@ union LispClosure {
                               # Not a closure, return as list
                               drop drop slist
                             then
+                                    then
+                                  then
+                                then
+                              then
                             then
                           then
                         then
@@ -498,6 +514,88 @@ then
   # (quote expr) - return expr without evaluating
   drop  # Drop environment, not needed
   scdr scar  # Skip 'quote', get the expression
+;
+
+# ============================================
+# List Operations (cons, car, cdr, list)
+# ============================================
+
+: eval-cons-with-env ( SexprList Env -- Sexpr )
+  # Stack: List Env
+  # (cons head tail) - create new cons cell
+  swap scdr  # Skip 'cons' -> Env Args
+  dup scar 2 pick eval-with-env  # Eval head -> Env Args Head
+  swap scdr scar 2 pick eval-with-env  # Eval tail -> Env Head Tail
+  # Tail must be a list (SList)
+  dup slist? if
+    slist-val  # -> Env Head TailList
+    scons slist nip  # -> (Head . TailList) as Sexpr
+  else
+    # Error: tail is not a list, just return head in a list
+    drop snil scons slist nip
+  then
+;
+
+: eval-car-with-env ( SexprList Env -- Sexpr )
+  # Stack: List Env
+  # (car lst) - get first element of list
+  swap scdr scar  # Skip 'car', get arg -> Env Arg
+  swap eval-with-env  # Eval arg -> Result
+  dup slist? if
+    slist-val  # -> SexprList
+    dup snil? if
+      # Empty list - return empty list
+      drop snil slist
+    else
+      scar  # -> First element
+    then
+  else
+    # Not a list - return as-is
+  then
+;
+
+: eval-cdr-with-env ( SexprList Env -- Sexpr )
+  # Stack: List Env
+  # (cdr lst) - get rest of list (tail)
+  swap scdr scar  # Skip 'cdr', get arg -> Env Arg
+  swap eval-with-env  # Eval arg -> Result
+  dup slist? if
+    slist-val  # -> SexprList
+    dup snil? if
+      # Empty list - return empty list
+      drop snil slist
+    else
+      scdr slist  # -> Rest as Sexpr
+    then
+  else
+    # Not a list - return empty list
+    drop snil slist
+  then
+;
+
+: eval-list-builtin-with-env ( SexprList Env -- Sexpr )
+  # Stack: List Env
+  # (list a b c ...) - create list from evaluated arguments
+  swap scdr  # Skip 'list' -> Env Args
+  swap  # -> Args Env
+  snil swap  # -> Args Acc Env (Acc starts empty)
+  eval-list-items
+;
+
+: eval-list-items ( SexprList SexprList Env -- Sexpr )
+  # Stack: Args Acc Env
+  # Evaluate each arg and cons onto accumulator (in reverse)
+  2 pick snil? if
+    # Done - reverse accumulator and wrap in SList
+    drop nip list-reverse slist
+  else
+    # Eval first arg
+    2 pick scar over eval-with-env  # -> Args Acc Env EvaledArg
+    rot scons  # -> Args Env NewAcc
+    swap  # -> Args NewAcc Env
+    rot scdr rot rot  # -> RestArgs NewAcc Env
+    eval-list-items
+  then
 ;
 
 # ============================================
