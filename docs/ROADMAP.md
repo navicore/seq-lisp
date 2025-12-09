@@ -35,7 +35,7 @@ A working interpreter with:
 ### Core Lisp Features
 - [x] `quote` and `'` syntax
 - [x] List operations: `cons`, `car`, `cdr`, `list`
-- [ ] Predicates: `null?`, `number?`, `symbol?`, `list?`
+- [x] Predicates: `null?`, `number?`, `symbol?`, `list?`
 - [ ] Boolean literals: `#t`, `#f` (or `true`, `false`)
 - [ ] `begin` for sequencing
 - [ ] `cond` as multi-way conditional

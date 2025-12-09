@@ -58,4 +58,17 @@ include "eval"
   "(cons 1 '(2 3))" eval-print
   "(cons 'a '())" eval-print
   "(car (cdr '(1 2 3)))" eval-print
+
+  # Predicates
+  "(null? '())" eval-print
+  "(null? '(1 2))" eval-print
+  "(number? 42)" eval-print
+  "(number? 'x)" eval-print
+  "(symbol? 'x)" eval-print
+  "(symbol? 42)" eval-print
+  "(list? '(1 2 3))" eval-print
+  "(list? 42)" eval-print
+  "(number? (+ 1 2))" eval-print
+  "(list? (list 1 2))" eval-print
+  "(null? (car '(())))" eval-print
 ;
