@@ -84,4 +84,9 @@ include "eval"
   "(if #f 'yes 'no)" eval-print
   "(< 1 2)" eval-print
   "(> 1 2)" eval-print
+  "(boolean? #t)" eval-print
+  "(boolean? #f)" eval-print
+  "(boolean? 42)" eval-print
+  "(boolean? 'x)" eval-print
+  "(if '() 'yes 'no)" eval-print
 ;

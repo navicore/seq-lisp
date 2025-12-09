@@ -298,9 +298,12 @@ union LispClosure {
                                             dup "list?" string-equal if
                                               drop eval-list?-with-env
                                             else
-                                              dup "begin" string-equal if
-                                                drop eval-begin-with-env
+                                              dup "boolean?" string-equal if
+                                                drop eval-boolean?-with-env
                                               else
+                                                dup "begin" string-equal if
+                                                  drop eval-begin-with-env
+                                                else
                                               # Unknown function - look up in environment
                                               # Stack: List Env FuncName
                                               over  # List Env FuncName Env
@@ -316,6 +319,7 @@ union LispClosure {
                                                 # Not a closure, return as list
                                                 drop drop slist
                                               then
+                                                then
                                               then
                                             then
                                           then
@@ -664,6 +668,20 @@ then
   swap scdr scar  # Skip 'list?', get arg -> Env Arg
   swap eval-with-env  # Eval arg -> Result
   slist? if "#t" else "#f" then ssym
+;
+
+: eval-boolean?-with-env ( SexprList Env -- Sexpr )
+  # Stack: List Env
+  # (boolean? expr) - returns #t if expr is #t or #f, #f otherwise
+  swap scdr scar  # Skip 'boolean?', get arg -> Env Arg
+  swap eval-with-env  # Eval arg -> Result
+  dup ssym? if
+    ssym-val dup "#t" string-equal swap "#f" string-equal or
+    if "#t" else "#f" then
+  else
+    drop "#f"
+  then
+  ssym
 ;
 
 # ============================================
