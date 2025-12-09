@@ -31,16 +31,19 @@ union Env {
 # ============================================
 # Closure Type
 #
-# Closure is a 3-field variant (tag 60):
-# - Field 0: Parameter list (cons list of symbols)
-# - Field 1: Body expression
-# - Field 2: Captured environment
+# Closures capture params, body, and environment
 # ============================================
+
+union LispClosure {
+  Closure { params: Sexpr, body: Sexpr, captured_env: Env }
+}
 
 # ============================================
 # Define Result Type
 #
 # Define result: tag 70, fields: (Name, Value)
+# This uses a manual variant with a unique tag to distinguish
+# from Sexpr results (which use tags 0, 1, 2)
 # ============================================
 
 # ============================================
@@ -109,19 +112,19 @@ union Env {
 # Closure Constructors and Accessors
 # ============================================
 
-: make-closure ( Sexpr Sexpr Env -- Variant )
-  60 make-variant-3 ;
+: make-closure ( Sexpr Sexpr Env -- LispClosure )
+  Make-Closure ;
 
-: closure? ( Variant -- Int )
-  variant-tag 60 = ;
+: closure? ( LispClosure -- Int )
+  variant-tag 0 = ;
 
-: closure-params ( Variant -- Sexpr )
+: closure-params ( LispClosure -- Sexpr )
   0 variant-field-at ;
 
-: closure-body ( Variant -- Sexpr )
+: closure-body ( LispClosure -- Sexpr )
   1 variant-field-at ;
 
-: closure-env ( Variant -- Env )
+: closure-env ( LispClosure -- Env )
   2 variant-field-at ;
 
 # ============================================
@@ -538,7 +541,7 @@ then
 # Lambda
 # ============================================
 
-: eval-lambda-with-env ( SexprList Env -- Variant )
+: eval-lambda-with-env ( SexprList Env -- LispClosure )
   # Stack: List Env
   # List is (lambda (params) body)
   swap scdr  # Skip 'lambda' -> Env Args
@@ -553,7 +556,7 @@ then
 # Closure Application
 # ============================================
 
-: apply-closure ( Variant SexprList Env -- Sexpr )
+: apply-closure ( LispClosure SexprList Env -- Sexpr )
   # Stack: Closure Args CallerEnv
   # For simplicity, support single-parameter lambdas
   # 1. Evaluate the single argument
