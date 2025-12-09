@@ -291,21 +291,21 @@ union LispClosure {
                                             dup "list?" string-equal if
                                               drop eval-list?-with-env
                                             else
-                            # Unknown function - look up in environment
-                            # Stack: List Env FuncName
-                            over  # List Env FuncName Env
-                            env-lookup  # List Env Value
-                            dup closure? if
-                              # Apply the closure
-                              # Stack: List Env Closure
-                              rot  # Env Closure List
-                              scdr  # Env Closure Args (skip function name)
-                              rot  # Closure Args Env
-                              apply-closure
-                            else
-                              # Not a closure, return as list
-                              drop drop slist
-                            then
+                                              # Unknown function - look up in environment
+                                              # Stack: List Env FuncName
+                                              over  # List Env FuncName Env
+                                              env-lookup  # List Env Value
+                                              dup closure? if
+                                                # Apply the closure
+                                                # Stack: List Env Closure
+                                                rot  # Env Closure List
+                                                scdr  # Env Closure Args (skip function name)
+                                                rot  # Closure Args Env
+                                                apply-closure
+                                              else
+                                                # Not a closure, return as list
+                                                drop drop slist
+                                              then
                                             then
                                           then
                                         then
