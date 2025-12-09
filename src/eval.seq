@@ -304,6 +304,9 @@ union LispClosure {
                                                 dup "begin" string-equal if
                                                   drop eval-begin-with-env
                                                 else
+                                                  dup "cond" string-equal if
+                                                    drop eval-cond-with-env
+                                                  else
                                               # Unknown function - look up in environment
                                               # Stack: List Env FuncName
                                               over  # List Env FuncName Env
@@ -319,6 +322,7 @@ union LispClosure {
                                                 # Not a closure, return as list
                                                 drop drop slist
                                               then
+                                                  then
                                                 then
                                               then
                                             then
@@ -711,6 +715,89 @@ then
       swap scdr swap eval-begin-exprs
     then
   then
+;
+
+# ============================================
+# Cond (multi-way conditional)
+# ============================================
+
+: eval-cond-with-env ( SexprList Env -- Sexpr )
+  # Stack: List Env
+  # (cond (test1 expr1) (test2 expr2) ... (else exprN))
+  swap scdr  # Skip 'cond' -> Env Clauses
+  swap eval-cond-clauses
+;
+
+: eval-cond-clauses ( SexprList Env -- Sexpr )
+  # Stack: Clauses Env
+  # Process clauses until one matches
+  over snil? if
+    # No more clauses - return empty list
+    drop drop snil slist
+  else
+    # Get first clause: (test expr...)
+    over scar slist-val  # Clauses Env ClauseList
+    dup scar  # Clauses Env ClauseList Test
+    # Check for 'else' keyword
+    dup ssym? if
+      dup ssym-val "else" string-equal if
+        # else clause - evaluate the expression(s)
+        drop scdr  # Clauses Env BodyExprs
+        rot drop  # Env BodyExprs
+        swap eval-cond-body
+      else
+        # Regular symbol test - evaluate it
+        2 pick eval-with-env  # Clauses Env ClauseList TestResult
+        cond-test-true? if
+          # Test passed - evaluate clause body
+          scdr  # Clauses Env BodyExprs
+          rot drop  # Env BodyExprs
+          swap eval-cond-body
+        else
+          # Test failed - try next clause
+          # Stack: Clauses Env ClauseList
+          drop  # Clauses Env
+          swap scdr swap  # RestClauses Env
+          eval-cond-clauses
+        then
+      then
+    else
+      # Test is not a symbol - evaluate it
+      2 pick eval-with-env  # Clauses Env ClauseList TestResult
+      cond-test-true? if
+        # Test passed - evaluate clause body
+        scdr  # Clauses Env BodyExprs
+        rot drop  # Env BodyExprs
+        swap eval-cond-body
+      else
+        # Test failed - try next clause
+        # Stack: Clauses Env ClauseList
+        drop  # Clauses Env
+        swap scdr swap  # RestClauses Env
+        eval-cond-clauses
+      then
+    then
+  then
+;
+
+: cond-test-true? ( Sexpr -- Int )
+  # Returns 1 if test result is truthy, 0 if falsy
+  # Falsy: numeric 0 or #f
+  dup snum? if
+    snum-val 0 = if 0 else 1 then
+  else
+    dup ssym? if
+      ssym-val "#f" string-equal if 0 else 1 then
+    else
+      drop 1  # Lists and other values are truthy
+    then
+  then
+;
+
+: eval-cond-body ( SexprList Env -- Sexpr )
+  # Stack: BodyExprs Env
+  # Evaluate body expressions, return last result (like begin)
+  eval-begin-exprs
 ;
 
 # ============================================
