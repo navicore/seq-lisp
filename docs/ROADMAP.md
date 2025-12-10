@@ -55,10 +55,11 @@ The current architecture is sound for adding comprehensive error handling. No fu
 - ADT-based types (`Sexpr`, `Env`, `Binding`, `LispClosure` are proper union types)
 - Environment is threaded through evaluation, so errors can propagate up the call stack
 
-**Phase 1: Basic Recovery (Short Term)**
-- [ ] REPL continues after errors (catch crashes, continue session)
-- [ ] Basic arity validation for builtins (wrong arg count → error message)
-- [ ] Graceful error messages instead of crashes
+**Phase 1: Basic Recovery (Short Term)** ✓
+- [x] REPL continues after errors (catch crashes, continue session)
+- [x] Basic arity validation for builtins (wrong arg count → error message)
+- [x] Graceful error messages instead of crashes
+- [x] Error propagation through nested expressions
 
 **Phase 2: Full Error Handling (Medium Term)**
 - [ ] `EvalResult` union type for error propagation
