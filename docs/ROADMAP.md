@@ -41,20 +41,41 @@ A working interpreter with:
 - [x] `cond` as multi-way conditional
 
 ### Code Quality
-- [ ] Refactor to use `EvalResult` union type instead of magic tag numbers
-  - Create `union EvalResult { Value { result: Sexpr }, Definition { name: String, value: Sexpr } }`
-  - All `eval-*-with-env` functions return `EvalResult`
-  - REPL matches on `EvalResult` variants instead of checking tag 70
-  - Enables proper type safety and idiomatic Seq ADT usage
 - [ ] Refactor builtin dispatch to reduce nesting
   - Current dispatch uses 18+ levels of nested if-else
   - Consider lookup table or function pointer approach
   - Improves maintainability as more builtins are added
 
 ### Error Handling
-- [ ] Graceful error messages with context
-- [ ] Source location tracking through evaluation
-- [ ] REPL continues after errors
+
+The current architecture is sound for adding comprehensive error handling. No fundamental redesign is needed.
+
+**What works well:**
+- Clean evaluation entry point (`eval-with-env` is the single dispatch point)
+- ADT-based types (`Sexpr`, `Env`, `Binding`, `LispClosure` are proper union types)
+- Environment is threaded through evaluation, so errors can propagate up the call stack
+
+**Phase 1: Basic Recovery (Short Term)**
+- [ ] REPL continues after errors (catch crashes, continue session)
+- [ ] Basic arity validation for builtins (wrong arg count → error message)
+- [ ] Graceful error messages instead of crashes
+
+**Phase 2: Full Error Handling (Medium Term)**
+- [ ] `EvalResult` union type for error propagation
+  ```seq
+  union EvalResult {
+    Ok { value: Sexpr }
+    Err { message: String }
+  }
+  ```
+- [ ] Update all `eval-*-with-env` functions to return `EvalResult`
+- [ ] Type validation for builtins (e.g., `car` requires a list)
+- [ ] Undefined symbol errors with suggestions
+
+**Phase 3: Rich Diagnostics (Long Term)**
+- [ ] Source location tracking through tokenizer/parser/evaluator
+- [ ] Stack traces showing call chain
+- [ ] Error recovery suggestions
 
 ## Medium Term
 
