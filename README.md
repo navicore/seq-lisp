@@ -1,3 +1,6 @@
+[![CI](https://github.com/navicore/seq-lisp/actions/workflows/ci.yml/badge.svg)](https://github.com/navicore/seq-lisp/actions/workflows/ci.yml)
+[![Release](https://github.com/navicore/seq-lisp/actions/workflows/release.yml/badge.svg)](https://github.com/navicore/seq-lisp/actions/workflows/release.yml)
+
 # SeqLisp
 
 A Lisp interpreter written in [Seq](https://github.com/navicore/patch-seq), a stack-based concatenative programming language.
