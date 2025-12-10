@@ -14,6 +14,69 @@
 include "parser"
 
 # ============================================
+# Special Result Types
+#
+# These use high tag numbers (70+) to avoid conflicts with Sexpr tags (0-2)
+# This allows eval-with-env to return either Sexpr or special results
+# ============================================
+
+# Define result: tag 70, fields: (name: String, value: Sexpr)
+: make-define-result ( String Sexpr -- Variant )
+  70 make-variant-2 ;
+
+: define-result? ( Variant -- Int )
+  variant-tag 70 = ;
+
+: define-result-name ( Variant -- String )
+  0 variant-field-at ;
+
+: define-result-value ( Variant -- Sexpr )
+  1 variant-field-at ;
+
+# Error result: tag 71, field: (message: String)
+: make-error-result ( String -- Variant )
+  71 make-variant-1 ;
+
+: error-result? ( Variant -- Int )
+  variant-tag 71 = ;
+
+: error-result-message ( Variant -- String )
+  0 variant-field-at ;
+
+# ============================================
+# Arity Checking Helpers
+# ============================================
+
+# Count arguments in a list (excluding the function name)
+: count-args ( SexprList -- Int )
+  scdr  # Skip function name
+  0 swap count-args-loop ;
+
+: count-args-loop ( Int SexprList -- Int )
+  dup snil? if
+    drop
+  else
+    scdr swap 1 add swap count-args-loop
+  then ;
+
+# Check if argument count equals expected
+: check-arity ( SexprList Int String -- SexprList|ErrorResult )
+  # Stack: List Expected FuncName
+  2 pick count-args  # -> List Expected FuncName Actual
+  2 pick = if
+    # Arity matches - return list for normal processing
+    drop drop
+  else
+    # Arity mismatch - return error
+    # Build error message: "funcname: expected N argument(s)"
+    " expects " string-concat
+    swap int->string string-concat
+    " argument(s)" string-concat
+    make-error-result
+    nip
+  then ;
+
+# ============================================
 # Environment Types
 #
 # Env is a list of bindings (name -> value pairs)
@@ -37,14 +100,6 @@ union Env {
 union LispClosure {
   Closure { params: Sexpr, body: Sexpr, captured_env: Env }
 }
-
-# ============================================
-# Define Result Type
-#
-# Define result: tag 70, fields: (Name, Value)
-# This uses a manual variant with a unique tag to distinguish
-# from Sexpr results (which use tags 0, 1, 2)
-# ============================================
 
 # ============================================
 # Binding Constructors and Accessors
@@ -128,22 +183,6 @@ union LispClosure {
   2 variant-field-at ;
 
 # ============================================
-# Define Result Constructors and Accessors
-# ============================================
-
-: make-define-result ( String Sexpr -- Variant )
-  70 make-variant-2 ;
-
-: define-result? ( Variant -- Int )
-  variant-tag 70 = ;
-
-: define-result-name ( Variant -- String )
-  0 variant-field-at ;
-
-: define-result-value ( Variant -- Sexpr )
-  1 variant-field-at ;
-
-# ============================================
 # Main Evaluator
 # ============================================
 
@@ -152,7 +191,8 @@ union LispClosure {
   env-empty eval-with-env ;
 
 # Eval with explicit environment
-: eval-with-env ( Sexpr Env -- Sexpr )
+# Returns: Sexpr (tags 0-2), define-result (tag 70), or error-result (tag 71)
+: eval-with-env ( Sexpr Env -- Sexpr|DefineResult|ErrorResult )
   # Stack: Expr Env
   over variant-tag
   dup 0 = if
@@ -537,7 +577,7 @@ then
   swap scdr scar  # Get value expr -> Env Name ValueExpr
   rot  # -> Name ValueExpr Env
   eval-with-env  # Evaluate value -> Name Value
-  make-define-result  # Return (Name, Value) tagged result
+  make-define-result  # Return DefineResult (tag 70)
 ;
 
 # ============================================
@@ -571,21 +611,30 @@ then
   then
 ;
 
-: eval-car-with-env ( SexprList Env -- Sexpr )
+: eval-car-with-env ( SexprList Env -- Sexpr|ErrorResult )
   # Stack: List Env
   # (car lst) - get first element of list
-  swap scdr scar  # Skip 'car', get arg -> Env Arg
-  swap eval-with-env  # Eval arg -> Result
-  dup slist? if
-    slist-val  # -> SexprList
-    dup snil? if
-      # Empty list - return empty list
-      drop snil slist
-    else
-      scar  # -> First element
-    then
+  over  # -> List Env List
+  1 "car" check-arity  # -> List Env List|ErrorResult
+  dup error-result? if
+    # Arity error - return it, drop List and Env
+    nip nip
   else
-    # Not a list - return as-is
+    # Arity OK - drop checked result, proceed with evaluation
+    drop
+    swap scdr scar  # Skip 'car', get arg -> Env Arg
+    swap eval-with-env  # Eval arg -> Result
+    dup slist? if
+      slist-val  # -> SexprList
+      dup snil? if
+        # Empty list - return empty list
+        drop snil slist
+      else
+        scar  # -> First element
+      then
+    else
+      # Not a list - return as-is
+    then
   then
 ;
 
@@ -907,4 +956,9 @@ then
 # ============================================
 
 : eval-print ( String -- )
-  parse eval sexpr-to-string write_line ;
+  parse eval
+  dup error-result? if
+    "Error: " swap error-result-message string-concat write_line
+  else
+    sexpr-to-string write_line
+  then ;

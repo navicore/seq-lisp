@@ -97,4 +97,9 @@ include "eval"
   "(cond ((> 1 2) 'greater) (else 'not-greater))" eval-print
   "(cond (#f 'a) (#f 'b) (else 'c))" eval-print
   "(cond (#t 1 2 3))" eval-print
+
+  # Error handling - arity validation
+  "Testing error handling:" write_line
+  "(car)" eval-print  # Should print error: car expects 1 argument(s)
+  "(car '(1 2 3))" eval-print  # Should print 1 (continues after error)
 ;
