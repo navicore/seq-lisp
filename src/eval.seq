@@ -60,20 +60,28 @@ include "parser"
   then ;
 
 # Check if argument count equals expected
+# Usage pattern in caller:
+#   over                           # List Env List
+#   1 "funcname" check-arity       # List Env (List|ErrorResult)
+#   dup error-result? if
+#     nip nip                      # ErrorResult
+#   else
+#     drop                         # List Env
+#     ... normal implementation
+#   then
 : check-arity ( SexprList Int String -- SexprList|ErrorResult )
   # Stack: List Expected FuncName
-  2 pick count-args  # -> List Expected FuncName Actual
-  2 pick = if
-    # Arity matches - return list for normal processing
-    drop drop
+  2 pick count-args  # Stack: List Expected FuncName Actual
+  2 pick = if        # Compares Actual with Expected (copy), consumes both
+    # Stack: List Expected FuncName - arity matches
+    drop drop  # Stack: List
   else
-    # Arity mismatch - return error
-    # Build error message: "funcname: expected N argument(s)"
-    " expects " string-concat
-    swap int->string string-concat
-    " argument(s)" string-concat
-    make-error-result
-    nip
+    # Stack: List Expected FuncName - arity mismatch
+    " expects " string-concat  # "funcname expects "
+    swap int->string string-concat  # "funcname expects N"
+    " argument(s)" string-concat  # "funcname expects N argument(s)"
+    make-error-result  # Stack: List ErrorResult
+    nip  # Stack: ErrorResult
   then ;
 
 # ============================================
@@ -394,26 +402,33 @@ then
 # Arithmetic Operations
 # ============================================
 
-: eval-add-with-env ( SexprList Env -- Sexpr )
+: eval-add-with-env ( SexprList Env -- Sexpr|ErrorResult )
   # Stack: List Env
   swap scdr swap  # Skip the + -> RestList Env
-  0 swap eval-fold-add-with-env snum
+  0 swap eval-fold-add-with-env
 ;
 
-: eval-fold-add-with-env ( SexprList Int Env -- Int )
+: eval-fold-add-with-env ( SexprList Int Env -- Sexpr|ErrorResult )
   # Stack: List Acc Env
   2 pick snil? if
-    # List is empty, return Acc
-    drop nip
+    # List is empty, return Acc as Sexpr
+    drop nip snum
   else
     # Get first element and eval it
-    2 pick scar over eval-with-env snum-val
-    # Stack: List Acc Env FirstVal
-    rot add
-    # Stack: List Env NewAcc
-    swap rot scdr rot rot
-    # Stack: RestList NewAcc Env
-    eval-fold-add-with-env
+    2 pick scar over eval-with-env
+    # Stack: List Acc Env EvalResult
+    dup error-result? if
+      # Error - propagate it up, clean stack
+      nip nip nip
+    else
+      snum-val
+      # Stack: List Acc Env FirstVal
+      rot add
+      # Stack: List Env NewAcc
+      swap rot scdr rot rot
+      # Stack: RestList NewAcc Env
+      eval-fold-add-with-env
+    then
   then
 ;
 
@@ -638,22 +653,31 @@ then
   then
 ;
 
-: eval-cdr-with-env ( SexprList Env -- Sexpr )
+: eval-cdr-with-env ( SexprList Env -- Sexpr|ErrorResult )
   # Stack: List Env
   # (cdr lst) - get rest of list (tail)
-  swap scdr scar  # Skip 'cdr', get arg -> Env Arg
-  swap eval-with-env  # Eval arg -> Result
-  dup slist? if
-    slist-val  # -> SexprList
-    dup snil? if
-      # Empty list - return empty list
-      drop snil slist
-    else
-      scdr slist  # -> Rest as Sexpr
-    then
+  over  # -> List Env List
+  1 "cdr" check-arity  # -> List Env List|ErrorResult
+  dup error-result? if
+    # Arity error - return it, drop List and Env
+    nip nip
   else
-    # Not a list - return empty list
-    drop snil slist
+    # Arity OK - drop checked result, proceed with evaluation
+    drop
+    swap scdr scar  # Skip 'cdr', get arg -> Env Arg
+    swap eval-with-env  # Eval arg -> Result
+    dup slist? if
+      slist-val  # -> SexprList
+      dup snil? if
+        # Empty list - return empty list
+        drop snil slist
+      else
+        scdr slist  # -> Rest as Sexpr
+      then
+    else
+      # Not a list - return empty list
+      drop snil slist
+    then
   then
 ;
 
