@@ -45,8 +45,15 @@ include "version"
             rot drop swap scdr swap
             eval-all-quiet
         else
-            drop scdr swap
-            eval-all-quiet
+            dup error-result? if
+                # Print error but continue
+                "Error: " swap error-result-message string-concat write_line
+                scdr swap
+                eval-all-quiet
+            else
+                drop scdr swap
+                eval-all-quiet
+            then
         then
     then
 ;
@@ -64,18 +71,25 @@ include "version"
             rot drop swap scdr swap
             eval-all-print
         else
-            # Print if not empty list
-            dup variant-tag 2 = if
-                dup slist-val snil? if
-                    drop
+            dup error-result? if
+                # Print error and continue
+                "Error: " swap error-result-message string-concat write_line
+                scdr swap
+                eval-all-print
+            else
+                # Normal Sexpr result - print if not empty list
+                dup variant-tag 2 = if
+                    dup slist-val snil? if
+                        drop
+                    else
+                        sexpr-to-string write_line
+                    then
                 else
                     sexpr-to-string write_line
                 then
-            else
-                sexpr-to-string write_line
+                scdr swap
+                eval-all-print
             then
-            scdr swap
-            eval-all-print
         then
     then
 ;

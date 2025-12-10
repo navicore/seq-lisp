@@ -97,4 +97,18 @@ include "eval"
   "(cond ((> 1 2) 'greater) (else 'not-greater))" eval-print
   "(cond (#f 'a) (#f 'b) (else 'c))" eval-print
   "(cond (#t 1 2 3))" eval-print
+
+  # Error handling - arity validation
+  "Testing error handling:" write_line
+  "(car)" eval-print  # Error: car expects 1 argument(s)
+  "(car '(a b c))" eval-print  # a (continues after error)
+  "(cdr)" eval-print  # Error: cdr expects 1 argument(s)
+  "(cdr '(1 2 3))" eval-print  # (2 3)
+  "(car 'a 'b)" eval-print  # Error: car expects 1 argument(s) (too many)
+
+  # Error propagation in nested expressions
+  "Testing error propagation:" write_line
+  "(+ 1 (car))" eval-print  # Error propagates through +
+  "(+ 1 2)" eval-print  # 3 (continues after nested error)
+  "(+ (car) (cdr))" eval-print  # First error propagates
 ;
