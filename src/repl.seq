@@ -137,6 +137,7 @@ include "version"
     then ;
 
 # Check if input has content (non-whitespace, non-comment)
+# Returns 1 if there's non-whitespace before any comment, 0 otherwise
 : has-content ( String -- Int )
     0 swap 0 has-content-loop ;
 
@@ -149,8 +150,9 @@ include "version"
     else
         over over string-char-at
         # Stack: Found Str Pos CharCode
-        dup 59 = if  # ';' - comment, return 0 (no content)
-            drop drop drop drop 0
+        dup 59 = if  # ';' - comment starts, stop scanning
+            # Return what we've found so far (0 if nothing before comment)
+            drop drop drop
         else
             dup 32 > if  # Non-whitespace - found content
                 drop drop drop drop 1
@@ -199,18 +201,26 @@ include "version"
     # Stack: Env NewAcc
     swap
     # Stack: NewAcc Env
-    over paren-balance 0 =
-    # Stack: NewAcc Env BalancedBool
-    2 pick has-content
-    # Stack: NewAcc Env BalancedBool HasContentBool
-    and if
-        # Balanced and has content - evaluate
-        swap tokenize parse-all
-        swap eval-all-print
-        "" swap repl-loop
+    over paren-balance
+    # Stack: NewAcc Env Balance
+    dup 0 < if
+        # Negative balance - too many closing parens
+        drop "Error: unexpected ')'" write_line
+        drop "" swap repl-loop
     else
-        # Need more input
-        repl-loop
+        0 =
+        # Stack: NewAcc Env BalancedBool
+        2 pick has-content
+        # Stack: NewAcc Env BalancedBool HasContentBool
+        and if
+            # Balanced and has content - evaluate
+            swap tokenize parse-all
+            swap eval-all-print
+            "" swap repl-loop
+        else
+            # Need more input (positive balance or no content yet)
+            repl-loop
+        then
     then ;
 
 # Interactive REPL loop with multi-line support
