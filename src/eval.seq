@@ -272,130 +272,161 @@ union LispClosure {
 
 # ============================================
 # Built-in Function Dispatch
+#
+# Dispatch is organized into logical groups to reduce nesting.
+# Each group handles related builtins and delegates to the next
+# group if no match is found.
+#
+# Groups:
+#   1. Arithmetic: + - * /
+#   2. Comparison: < > <= >= =
+#   3. Special forms: if let lambda define quote
+#   4. List operations: cons car cdr list
+#   5. Predicates: null? number? symbol? list? boolean?
+#   6. Control flow: begin cond
+#   7. I/O: print
+#   8. Fallback: environment lookup for user-defined functions
 # ============================================
 
 : eval-builtin-with-env ( String SexprList Env -- Sexpr )
   # Stack: FuncName List Env
-  rot
+  rot  # -> List Env FuncName
+  dispatch-arithmetic
+;
+
+# ----------------------------------------
+# Group 1: Arithmetic (+, -, *, /)
+# ----------------------------------------
+: dispatch-arithmetic ( SexprList Env String -- Sexpr )
   dup "+" string-equal if
     drop eval-add-with-env
+  else dup "-" string-equal if
+    drop eval-sub-with-env
+  else dup "*" string-equal if
+    drop eval-mul-with-env
+  else dup "/" string-equal if
+    drop eval-div-with-env
   else
-    dup "-" string-equal if
-      drop eval-sub-with-env
-    else
-      dup "*" string-equal if
-        drop eval-mul-with-env
-      else
-        dup "/" string-equal if
-          drop eval-div-with-env
-        else
-          dup "<" string-equal if
-            drop eval-lt-with-env
-          else
-            dup ">" string-equal if
-              drop eval-gt-with-env
-            else
-              dup "<=" string-equal if
-                drop eval-lte-with-env
-              else
-                dup ">=" string-equal if
-                  drop eval-gte-with-env
-                else
-                  dup "=" string-equal if
-                    drop eval-eq-with-env
-                  else
-                    dup "if" string-equal if
-                    drop eval-if-with-env
-                  else
-                    dup "let" string-equal if
-                      drop eval-let-with-env
-                    else
-                      dup "lambda" string-equal if
-                        drop eval-lambda-with-env
-                      else
-                        dup "print" string-equal if
-                          drop eval-print-with-env
-                        else
-                          dup "define" string-equal if
-                            drop eval-define-with-env
-                          else
-                            dup "quote" string-equal if
-                              drop eval-quote-with-env
-                            else
-                              dup "cons" string-equal if
-                                drop eval-cons-with-env
-                              else
-                                dup "car" string-equal if
-                                  drop eval-car-with-env
-                                else
-                                  dup "cdr" string-equal if
-                                    drop eval-cdr-with-env
-                                  else
-                                    dup "list" string-equal if
-                                      drop eval-list-builtin-with-env
-                                    else
-                                      dup "null?" string-equal if
-                                        drop eval-null?-with-env
-                                      else
-                                        dup "number?" string-equal if
-                                          drop eval-number?-with-env
-                                        else
-                                          dup "symbol?" string-equal if
-                                            drop eval-symbol?-with-env
-                                          else
-                                            dup "list?" string-equal if
-                                              drop eval-list?-with-env
-                                            else
-                                              dup "boolean?" string-equal if
-                                                drop eval-boolean?-with-env
-                                              else
-                                                dup "begin" string-equal if
-                                                  drop eval-begin-with-env
-                                                else
-                                                  dup "cond" string-equal if
-                                                    drop eval-cond-with-env
-                                                  else
-                                              # Unknown function - look up in environment
-                                              # Stack: List Env FuncName
-                                              over  # List Env FuncName Env
-                                              env-lookup  # List Env Value
-                                              dup closure? if
-                                                # Apply the closure
-                                                # Stack: List Env Closure
-                                                rot  # Env Closure List
-                                                scdr  # Env Closure Args (skip function name)
-                                                rot  # Closure Args Env
-                                                apply-closure
-                                              else
-                                                # Not a closure, return as list
-                                                drop drop slist
-                                              then
-                                                  then
-                                                then
-                                              then
-                                            then
-                                          then
-                                        then
-                                      then
-                                    then
-                                  then
-                                then
-                              then
-                            then
-                          then
-                        then
-                      then
-                    then
-                  then
-                then
-              then
-            then
-          then
-        then
-      then
-    then
+    dispatch-comparison
+  then then then then
+;
+
+# ----------------------------------------
+# Group 2: Comparison (<, >, <=, >=, =)
+# ----------------------------------------
+: dispatch-comparison ( SexprList Env String -- Sexpr )
+  dup "<" string-equal if
+    drop eval-lt-with-env
+  else dup ">" string-equal if
+    drop eval-gt-with-env
+  else dup "<=" string-equal if
+    drop eval-lte-with-env
+  else dup ">=" string-equal if
+    drop eval-gte-with-env
+  else dup "=" string-equal if
+    drop eval-eq-with-env
+  else
+    dispatch-special-forms
+  then then then then then
+;
+
+# ----------------------------------------
+# Group 3: Special Forms (if, let, lambda, define, quote)
+# ----------------------------------------
+: dispatch-special-forms ( SexprList Env String -- Sexpr )
+  dup "if" string-equal if
+    drop eval-if-with-env
+  else dup "let" string-equal if
+    drop eval-let-with-env
+  else dup "lambda" string-equal if
+    drop eval-lambda-with-env
+  else dup "define" string-equal if
+    drop eval-define-with-env
+  else dup "quote" string-equal if
+    drop eval-quote-with-env
+  else
+    dispatch-list-ops
+  then then then then then
+;
+
+# ----------------------------------------
+# Group 4: List Operations (cons, car, cdr, list)
+# ----------------------------------------
+: dispatch-list-ops ( SexprList Env String -- Sexpr )
+  dup "cons" string-equal if
+    drop eval-cons-with-env
+  else dup "car" string-equal if
+    drop eval-car-with-env
+  else dup "cdr" string-equal if
+    drop eval-cdr-with-env
+  else dup "list" string-equal if
+    drop eval-list-builtin-with-env
+  else
+    dispatch-predicates
+  then then then then
+;
+
+# ----------------------------------------
+# Group 5: Predicates (null?, number?, symbol?, list?, boolean?)
+# ----------------------------------------
+: dispatch-predicates ( SexprList Env String -- Sexpr )
+  dup "null?" string-equal if
+    drop eval-null?-with-env
+  else dup "number?" string-equal if
+    drop eval-number?-with-env
+  else dup "symbol?" string-equal if
+    drop eval-symbol?-with-env
+  else dup "list?" string-equal if
+    drop eval-list?-with-env
+  else dup "boolean?" string-equal if
+    drop eval-boolean?-with-env
+  else
+    dispatch-control-flow
+  then then then then then
+;
+
+# ----------------------------------------
+# Group 6: Control Flow (begin, cond)
+# ----------------------------------------
+: dispatch-control-flow ( SexprList Env String -- Sexpr )
+  dup "begin" string-equal if
+    drop eval-begin-with-env
+  else dup "cond" string-equal if
+    drop eval-cond-with-env
+  else
+    dispatch-io
+  then then
+;
+
+# ----------------------------------------
+# Group 7: I/O (print)
+# ----------------------------------------
+: dispatch-io ( SexprList Env String -- Sexpr )
+  dup "print" string-equal if
+    drop eval-print-with-env
+  else
+    dispatch-user-defined
   then
-then
+;
+
+# ----------------------------------------
+# Group 8: User-defined functions (environment lookup)
+# ----------------------------------------
+: dispatch-user-defined ( SexprList Env String -- Sexpr )
+  # Stack: List Env FuncName
+  over  # List Env FuncName Env
+  env-lookup  # List Env Value
+  dup closure? if
+    # Apply the closure
+    # Stack: List Env Closure
+    rot  # Env Closure List
+    scdr  # Env Closure Args (skip function name)
+    rot  # Closure Args Env
+    apply-closure
+  else
+    # Not a closure, return as list
+    drop drop slist
+  then
 ;
 
 # ============================================
