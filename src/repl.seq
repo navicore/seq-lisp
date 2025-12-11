@@ -45,18 +45,19 @@ include "version"
         drop  # Return env
     else
         dup scar 2 pick eval-with-env
-        dup define-result? if
-            dup define-result-name swap define-result-value
+        dup eval-define? if
+            dup eval-define-name swap eval-define-value
             3 pick env-extend
             rot drop swap scdr swap
             eval-all-quiet
         else
-            dup error-result? if
+            dup eval-err? if
                 # Print error but continue
-                "Error: " swap error-result-message string-concat write_line
+                "Error: " swap eval-err-message string-concat write_line
                 scdr swap
                 eval-all-quiet
             else
+                # EvalOk - drop result
                 drop scdr swap
                 eval-all-quiet
             then
@@ -71,19 +72,20 @@ include "version"
         drop  # Return env
     else
         dup scar 2 pick eval-with-env
-        dup define-result? if
-            dup define-result-name swap define-result-value
+        dup eval-define? if
+            dup eval-define-name swap eval-define-value
             3 pick env-extend
             rot drop swap scdr swap
             eval-all-print
         else
-            dup error-result? if
+            dup eval-err? if
                 # Print error and continue
-                "Error: " swap error-result-message string-concat write_line
+                "Error: " swap eval-err-message string-concat write_line
                 scdr swap
                 eval-all-print
             else
-                # Normal Sexpr result - print if not empty list
+                # EvalOk result - unwrap and print if not empty list
+                eval-ok-value
                 dup variant-tag 2 = if
                     dup slist-val snil? if
                         drop

@@ -14,34 +14,51 @@
 include "parser"
 
 # ============================================
-# Special Result Types
+# EvalResult Union Type
 #
-# These use high tag numbers (70+) to avoid conflicts with Sexpr tags (0-2)
-# This allows eval-with-env to return either Sexpr or special results
+# All eval functions return EvalResult for consistent error handling.
+# This replaces the ad-hoc high-tag approach with a proper union type.
 # ============================================
 
-# Define result: tag 70, fields: (name: String, value: Sexpr)
-: make-define-result ( String Sexpr -- Variant )
-  70 make-variant-2 ;
+union EvalResult {
+  EvalOk { value: Sexpr }
+  EvalErr { message: String }
+  EvalDefine { name: String, def_value: Sexpr }
+}
 
-: define-result? ( Variant -- Int )
-  variant-tag 70 = ;
+# Constructors
+: eval-ok ( Sexpr -- EvalResult )
+  Make-EvalOk ;
 
-: define-result-name ( Variant -- String )
+: eval-err ( String -- EvalResult )
+  Make-EvalErr ;
+
+: eval-define ( String Sexpr -- EvalResult )
+  Make-EvalDefine ;
+
+# Predicates
+: eval-ok? ( EvalResult -- Int )
+  variant-tag 0 = ;
+
+: eval-err? ( EvalResult -- Int )
+  variant-tag 1 = ;
+
+: eval-define? ( EvalResult -- Int )
+  variant-tag 2 = ;
+
+# Accessors
+: eval-ok-value ( EvalResult -- Sexpr )
   0 variant-field-at ;
 
-: define-result-value ( Variant -- Sexpr )
+: eval-err-message ( EvalResult -- String )
+  0 variant-field-at ;
+
+: eval-define-name ( EvalResult -- String )
+  0 variant-field-at ;
+
+: eval-define-value ( EvalResult -- Sexpr )
   1 variant-field-at ;
 
-# Error result: tag 71, field: (message: String)
-: make-error-result ( String -- Variant )
-  71 make-variant-1 ;
-
-: error-result? ( Variant -- Int )
-  variant-tag 71 = ;
-
-: error-result-message ( Variant -- String )
-  0 variant-field-at ;
 
 # ============================================
 # Arity Checking Helpers
@@ -60,28 +77,29 @@ include "parser"
   then ;
 
 # Check if argument count equals expected
+# Returns: EvalOk with unit value (empty list) on success, EvalErr on failure
+# The original List is left on stack in both cases for caller to clean up
 # Usage pattern in caller:
-#   over                           # List Env List
-#   1 "funcname" check-arity       # List Env (List|ErrorResult)
-#   dup error-result? if
-#     nip nip                      # ErrorResult
+#   over 1 "funcname" check-arity    # List Env List EvalResult
+#   dup eval-err? if
+#     nip nip nip                    # EvalErr
 #   else
-#     drop                         # List Env
+#     drop drop                      # List Env (drop List copy and EvalOk)
 #     ... normal implementation
 #   then
-: check-arity ( SexprList Int String -- SexprList|ErrorResult )
+: check-arity ( SexprList Int String -- SexprList EvalResult )
   # Stack: List Expected FuncName
   2 pick count-args  # Stack: List Expected FuncName Actual
   2 pick = if        # Compares Actual with Expected (copy), consumes both
     # Stack: List Expected FuncName - arity matches
-    drop drop  # Stack: List
+    drop drop        # Stack: List
+    snil slist eval-ok  # Return List and EvalOk
   else
     # Stack: List Expected FuncName - arity mismatch
     " expects " string-concat  # "funcname expects "
     swap int->string string-concat  # "funcname expects N"
     " argument(s)" string-concat  # "funcname expects N argument(s)"
-    make-error-result  # Stack: List ErrorResult
-    nip  # Stack: ErrorResult
+    eval-err  # Stack: List EvalErr
   then ;
 
 # ============================================
@@ -195,27 +213,35 @@ union LispClosure {
 # ============================================
 
 # Simple eval without environment (for backward compatibility)
+# Returns raw Sexpr for convenience - unwraps EvalOk, returns snil on error
 : eval ( Sexpr -- Sexpr )
-  env-empty eval-with-env ;
+  env-empty eval-with-env
+  dup eval-ok? if
+    eval-ok-value
+  else
+    drop snil slist  # Return empty list on error
+  then ;
 
 # Eval with explicit environment
-# Returns: Sexpr (tags 0-2), define-result (tag 70), or error-result (tag 71)
-: eval-with-env ( Sexpr Env -- Sexpr|DefineResult|ErrorResult )
+# Returns: EvalResult (EvalOk, EvalErr, or EvalDefine)
+: eval-with-env ( Sexpr Env -- EvalResult )
   # Stack: Expr Env
   over variant-tag
   dup 0 = if
-    # SNum - return as-is
-    drop drop
+    # SNum - return as-is wrapped in EvalOk
+    drop drop eval-ok
   else
     dup 1 = if
       # SSym - check for self-evaluating symbols (#t, #f) or lookup
       drop swap dup ssym-val
       dup "#t" string-equal over "#f" string-equal or if
         # Boolean literal - return as-is
-        drop nip
+        drop nip eval-ok
       else
         # Regular symbol - lookup in environment
         swap drop swap env-lookup
+        # TODO: Return error if symbol not found
+        eval-ok
       then
     else
       2 = if
@@ -223,7 +249,7 @@ union LispClosure {
         eval-list-with-env
       else
         # Unknown - return as-is
-        drop drop
+        drop drop eval-ok
       then
     then
   then
@@ -233,12 +259,12 @@ union LispClosure {
 # List Evaluation (Function Application)
 # ============================================
 
-: eval-list-with-env ( Sexpr Env -- Sexpr )
+: eval-list-with-env ( Sexpr Env -- EvalResult )
   # Stack: Expr Env
   swap slist-val
   dup snil? if
     # Empty list - return empty list
-    nip slist
+    nip slist eval-ok
   else
     # Non-empty list: first element is function
     dup scar
@@ -250,21 +276,27 @@ union LispClosure {
       dup slist? if
         # List in function position - evaluate it (likely a lambda)
         # Stack: Env List Head
-        2 pick eval-with-env  # -> Env List EvaledHead
-        dup closure? if
-          # It's a closure - apply it
-          # Stack: Env List EvaledHead
-          rot rot  # -> EvaledHead Env List
-          scdr     # -> EvaledHead Env Args
-          swap     # -> EvaledHead Args Env
-          apply-closure
+        2 pick eval-with-env  # -> Env List EvalResult
+        dup eval-err? if
+          # Error - propagate it
+          nip nip nip
         else
-          # Not a closure - error
-          drop drop slist
+          eval-ok-value  # Unwrap to get the Sexpr
+          dup closure? if
+            # It's a closure - apply it
+            # Stack: Env List EvaledHead
+            rot rot  # -> EvaledHead Env List
+            scdr     # -> EvaledHead Env Args
+            swap     # -> EvaledHead Args Env
+            apply-closure
+          else
+            # Not a closure - error
+            drop drop drop "not a function" eval-err
+          then
         then
       else
         # Non-symbol, non-list in function position
-        drop slist nip
+        drop nip "invalid function position" eval-err
       then
     then
   then
@@ -288,7 +320,7 @@ union LispClosure {
 #   8. Fallback: environment lookup for user-defined functions
 # ============================================
 
-: eval-builtin-with-env ( String SexprList Env -- Sexpr )
+: eval-builtin-with-env ( String SexprList Env -- EvalResult )
   # Stack: FuncName List Env
   rot  # -> List Env FuncName
   dispatch-arithmetic
@@ -297,7 +329,7 @@ union LispClosure {
 # ----------------------------------------
 # Group 1: Arithmetic (+, -, *, /)
 # ----------------------------------------
-: dispatch-arithmetic ( SexprList Env String -- Sexpr )
+: dispatch-arithmetic ( SexprList Env String -- EvalResult )
   dup "+" string-equal if
     drop eval-add-with-env
   else dup "-" string-equal if
@@ -314,7 +346,7 @@ union LispClosure {
 # ----------------------------------------
 # Group 2: Comparison (<, >, <=, >=, =)
 # ----------------------------------------
-: dispatch-comparison ( SexprList Env String -- Sexpr )
+: dispatch-comparison ( SexprList Env String -- EvalResult )
   dup "<" string-equal if
     drop eval-lt-with-env
   else dup ">" string-equal if
@@ -333,7 +365,7 @@ union LispClosure {
 # ----------------------------------------
 # Group 3: Special Forms (if, let, lambda, define, quote)
 # ----------------------------------------
-: dispatch-special-forms ( SexprList Env String -- Sexpr )
+: dispatch-special-forms ( SexprList Env String -- EvalResult )
   dup "if" string-equal if
     drop eval-if-with-env
   else dup "let" string-equal if
@@ -352,7 +384,7 @@ union LispClosure {
 # ----------------------------------------
 # Group 4: List Operations (cons, car, cdr, list)
 # ----------------------------------------
-: dispatch-list-ops ( SexprList Env String -- Sexpr )
+: dispatch-list-ops ( SexprList Env String -- EvalResult )
   dup "cons" string-equal if
     drop eval-cons-with-env
   else dup "car" string-equal if
@@ -369,7 +401,7 @@ union LispClosure {
 # ----------------------------------------
 # Group 5: Predicates (null?, number?, symbol?, list?, boolean?)
 # ----------------------------------------
-: dispatch-predicates ( SexprList Env String -- Sexpr )
+: dispatch-predicates ( SexprList Env String -- EvalResult )
   dup "null?" string-equal if
     drop eval-null?-with-env
   else dup "number?" string-equal if
@@ -388,7 +420,7 @@ union LispClosure {
 # ----------------------------------------
 # Group 6: Control Flow (begin, cond)
 # ----------------------------------------
-: dispatch-control-flow ( SexprList Env String -- Sexpr )
+: dispatch-control-flow ( SexprList Env String -- EvalResult )
   dup "begin" string-equal if
     drop eval-begin-with-env
   else dup "cond" string-equal if
@@ -401,7 +433,7 @@ union LispClosure {
 # ----------------------------------------
 # Group 7: I/O (print)
 # ----------------------------------------
-: dispatch-io ( SexprList Env String -- Sexpr )
+: dispatch-io ( SexprList Env String -- EvalResult )
   dup "print" string-equal if
     drop eval-print-with-env
   else
@@ -412,7 +444,7 @@ union LispClosure {
 # ----------------------------------------
 # Group 8: User-defined functions (environment lookup)
 # ----------------------------------------
-: dispatch-user-defined ( SexprList Env String -- Sexpr )
+: dispatch-user-defined ( SexprList Env String -- EvalResult )
   # Stack: List Env FuncName
   over  # List Env FuncName Env
   env-lookup  # List Env Value
@@ -424,8 +456,8 @@ union LispClosure {
     rot  # Closure Args Env
     apply-closure
   else
-    # Not a closure, return as list
-    drop drop slist
+    # Not a closure - undefined function error
+    drop drop drop "undefined function" eval-err
   then
 ;
 
@@ -433,26 +465,26 @@ union LispClosure {
 # Arithmetic Operations
 # ============================================
 
-: eval-add-with-env ( SexprList Env -- Sexpr|ErrorResult )
+: eval-add-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
   swap scdr swap  # Skip the + -> RestList Env
   0 swap eval-fold-add-with-env
 ;
 
-: eval-fold-add-with-env ( SexprList Int Env -- Sexpr|ErrorResult )
+: eval-fold-add-with-env ( SexprList Int Env -- EvalResult )
   # Stack: List Acc Env
   2 pick snil? if
-    # List is empty, return Acc as Sexpr
-    drop nip snum
+    # List is empty, return Acc as Sexpr wrapped in EvalOk
+    drop nip snum eval-ok
   else
     # Get first element and eval it
     2 pick scar over eval-with-env
     # Stack: List Acc Env EvalResult
-    dup error-result? if
+    dup eval-err? if
       # Error - propagate it up, clean stack
       nip nip nip
     else
-      snum-val
+      eval-ok-value snum-val
       # Stack: List Acc Env FirstVal
       rot add
       # Stack: List Env NewAcc
@@ -463,96 +495,121 @@ union LispClosure {
   then
 ;
 
-: eval-sub-with-env ( SexprList Env -- Sexpr )
+: eval-sub-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
   swap scdr
   dup snil? if
-    drop drop 0 snum
+    drop drop 0 snum eval-ok
   else
-    dup scar 2 pick eval-with-env snum-val
-    swap scdr
-    dup snil? if
-      # Unary minus: negate
-      drop nip 0 swap subtract snum
+    dup scar 2 pick eval-with-env
+    dup eval-err? if
+      nip nip nip
     else
-      # Binary minus: first - rest
-      # Stack: Env FirstVal RestList -> need RestList FirstVal Env
-      rot rot swap eval-fold-sub-with-env snum
+      eval-ok-value snum-val
+      swap scdr
+      dup snil? if
+        # Unary minus: negate
+        drop nip 0 swap subtract snum eval-ok
+      else
+        # Binary minus: first - rest
+        # Stack: Env FirstVal RestList -> need RestList FirstVal Env
+        rot rot swap eval-fold-sub-with-env
+      then
     then
   then
 ;
 
-: eval-fold-sub-with-env ( SexprList Int Env -- Int )
+: eval-fold-sub-with-env ( SexprList Int Env -- EvalResult )
   # Stack: List Acc Env
   2 pick snil? if
     # List is empty, return Acc
-    drop nip
+    drop nip snum eval-ok
   else
     # Get first element and eval it
-    2 pick scar over eval-with-env snum-val
-    # Stack: List Acc Env FirstVal
-    rot swap subtract
-    # Stack: List Env NewAcc
-    swap rot scdr rot rot
-    # Stack: RestList NewAcc Env
-    eval-fold-sub-with-env
+    2 pick scar over eval-with-env
+    dup eval-err? if
+      nip nip nip
+    else
+      eval-ok-value snum-val
+      # Stack: List Acc Env FirstVal
+      rot swap subtract
+      # Stack: List Env NewAcc
+      swap rot scdr rot rot
+      # Stack: RestList NewAcc Env
+      eval-fold-sub-with-env
+    then
   then
 ;
 
-: eval-mul-with-env ( SexprList Env -- Sexpr )
+: eval-mul-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
   swap scdr swap  # Skip the * -> RestList Env
-  1 swap eval-fold-mul-with-env snum
+  1 swap eval-fold-mul-with-env
 ;
 
-: eval-fold-mul-with-env ( SexprList Int Env -- Int )
+: eval-fold-mul-with-env ( SexprList Int Env -- EvalResult )
   # Stack: List Acc Env
   2 pick snil? if
     # List is empty, return Acc
-    drop nip
+    drop nip snum eval-ok
   else
     # Get first element and eval it
-    2 pick scar over eval-with-env snum-val
-    # Stack: List Acc Env FirstVal
-    rot multiply
-    # Stack: List Env NewAcc
-    swap rot scdr rot rot
-    # Stack: RestList NewAcc Env
-    eval-fold-mul-with-env
-  then
-;
-
-: eval-div-with-env ( SexprList Env -- Sexpr )
-  # Stack: List Env
-  swap scdr
-  dup snil? if
-    drop drop 0 snum
-  else
-    dup scar 2 pick eval-with-env snum-val
-    swap scdr
-    dup snil? if
-      drop nip snum
+    2 pick scar over eval-with-env
+    dup eval-err? if
+      nip nip nip
     else
-      # Stack: Env FirstVal RestList -> need RestList FirstVal Env
-      rot rot swap eval-fold-div-with-env snum
+      eval-ok-value snum-val
+      # Stack: List Acc Env FirstVal
+      rot multiply
+      # Stack: List Env NewAcc
+      swap rot scdr rot rot
+      # Stack: RestList NewAcc Env
+      eval-fold-mul-with-env
     then
   then
 ;
 
-: eval-fold-div-with-env ( SexprList Int Env -- Int )
+: eval-div-with-env ( SexprList Env -- EvalResult )
+  # Stack: List Env
+  swap scdr
+  dup snil? if
+    drop drop 0 snum eval-ok
+  else
+    dup scar 2 pick eval-with-env
+    dup eval-err? if
+      nip nip nip
+    else
+      eval-ok-value snum-val
+      swap scdr
+      dup snil? if
+        drop nip snum eval-ok
+      else
+        # Stack: Env FirstVal RestList -> need RestList FirstVal Env
+        rot rot swap eval-fold-div-with-env
+      then
+    then
+  then
+;
+
+: eval-fold-div-with-env ( SexprList Int Env -- EvalResult )
   # Stack: List Acc Env
   2 pick snil? if
     # List is empty, return Acc
-    drop nip
+    drop nip snum eval-ok
   else
     # Get first element and eval it
-    2 pick scar over eval-with-env snum-val
-    # Stack: List Acc Env FirstVal
-    rot swap divide
-    # Stack: List Env NewAcc
-    swap rot scdr rot rot
-    # Stack: RestList NewAcc Env
-    eval-fold-div-with-env
+    2 pick scar over eval-with-env
+    dup eval-err? if
+      nip nip nip
+    else
+      eval-ok-value snum-val
+      # Stack: List Acc Env FirstVal
+      rot swap divide
+      # Stack: List Env NewAcc
+      swap rot scdr rot rot
+      # Stack: RestList NewAcc Env
+      eval-fold-div-with-env
+    then
   then
 ;
 
@@ -560,159 +617,239 @@ union LispClosure {
 # Comparison Operations
 # ============================================
 
-: eval-lt-with-env ( SexprList Env -- Sexpr )
+: eval-lt-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
   # (< a b) returns #t if a < b, else #f
   swap scdr  # Skip the < -> Env Args
-  dup scar 2 pick eval-with-env snum-val  # Eval first arg
-  swap scdr scar 2 pick eval-with-env snum-val  # Eval second arg
-  # Stack: Env First Second
-  < if "#t" else "#f" then ssym nip
+  dup scar 2 pick eval-with-env  # Eval first arg -> Env Args EvalResult
+  dup eval-err? if
+    nip nip nip  # Error - propagate
+  else
+    eval-ok-value snum-val  # -> Env Args First
+    swap scdr scar 2 pick eval-with-env  # Eval second arg -> Env First EvalResult
+    dup eval-err? if
+      nip nip nip  # Error - propagate
+    else
+      eval-ok-value snum-val  # -> Env First Second
+      < if "#t" else "#f" then ssym eval-ok nip
+    then
+  then
 ;
 
-: eval-gt-with-env ( SexprList Env -- Sexpr )
+: eval-gt-with-env ( SexprList Env -- EvalResult )
   swap scdr
-  dup scar 2 pick eval-with-env snum-val
-  swap scdr scar 2 pick eval-with-env snum-val
-  > if "#t" else "#f" then ssym nip
+  dup scar 2 pick eval-with-env
+  dup eval-err? if
+    nip nip nip
+  else
+    eval-ok-value snum-val
+    swap scdr scar 2 pick eval-with-env
+    dup eval-err? if
+      nip nip nip
+    else
+      eval-ok-value snum-val
+      > if "#t" else "#f" then ssym eval-ok nip
+    then
+  then
 ;
 
-: eval-lte-with-env ( SexprList Env -- Sexpr )
+: eval-lte-with-env ( SexprList Env -- EvalResult )
   swap scdr
-  dup scar 2 pick eval-with-env snum-val
-  swap scdr scar 2 pick eval-with-env snum-val
-  <= if "#t" else "#f" then ssym nip
+  dup scar 2 pick eval-with-env
+  dup eval-err? if
+    nip nip nip
+  else
+    eval-ok-value snum-val
+    swap scdr scar 2 pick eval-with-env
+    dup eval-err? if
+      nip nip nip
+    else
+      eval-ok-value snum-val
+      <= if "#t" else "#f" then ssym eval-ok nip
+    then
+  then
 ;
 
-: eval-gte-with-env ( SexprList Env -- Sexpr )
+: eval-gte-with-env ( SexprList Env -- EvalResult )
   swap scdr
-  dup scar 2 pick eval-with-env snum-val
-  swap scdr scar 2 pick eval-with-env snum-val
-  >= if "#t" else "#f" then ssym nip
+  dup scar 2 pick eval-with-env
+  dup eval-err? if
+    nip nip nip
+  else
+    eval-ok-value snum-val
+    swap scdr scar 2 pick eval-with-env
+    dup eval-err? if
+      nip nip nip
+    else
+      eval-ok-value snum-val
+      >= if "#t" else "#f" then ssym eval-ok nip
+    then
+  then
 ;
 
-: eval-eq-with-env ( SexprList Env -- Sexpr )
+: eval-eq-with-env ( SexprList Env -- EvalResult )
   swap scdr
-  dup scar 2 pick eval-with-env snum-val
-  swap scdr scar 2 pick eval-with-env snum-val
-  = if "#t" else "#f" then ssym nip
+  dup scar 2 pick eval-with-env
+  dup eval-err? if
+    nip nip nip
+  else
+    eval-ok-value snum-val
+    swap scdr scar 2 pick eval-with-env
+    dup eval-err? if
+      nip nip nip
+    else
+      eval-ok-value snum-val
+      = if "#t" else "#f" then ssym eval-ok nip
+    then
+  then
 ;
 
 # ============================================
 # Print
 # ============================================
 
-: eval-print-with-env ( SexprList Env -- Sexpr )
+: eval-print-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
   # (print expr) - evaluate expr, print result, return result
   swap scdr scar  # Get the expression to print
-  swap eval-with-env  # Evaluate it
-  dup sexpr-to-string write_line  # Print it
-  # Return the value
+  swap eval-with-env  # Evaluate it -> EvalResult
+  dup eval-err? if
+    # Error - just return it
+  else
+    dup eval-ok-value sexpr-to-string write_line  # Print it
+    # Return the EvalResult as-is
+  then
 ;
 
 # ============================================
 # Define (returns a special result for REPL)
 # ============================================
 
-: eval-define-with-env ( SexprList Env -- DefineResult )
+: eval-define-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
   # (define name value) - evaluate value, return special result
   swap scdr  # Skip 'define' -> Env Args
   dup scar ssym-val  # Get name string -> Env Args Name
   swap scdr scar  # Get value expr -> Env Name ValueExpr
   rot  # -> Name ValueExpr Env
-  eval-with-env  # Evaluate value -> Name Value
-  make-define-result  # Return DefineResult (tag 70)
+  eval-with-env  # Evaluate value -> Name EvalResult
+  dup eval-err? if
+    nip  # Error - drop name, return error
+  else
+    eval-ok-value  # Unwrap -> Name Value
+    eval-define  # Return EvalDefine
+  then
 ;
 
 # ============================================
 # Quote (returns argument unevaluated)
 # ============================================
 
-: eval-quote-with-env ( SexprList Env -- Sexpr )
+: eval-quote-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
   # (quote expr) - return expr without evaluating
   drop  # Drop environment, not needed
   scdr scar  # Skip 'quote', get the expression
+  eval-ok  # Wrap in EvalOk
 ;
 
 # ============================================
 # List Operations (cons, car, cdr, list)
 # ============================================
 
-: eval-cons-with-env ( SexprList Env -- Sexpr )
+: eval-cons-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
   # (cons head tail) - create new cons cell
   swap scdr  # Skip 'cons' -> Env Args
-  dup scar 2 pick eval-with-env  # Eval head -> Env Args Head
-  swap scdr scar 2 pick eval-with-env  # Eval tail -> Env Head Tail
-  # Tail must be a list (SList)
-  dup slist? if
-    slist-val  # -> Env Head TailList
-    scons slist nip  # -> (Head . TailList) as Sexpr
+  dup scar 2 pick eval-with-env  # Eval head -> Env Args EvalResult
+  dup eval-err? if
+    nip nip nip
   else
-    # Error: tail is not a list, just return head in a list
-    drop snil scons slist nip
+    eval-ok-value  # -> Env Args Head
+    swap scdr scar 2 pick eval-with-env  # Eval tail -> Env Head EvalResult
+    dup eval-err? if
+      nip nip nip
+    else
+      eval-ok-value  # -> Env Head Tail
+      # Tail must be a list (SList)
+      dup slist? if
+        slist-val  # -> Env Head TailList
+        scons slist nip eval-ok  # -> (Head . TailList) as EvalOk
+      else
+        # Error: tail is not a list
+        drop drop drop "cons: second argument must be a list" eval-err
+      then
+    then
   then
 ;
 
-: eval-car-with-env ( SexprList Env -- Sexpr|ErrorResult )
+: eval-car-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
   # (car lst) - get first element of list
   over  # -> List Env List
-  1 "car" check-arity  # -> List Env List|ErrorResult
-  dup error-result? if
-    # Arity error - return it, drop List and Env
-    nip nip
+  1 "car" check-arity  # -> List Env List EvalResult
+  dup eval-err? if
+    # Arity error - return it, drop List copy, List and Env
+    nip nip nip
   else
-    # Arity OK - drop checked result, proceed with evaluation
-    drop
+    # Arity OK - drop EvalOk and List copy, proceed with evaluation
+    drop drop
     swap scdr scar  # Skip 'car', get arg -> Env Arg
-    swap eval-with-env  # Eval arg -> Result
-    dup slist? if
-      slist-val  # -> SexprList
-      dup snil? if
-        # Empty list - return empty list
-        drop snil slist
-      else
-        scar  # -> First element
-      then
+    swap eval-with-env  # Eval arg -> EvalResult
+    dup eval-err? if
+      # Error - propagate
     else
-      # Not a list - return as-is
+      eval-ok-value  # Unwrap
+      dup slist? if
+        slist-val  # -> SexprList
+        dup snil? if
+          # Empty list - return empty list
+          drop snil slist eval-ok
+        else
+          scar eval-ok  # -> First element
+        then
+      else
+        # Not a list - type error
+        drop "car: argument must be a list" eval-err
+      then
     then
   then
 ;
 
-: eval-cdr-with-env ( SexprList Env -- Sexpr|ErrorResult )
+: eval-cdr-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
   # (cdr lst) - get rest of list (tail)
   over  # -> List Env List
-  1 "cdr" check-arity  # -> List Env List|ErrorResult
-  dup error-result? if
-    # Arity error - return it, drop List and Env
-    nip nip
+  1 "cdr" check-arity  # -> List Env List EvalResult
+  dup eval-err? if
+    # Arity error - return it, drop List copy, List and Env
+    nip nip nip
   else
-    # Arity OK - drop checked result, proceed with evaluation
-    drop
+    # Arity OK - drop EvalOk and List copy, proceed with evaluation
+    drop drop
     swap scdr scar  # Skip 'cdr', get arg -> Env Arg
-    swap eval-with-env  # Eval arg -> Result
-    dup slist? if
-      slist-val  # -> SexprList
-      dup snil? if
-        # Empty list - return empty list
-        drop snil slist
-      else
-        scdr slist  # -> Rest as Sexpr
-      then
+    swap eval-with-env  # Eval arg -> EvalResult
+    dup eval-err? if
+      # Error - propagate
     else
-      # Not a list - return empty list
-      drop snil slist
+      eval-ok-value  # Unwrap
+      dup slist? if
+        slist-val  # -> SexprList
+        dup snil? if
+          # Empty list - return empty list
+          drop snil slist eval-ok
+        else
+          scdr slist eval-ok  # -> Rest as EvalOk
+        then
+      else
+        # Not a list - type error
+        drop "cdr: argument must be a list" eval-err
+      then
     then
   then
 ;
 
-: eval-list-builtin-with-env ( SexprList Env -- Sexpr )
+: eval-list-builtin-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
   # (list a b c ...) - create list from evaluated arguments
   swap scdr  # Skip 'list' -> Env Args
@@ -721,19 +858,24 @@ union LispClosure {
   eval-list-items
 ;
 
-: eval-list-items ( SexprList SexprList Env -- Sexpr )
+: eval-list-items ( SexprList SexprList Env -- EvalResult )
   # Stack: Args Acc Env
   # Evaluate each arg and cons onto accumulator (in reverse)
   2 pick snil? if
     # Done - reverse accumulator and wrap in SList
-    drop nip list-reverse slist
+    drop nip list-reverse slist eval-ok
   else
     # Eval first arg
-    2 pick scar over eval-with-env  # -> Args Acc Env EvaledArg
-    rot scons  # -> Args Env NewAcc
-    swap  # -> Args NewAcc Env
-    rot scdr rot rot  # -> RestArgs NewAcc Env
-    eval-list-items
+    2 pick scar over eval-with-env  # -> Args Acc Env EvalResult
+    dup eval-err? if
+      nip nip nip  # Error - propagate
+    else
+      eval-ok-value  # Unwrap -> Args Acc Env Sexpr
+      rot scons  # -> Args Env NewAcc
+      swap  # -> Args NewAcc Env
+      rot scdr rot rot  # -> RestArgs NewAcc Env
+      eval-list-items
+    then
   then
 ;
 
@@ -741,82 +883,108 @@ union LispClosure {
 # Predicates (null?, number?, symbol?, list?)
 # ============================================
 
-: eval-null?-with-env ( SexprList Env -- Sexpr )
+: eval-null?-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
   # (null? expr) - returns #t if expr is empty list, #f otherwise
   swap scdr scar  # Skip 'null?', get arg -> Env Arg
-  swap eval-with-env  # Eval arg -> Result
-  dup slist? if
-    slist-val snil? if "#t" else "#f" then
+  swap eval-with-env  # Eval arg -> EvalResult
+  dup eval-err? if
+    # Error - propagate
   else
-    drop "#f"
+    eval-ok-value
+    dup slist? if
+      slist-val snil? if "#t" else "#f" then
+    else
+      drop "#f"
+    then
+    ssym eval-ok
   then
-  ssym
 ;
 
-: eval-number?-with-env ( SexprList Env -- Sexpr )
+: eval-number?-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
   # (number? expr) - returns #t if expr is a number, #f otherwise
   swap scdr scar  # Skip 'number?', get arg -> Env Arg
-  swap eval-with-env  # Eval arg -> Result
-  snum? if "#t" else "#f" then ssym
+  swap eval-with-env  # Eval arg -> EvalResult
+  dup eval-err? if
+  else
+    eval-ok-value
+    snum? if "#t" else "#f" then ssym eval-ok
+  then
 ;
 
-: eval-symbol?-with-env ( SexprList Env -- Sexpr )
+: eval-symbol?-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
   # (symbol? expr) - returns #t if expr is a symbol, #f otherwise
   swap scdr scar  # Skip 'symbol?', get arg -> Env Arg
-  swap eval-with-env  # Eval arg -> Result
-  ssym? if "#t" else "#f" then ssym
+  swap eval-with-env  # Eval arg -> EvalResult
+  dup eval-err? if
+  else
+    eval-ok-value
+    ssym? if "#t" else "#f" then ssym eval-ok
+  then
 ;
 
-: eval-list?-with-env ( SexprList Env -- Sexpr )
+: eval-list?-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
   # (list? expr) - returns #t if expr is a list, #f otherwise
   swap scdr scar  # Skip 'list?', get arg -> Env Arg
-  swap eval-with-env  # Eval arg -> Result
-  slist? if "#t" else "#f" then ssym
+  swap eval-with-env  # Eval arg -> EvalResult
+  dup eval-err? if
+  else
+    eval-ok-value
+    slist? if "#t" else "#f" then ssym eval-ok
+  then
 ;
 
-: eval-boolean?-with-env ( SexprList Env -- Sexpr )
+: eval-boolean?-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
   # (boolean? expr) - returns #t if expr is #t or #f, #f otherwise
   swap scdr scar  # Skip 'boolean?', get arg -> Env Arg
-  swap eval-with-env  # Eval arg -> Result
-  dup ssym? if
-    ssym-val dup "#t" string-equal swap "#f" string-equal or
-    if "#t" else "#f" then
+  swap eval-with-env  # Eval arg -> EvalResult
+  dup eval-err? if
   else
-    drop "#f"
+    eval-ok-value
+    dup ssym? if
+      ssym-val dup "#t" string-equal swap "#f" string-equal or
+      if "#t" else "#f" then
+    else
+      drop "#f"
+    then
+    ssym eval-ok
   then
-  ssym
 ;
 
 # ============================================
 # Begin (sequencing)
 # ============================================
 
-: eval-begin-with-env ( SexprList Env -- Sexpr )
+: eval-begin-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
   # (begin expr1 expr2 ... exprN) - evaluate all, return last result
   swap scdr  # Skip 'begin' -> Env Exprs
   swap eval-begin-exprs
 ;
 
-: eval-begin-exprs ( SexprList Env -- Sexpr )
+: eval-begin-exprs ( SexprList Env -- EvalResult )
   # Stack: Exprs Env
   # Evaluate expressions in sequence, return last result
   over snil? if
     # No expressions - return empty list
-    drop drop snil slist
+    drop drop snil slist eval-ok
   else
     over scdr snil? if
       # Last expression - evaluate and return
       swap scar swap eval-with-env
     else
-      # More expressions - evaluate this one, discard result, continue
-      over scar over eval-with-env drop
-      swap scdr swap eval-begin-exprs
+      # More expressions - evaluate this one, discard result if ok, continue
+      over scar over eval-with-env
+      dup eval-err? if
+        nip nip  # Error - propagate
+      else
+        drop  # Discard result
+        swap scdr swap eval-begin-exprs
+      then
     then
   then
 ;
@@ -825,19 +993,19 @@ union LispClosure {
 # Cond (multi-way conditional)
 # ============================================
 
-: eval-cond-with-env ( SexprList Env -- Sexpr )
+: eval-cond-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
   # (cond (test1 expr1) (test2 expr2) ... (else exprN))
   swap scdr  # Skip 'cond' -> Env Clauses
   swap eval-cond-clauses
 ;
 
-: eval-cond-clauses ( SexprList Env -- Sexpr )
+: eval-cond-clauses ( SexprList Env -- EvalResult )
   # Stack: Clauses Env
   # Process clauses until one matches
   over snil? if
     # No more clauses - return empty list
-    drop drop snil slist
+    drop drop snil slist eval-ok
   else
     # Get first clause: (test expr...)
     over scar slist-val  # Clauses Env ClauseList
@@ -851,8 +1019,31 @@ union LispClosure {
         swap eval-cond-body
       else
         # Regular symbol test - evaluate it
-        2 pick eval-with-env  # Clauses Env ClauseList TestResult
-        cond-test-true? if
+        2 pick eval-with-env  # Clauses Env ClauseList EvalResult
+        dup eval-err? if
+          nip nip nip  # Error - propagate
+        else
+          eval-ok-value cond-test-true? if
+            # Test passed - evaluate clause body
+            scdr  # Clauses Env BodyExprs
+            rot drop  # Env BodyExprs
+            swap eval-cond-body
+          else
+            # Test failed - try next clause
+            # Stack: Clauses Env ClauseList
+            drop  # Clauses Env
+            swap scdr swap  # RestClauses Env
+            eval-cond-clauses
+          then
+        then
+      then
+    else
+      # Test is not a symbol - evaluate it
+      2 pick eval-with-env  # Clauses Env ClauseList EvalResult
+      dup eval-err? if
+        nip nip nip  # Error - propagate
+      else
+        eval-ok-value cond-test-true? if
           # Test passed - evaluate clause body
           scdr  # Clauses Env BodyExprs
           rot drop  # Env BodyExprs
@@ -864,21 +1055,6 @@ union LispClosure {
           swap scdr swap  # RestClauses Env
           eval-cond-clauses
         then
-      then
-    else
-      # Test is not a symbol - evaluate it
-      2 pick eval-with-env  # Clauses Env ClauseList TestResult
-      cond-test-true? if
-        # Test passed - evaluate clause body
-        scdr  # Clauses Env BodyExprs
-        rot drop  # Env BodyExprs
-        swap eval-cond-body
-      else
-        # Test failed - try next clause
-        # Stack: Clauses Env ClauseList
-        drop  # Clauses Env
-        swap scdr swap  # RestClauses Env
-        eval-cond-clauses
       then
     then
   then
@@ -898,7 +1074,7 @@ union LispClosure {
   then
 ;
 
-: eval-cond-body ( SexprList Env -- Sexpr )
+: eval-cond-body ( SexprList Env -- EvalResult )
   # Stack: BodyExprs Env
   # Evaluate body expressions, return last result (like begin)
   eval-begin-exprs
@@ -908,39 +1084,44 @@ union LispClosure {
 # Conditional (if)
 # ============================================
 
-: eval-if-with-env ( SexprList Env -- Sexpr )
+: eval-if-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
   # List is (if cond then-expr else-expr)
   swap scdr  # Skip the if -> Env Args
   # Args is (cond then-expr else-expr)
   dup scar   # -> Env Args CondExpr
   2 pick     # -> Env Args CondExpr Env
-  eval-with-env  # -> Env Args CondResult
-  # Check if condition is false (numeric 0 or #f)
-  dup snum? if
-    snum-val 0 = if
-      # False (0) - eval else branch
-      # Stack: Env Args
-      scdr scdr scar swap eval-with-env
-    else
-      # True (non-zero) - eval then branch
-      # Stack: Env Args
-      scdr scar swap eval-with-env
-    then
+  eval-with-env  # -> Env Args EvalResult
+  dup eval-err? if
+    nip nip  # Error - propagate
   else
-    # Check for #f symbol
-    dup ssym? if
-      ssym-val "#f" string-equal if
-        # False (#f) - eval else branch
+    eval-ok-value  # Unwrap -> Env Args CondResult
+    # Check if condition is false (numeric 0 or #f)
+    dup snum? if
+      snum-val 0 = if
+        # False (0) - eval else branch
+        # Stack: Env Args
         scdr scdr scar swap eval-with-env
       else
-        # Other symbol - treat as true
+        # True (non-zero) - eval then branch
+        # Stack: Env Args
         scdr scar swap eval-with-env
       then
     else
-      # Non-numeric, non-symbol - treat as true
-      drop  # Drop CondResult -> Env Args
-      scdr scar swap eval-with-env
+      # Check for #f symbol
+      dup ssym? if
+        ssym-val "#f" string-equal if
+          # False (#f) - eval else branch
+          scdr scdr scar swap eval-with-env
+        else
+          # Other symbol - treat as true
+          scdr scar swap eval-with-env
+        then
+      else
+        # Non-numeric, non-symbol - treat as true
+        drop  # Drop CondResult -> Env Args
+        scdr scar swap eval-with-env
+      then
     then
   then
 ;
@@ -949,29 +1130,34 @@ union LispClosure {
 # Let Binding
 # ============================================
 
-: eval-let-with-env ( SexprList Env -- Sexpr )
+: eval-let-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
   # List is (let name value body)
   swap scdr  # Skip the 'let' -> Env Args
   dup scar ssym-val  # Get binding name -> Env Args Name
   swap scdr  # -> Env Name RestArgs
   dup scar  # -> Env Name RestArgs ValueExpr
-  3 pick eval-with-env  # Evaluate value -> Env Name RestArgs Value
-  rot  # -> Env RestArgs Value Name
-  swap  # -> Env RestArgs Name Value
-  3 pick  # -> Env RestArgs Name Value Env
-  env-extend  # -> Env RestArgs NewEnv
-  swap scdr scar  # Get body expr -> Env NewEnv BodyExpr
-  swap  # -> Env BodyExpr NewEnv
-  eval-with-env  # Evaluate body in new env -> Env Result
-  nip  # -> Result
+  3 pick eval-with-env  # Evaluate value -> Env Name RestArgs EvalResult
+  dup eval-err? if
+    nip nip nip nip  # Error - propagate
+  else
+    eval-ok-value  # Unwrap -> Env Name RestArgs Value
+    rot  # -> Env RestArgs Value Name
+    swap  # -> Env RestArgs Name Value
+    3 pick  # -> Env RestArgs Name Value Env
+    env-extend  # -> Env RestArgs NewEnv
+    swap scdr scar  # Get body expr -> Env NewEnv BodyExpr
+    swap  # -> Env BodyExpr NewEnv
+    eval-with-env  # Evaluate body in new env -> Env EvalResult
+    nip  # -> EvalResult
+  then
 ;
 
 # ============================================
 # Lambda
 # ============================================
 
-: eval-lambda-with-env ( SexprList Env -- LispClosure )
+: eval-lambda-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
   # List is (lambda (params) body)
   swap scdr  # Skip 'lambda' -> Env Args
@@ -980,30 +1166,36 @@ union LispClosure {
   swap scdr scar  # Get body -> Env Params Body
   rot  # -> Params Body Env
   make-closure  # -> Closure
+  eval-ok  # Wrap closure in EvalOk
 ;
 
 # ============================================
 # Closure Application
 # ============================================
 
-: apply-closure ( LispClosure SexprList Env -- Sexpr )
+: apply-closure ( LispClosure SexprList Env -- EvalResult )
   # Stack: Closure Args CallerEnv
   # For simplicity, support single-parameter lambdas
   # 1. Evaluate the single argument
   # 2. Bind param to value in merged env (closure + caller for recursion)
   # 3. Evaluate body in extended env
   over scar  # -> Closure Args CallerEnv ArgExpr
-  over eval-with-env  # -> Closure Args CallerEnv ArgVal
-  # Now get closure components
-  3 pick closure-params scar ssym-val  # -> Closure Args CallerEnv ArgVal ParamName
-  swap  # -> Closure Args CallerEnv ParamName ArgVal
-  4 pick closure-env  # -> Closure Args CallerEnv ParamName ArgVal ClosureEnv
-  3 pick env-concat  # -> Closure Args CallerEnv ParamName ArgVal MergedEnv
-  env-extend  # -> Closure Args CallerEnv ExtendedEnv
-  # Evaluate body
-  3 pick closure-body  # -> Closure Args CallerEnv ExtendedEnv Body
-  swap eval-with-env  # -> Closure Args CallerEnv Result
-  nip nip nip  # -> Result
+  over eval-with-env  # -> Closure Args CallerEnv EvalResult
+  dup eval-err? if
+    nip nip nip  # Error - propagate
+  else
+    eval-ok-value  # Unwrap -> Closure Args CallerEnv ArgVal
+    # Now get closure components
+    3 pick closure-params scar ssym-val  # -> Closure Args CallerEnv ArgVal ParamName
+    swap  # -> Closure Args CallerEnv ParamName ArgVal
+    4 pick closure-env  # -> Closure Args CallerEnv ParamName ArgVal ClosureEnv
+    3 pick env-concat  # -> Closure Args CallerEnv ParamName ArgVal MergedEnv
+    env-extend  # -> Closure Args CallerEnv ExtendedEnv
+    # Evaluate body
+    3 pick closure-body  # -> Closure Args CallerEnv ExtendedEnv Body
+    swap eval-with-env  # -> Closure Args CallerEnv EvalResult
+    nip nip nip  # -> EvalResult
+  then
 ;
 
 # ============================================
@@ -1011,9 +1203,9 @@ union LispClosure {
 # ============================================
 
 : eval-print ( String -- )
-  parse eval
-  dup error-result? if
-    "Error: " swap error-result-message string-concat write_line
+  parse env-empty eval-with-env
+  dup eval-err? if
+    "Error: " swap eval-err-message string-concat write_line
   else
-    sexpr-to-string write_line
+    eval-ok-value sexpr-to-string write_line
   then ;
