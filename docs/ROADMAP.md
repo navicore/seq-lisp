@@ -27,10 +27,12 @@ A working interpreter with:
 
 ## Short Term
 
-### Better REPL Experience
-- [ ] Multi-line input support
-- [ ] Error recovery (don't crash on bad input)
-- [ ] Command history (if Seq gets readline support)
+### Better REPL Experience ✓
+- [x] Multi-line input support (paren balancing)
+- [x] Continuation prompt (...) for incomplete expressions
+- [x] Environment persists across expressions
+- [x] Error recovery (REPL continues after errors)
+- [ ] Command history (requires Seq readline support)
 
 ### Core Lisp Features
 - [x] `quote` and `'` syntax
