@@ -1,5 +1,6 @@
 # Build artifacts
 repl
+test_eval
 seqlisp
 /target/
 ./test*

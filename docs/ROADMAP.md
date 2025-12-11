@@ -42,11 +42,12 @@ A working interpreter with:
 - [x] `begin` for sequencing
 - [x] `cond` as multi-way conditional
 
-### Code Quality
-- [ ] Refactor builtin dispatch to reduce nesting
-  - Current dispatch uses 18+ levels of nested if-else
-  - Consider lookup table or function pointer approach
-  - Improves maintainability as more builtins are added
+### Code Quality ✓
+- [x] Refactor builtin dispatch to reduce nesting
+  - Replaced 25+ levels of nested if-else with grouped dispatch chain
+  - 8 logical groups: arithmetic, comparison, special forms, list ops, predicates, control flow, I/O, user-defined
+  - Each group handles 2-5 builtins, max nesting depth of 5
+  - Easy to extend: add new builtins to their logical group
 
 ### Error Handling
 
