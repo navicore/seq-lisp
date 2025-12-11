@@ -1,10 +1,16 @@
 # SeqLisp - A Lisp interpreter written in Seq
 #
 # Usage:
-#   ./seqlisp              - Interactive mode (Ctrl+D to run)
+#   ./seqlisp              - Interactive REPL (multi-line, Ctrl+D to exit)
 #   ./seqlisp file.lisp    - Run a file
 #   ./seqlisp --version    - Print version
-#   cat file.lisp | ./seqlisp - Piped input (reads until EOF)
+#   echo "(+ 1 2)" | ./seqlisp - Piped input
+#
+# REPL features:
+#   - Multi-line input (detects incomplete expressions)
+#   - Continuation prompt (...) for multi-line
+#   - Environment persists across expressions
+#   - Error recovery (REPL continues after errors)
 #
 # Build: seqc src/repl.seq -o seqlisp
 
@@ -101,7 +107,131 @@ include "version"
 ;
 
 # ============================================
-# Stdin Mode - Read all lines, then evaluate
+# Paren Balancing for Multi-line Input
+# ============================================
+
+# Count paren balance in a string: returns (opens - closes)
+# Positive = need more closing parens, Negative = too many closes, Zero = balanced
+: paren-balance ( String -- Int )
+    0 swap 0 paren-balance-loop ;
+
+: paren-balance-loop ( Int String Int -- Int )
+    # Stack: Balance Str Pos
+    # Check if Pos >= Length (done)
+    dup 2 pick string-length >= if
+        # End of string - return Balance
+        drop drop  # Drop Str Pos, leave Balance
+    else
+        # Get char at pos
+        over over string-char-at
+        dup 40 = if      # '('
+            drop rot 1 add rot rot 1 add paren-balance-loop
+        else
+            dup 41 = if  # ')'
+                drop rot 1 subtract rot rot 1 add paren-balance-loop
+            else
+                # Skip other chars
+                drop 1 add paren-balance-loop
+            then
+        then
+    then ;
+
+# Check if input has content (non-whitespace, non-comment)
+: has-content ( String -- Int )
+    0 swap 0 has-content-loop ;
+
+: has-content-loop ( Int String Int -- Int )
+    # Stack: Found Str Pos
+    # Check if Pos >= Length (done)
+    dup 2 pick string-length >= if
+        # End of string - return Found
+        drop drop  # Drop Str Pos, leave Found
+    else
+        over over string-char-at
+        # Stack: Found Str Pos CharCode
+        dup 59 = if  # ';' - comment, return 0 (no content)
+            drop drop drop drop 0
+        else
+            dup 32 > if  # Non-whitespace - found content
+                drop drop drop drop 1
+            else
+                # Whitespace - continue searching
+                drop 1 add has-content-loop
+            then
+        then
+    then ;
+
+# ============================================
+# Interactive REPL Mode
+# ============================================
+
+# Print prompt based on whether we're continuing a multi-line expression
+# Note: write_line adds newline, so prompt appears on its own line
+: print-prompt ( Int -- )
+    0 = if
+        ">" write_line
+    else
+        "..." write_line
+    then ;
+
+# Handle EOF in REPL
+: repl-handle-eof ( String Env -- )
+    # Stack: Acc Env
+    over has-content if
+        over paren-balance 0 = if
+            # Balanced - evaluate remaining
+            swap tokenize parse-all
+            swap eval-all-print drop
+            "Goodbye!" write_line
+        else
+            # Unbalanced at EOF
+            drop drop "Error: unbalanced parentheses" write_line
+        then
+    else
+        drop drop "Goodbye!" write_line
+    then ;
+
+# Handle a line of input
+: repl-handle-line ( String Env String -- )
+    # Stack: Acc Env Line
+    # Build: Acc + Line (Acc already has newlines from previous lines)
+    rot swap string-concat
+    # Stack: Env NewAcc
+    swap
+    # Stack: NewAcc Env
+    over paren-balance 0 =
+    # Stack: NewAcc Env BalancedBool
+    2 pick has-content
+    # Stack: NewAcc Env BalancedBool HasContentBool
+    and if
+        # Balanced and has content - evaluate
+        swap tokenize parse-all
+        swap eval-all-print
+        "" swap repl-loop
+    else
+        # Need more input
+        repl-loop
+    then ;
+
+# Interactive REPL loop with multi-line support
+: repl-loop ( String Env -- )
+    # Stack: Accumulator Env
+    over paren-balance print-prompt
+    read_line+
+    0 = if
+        # EOF
+        drop repl-handle-eof
+    else
+        # Got a line
+        repl-handle-line
+    then ;
+
+# Start interactive REPL
+: run-repl ( -- )
+    "" env-empty repl-loop ;
+
+# ============================================
+# Stdin Mode - Read all lines, then evaluate (for piped input)
 # ============================================
 
 # Read all lines until EOF (preserves newlines for comments)
@@ -117,16 +247,15 @@ include "version"
     then
 ;
 
-# Run from stdin
+# Run from stdin (non-interactive, for piped input)
 : run-stdin ( -- )
     "" read-all-stdin
     dup string-empty if
-        drop "Goodbye!" write_line
+        drop
     else
         tokenize parse-all
         env-empty eval-all-print drop
-    then
-;
+    then ;
 
 # ============================================
 # Main Entry Point
@@ -155,7 +284,6 @@ include "version"
         then
     else
         "SeqLisp " seqlisp-version string-concat write_line
-        "Enter code (Ctrl+D to run):" write_line
-        run-stdin
+        run-repl
     then
 ;
