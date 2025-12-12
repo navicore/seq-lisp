@@ -2,6 +2,7 @@
 test_error_handling
 repl
 test_eval
+test_errors
 seqlisp
 /target/
 ./test*

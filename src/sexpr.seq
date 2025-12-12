@@ -2,19 +2,43 @@
 #
 # Algebraic Data Types for S-expressions:
 #
-#   Sexpr = SNum Int | SSym String | SList SexprList
+#   Sexpr = SNum Int | SSym String | SList SexprList | SClosure Closure
 #   SexprList = SNil | SCons Sexpr SexprList
+#   Closure = { params: Sexpr, body: Sexpr, env: Env }
+#   Env = EnvEmpty | EnvExtend Binding Env
+#   Binding = { name: String, value: Sexpr }
+#
+# All types are defined here to support mutual recursion.
 
 # ============================================
 # Type Definitions
 # ============================================
 
+# Environment binding: maps a name to a value
+union Binding {
+  Bind { name: String, value: Sexpr }
+}
+
+# Environment: linked list of bindings
+union Env {
+  EnvEmpty
+  EnvExtend { binding: Binding, parent: Env }
+}
+
+# Closure: captures params, body, and defining environment
+union LispClosure {
+  Clos { params: Sexpr, body: Sexpr, captured_env: Env }
+}
+
+# S-expressions: the core Lisp value type
 union Sexpr {
   SNum { value: Int }
   SSym { name: String }
   SList { items: SexprList }
+  SClosure { closure: LispClosure }
 }
 
+# Linked list of S-expressions
 union SexprList {
   SNil
   SCons { head: Sexpr, tail: SexprList }
@@ -33,11 +57,30 @@ union SexprList {
 : slist ( SexprList -- Sexpr )
   Make-SList ;
 
+: sclosure ( LispClosure -- Sexpr )
+  Make-SClosure ;
+
 : snil ( -- SexprList )
   Make-SNil ;
 
 : scons ( Sexpr SexprList -- SexprList )
   Make-SCons ;
+
+# Binding constructors
+: make-binding ( String Sexpr -- Binding )
+  Make-Bind ;
+
+# Environment constructors
+: env-empty ( -- Env )
+  Make-EnvEmpty ;
+
+: env-extend ( String Sexpr Env -- Env )
+  # Stack: Name Value Env
+  rot rot make-binding swap Make-EnvExtend ;
+
+# Closure constructors
+: make-closure ( Sexpr Sexpr Env -- LispClosure )
+  Make-Clos ;
 
 # ============================================
 # Predicates
@@ -51,6 +94,9 @@ union SexprList {
 
 : slist? ( Sexpr -- Int )
   variant-tag 2 = ;
+
+: sclosure? ( Sexpr -- Int )
+  variant-tag 3 = ;
 
 : snil? ( SexprList -- Int )
   variant-tag 0 = ;
@@ -68,11 +114,31 @@ union SexprList {
 : slist-val ( Sexpr -- SexprList )
   0 variant-field-at ;
 
+: sclosure-val ( Sexpr -- LispClosure )
+  0 variant-field-at ;
+
 : scar ( SexprList -- Sexpr )
   0 variant-field-at ;
 
 : scdr ( SexprList -- SexprList )
   1 variant-field-at ;
+
+# Binding accessors
+: binding-name ( Binding -- String )
+  0 variant-field-at ;
+
+: binding-value ( Binding -- Sexpr )
+  1 variant-field-at ;
+
+# Closure accessors
+: closure-params ( LispClosure -- Sexpr )
+  0 variant-field-at ;
+
+: closure-body ( LispClosure -- Sexpr )
+  1 variant-field-at ;
+
+: closure-env ( LispClosure -- Env )
+  2 variant-field-at ;
 
 # ============================================
 # Pretty Printing
@@ -88,6 +154,9 @@ union SexprList {
     SList { >items } ->
       # Stack: ( items )
       list-to-string
+    SClosure { >closure } ->
+      # Stack: ( closure )
+      drop "#<closure>"
   end
 ;
 

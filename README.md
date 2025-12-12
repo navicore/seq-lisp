@@ -64,7 +64,8 @@ SeqLisp supports:
 - **Booleans**: `#t`, `#f`
 - **Definitions**: `define`, `lambda`, `let`
 - **Conditionals**: `if`, `cond`
-- **Lists**: `cons`, `car`, `cdr`, `list`, `quote` (`'`)
+- **Lists**: `cons`, `car`, `cdr`, `list`, `quote` (`'`), `append`, `reverse`
+- **Higher-order**: `map`, `filter`, `fold`
 - **Predicates**: `null?`, `number?`, `symbol?`, `list?`, `boolean?`
 - **Sequencing**: `begin`
 - **Output**: `print`
@@ -80,6 +81,22 @@ SeqLisp supports:
         (* n (factorial (- n 1))))))
 
 (print (factorial 5))  ;; 120
+```
+
+### Higher-Order Functions
+
+```lisp
+;; Map: transform each element
+(map (lambda (x) (* x x)) '(1 2 3 4 5))
+;; => (1 4 9 16 25)
+
+;; Filter: keep elements matching predicate
+(filter (lambda (x) (> x 2)) '(1 2 3 4 5))
+;; => (3 4 5)
+
+;; Fold: reduce list to single value
+(fold (lambda (acc x) (+ acc x)) 0 '(1 2 3 4 5))
+;; => 15
 ```
 
 ## Documentation
