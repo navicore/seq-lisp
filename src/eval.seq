@@ -103,53 +103,11 @@ union EvalResult {
   then ;
 
 # ============================================
-# Environment Types
+# Environment Operations
 #
-# Env is a list of bindings (name -> value pairs)
+# Types are defined in sexpr.seq:
+#   Binding, Env, Closure are now part of the core type system
 # ============================================
-
-union Binding {
-  Bind { name: String, value: Sexpr }
-}
-
-union Env {
-  EnvEmpty
-  EnvExtend { binding: Binding, parent: Env }
-}
-
-# ============================================
-# Closure Type
-#
-# Closures capture params, body, and environment
-# ============================================
-
-union LispClosure {
-  Closure { params: Sexpr, body: Sexpr, captured_env: Env }
-}
-
-# ============================================
-# Binding Constructors and Accessors
-# ============================================
-
-: make-binding ( String Sexpr -- Binding )
-  Make-Bind ;
-
-: binding-name ( Binding -- String )
-  0 variant-field-at ;
-
-: binding-value ( Binding -- Sexpr )
-  1 variant-field-at ;
-
-# ============================================
-# Environment Constructors and Accessors
-# ============================================
-
-: env-empty ( -- Env )
-  Make-EnvEmpty ;
-
-: env-extend ( String Sexpr Env -- Env )
-  # Stack: Name Value Env
-  rot rot make-binding swap Make-EnvExtend ;
 
 : env-lookup ( String Env -- EvalResult )
   # Stack: Name Env
@@ -189,25 +147,6 @@ union LispClosure {
     env-concat              # Binding ConcatResult
     Make-EnvExtend          # Result
   then ;
-
-# ============================================
-# Closure Constructors and Accessors
-# ============================================
-
-: make-closure ( Sexpr Sexpr Env -- LispClosure )
-  Make-Closure ;
-
-: closure? ( LispClosure -- Int )
-  variant-tag 0 = ;
-
-: closure-params ( LispClosure -- Sexpr )
-  0 variant-field-at ;
-
-: closure-body ( LispClosure -- Sexpr )
-  1 variant-field-at ;
-
-: closure-env ( LispClosure -- Env )
-  2 variant-field-at ;
 
 # ============================================
 # Main Evaluator
@@ -282,12 +221,12 @@ union LispClosure {
           nip nip nip
         else
           eval-ok-value  # Unwrap to get the Sexpr
-          dup closure? if
+          dup sclosure? if
             # It's a closure - apply it
-            # Stack: Env List EvaledHead
-            rot rot  # -> EvaledHead Env List
-            scdr     # -> EvaledHead Env Args
-            swap     # -> EvaledHead Args Env
+            # Stack: Env List ClosureSexpr
+            rot rot  # -> ClosureSexpr Env List
+            scdr     # -> ClosureSexpr Env Args
+            swap     # -> ClosureSexpr Args Env
             apply-closure
           else
             # Not a closure - error
@@ -382,7 +321,7 @@ union LispClosure {
 ;
 
 # ----------------------------------------
-# Group 4: List Operations (cons, car, cdr, list, append, reverse)
+# Group 4: List Operations (cons, car, cdr, list, append, reverse, map, filter, fold)
 # ----------------------------------------
 : dispatch-list-ops ( SexprList Env String -- EvalResult )
   dup "cons" string-equal if
@@ -397,9 +336,15 @@ union LispClosure {
     drop eval-append-with-env
   else dup "reverse" string-equal if
     drop eval-reverse-with-env
+  else dup "map" string-equal if
+    drop eval-map-with-env
+  else dup "filter" string-equal if
+    drop eval-filter-with-env
+  else dup "fold" string-equal if
+    drop eval-fold-with-env
   else
     dispatch-predicates
-  then then then then then then
+  then then then then then then then then then
 ;
 
 # ----------------------------------------
@@ -458,12 +403,12 @@ union LispClosure {
   else
     # Found something
     eval-ok-value  # List Env Value
-    dup closure? if
+    dup sclosure? if
       # Apply the closure
-      # Stack: List Env Closure
-      rot  # Env Closure List
-      scdr  # Env Closure Args (skip function name)
-      rot  # Closure Args Env
+      # Stack: List Env ClosureSexpr
+      rot  # Env ClosureSexpr List
+      scdr  # Env ClosureSexpr Args (skip function name)
+      rot  # ClosureSexpr Args Env
       apply-closure
     else
       # Not a closure - type error
@@ -1111,6 +1056,246 @@ union LispClosure {
 ;
 
 # ============================================
+# Higher-Order Functions (map, filter, fold)
+# ============================================
+
+: eval-map-with-env ( SexprList Env -- EvalResult )
+  # Stack: List Env
+  # (map fn list) - applies fn to each element, returns new list
+  over 2 "map" check-arity  # -> List Env List EvalResult
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop  # -> List Env
+    swap scdr  # -> Env Args (skip 'map')
+    dup scar 2 pick eval-with-env  # Eval fn -> Env Args EvalResult
+    dup eval-err? if
+      nip nip nip  # Error - propagate
+    else
+      eval-ok-value  # -> Env Args FnVal
+      dup sclosure? if
+        sclosure-val  # -> Env Args Closure (unwrap from Sexpr)
+        swap scdr scar 2 pick eval-with-env  # Eval list arg -> Env Closure EvalResult
+        dup eval-err? if
+          nip nip nip  # Error - propagate
+        else
+          eval-ok-value  # -> Env Closure ListVal
+          dup slist? if
+            slist-val  # -> Env Closure SexprList
+            snil swap  # -> Env Closure Acc InputList
+            map-loop
+          else
+            drop drop drop "map: second argument must be a list" eval-err
+          then
+        then
+      else
+        drop drop drop "map: first argument must be a function" eval-err
+      then
+    then
+  then
+;
+
+: map-loop ( Env LispClosure SexprList SexprList -- EvalResult )
+  # Stack: Env Closure Acc InputList
+  dup snil? if
+    # Done - reverse accumulator and return
+    drop nip nip list-reverse slist eval-ok
+  else
+    # Apply closure to car of input (value, not expression)
+    dup scar  # -> Env Closure Acc InputList Elem
+    # Stack positions: 0:Elem 1:InputList 2:Acc 3:Closure 4:Env
+    3 pick  # -> ... Elem Closure
+    swap  # -> ... Closure Elem
+    5 pick  # -> ... Closure Elem Env
+    apply-closure-val  # -> Env Closure Acc InputList EvalResult
+    dup eval-err? if
+      nip nip nip nip nip  # Error - propagate
+    else
+      eval-ok-value  # -> Env Closure Acc InputList MappedVal
+      rot scons  # -> Env Closure InputList NewAcc
+      swap scdr  # -> Env Closure NewAcc RestInput
+      map-loop
+    then
+  then
+;
+
+: eval-filter-with-env ( SexprList Env -- EvalResult )
+  # Stack: List Env
+  # (filter pred list) - keeps elements where (pred elem) is truthy
+  over 2 "filter" check-arity  # -> List Env List EvalResult
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop  # -> List Env
+    swap scdr  # -> Env Args (skip 'filter')
+    dup scar 2 pick eval-with-env  # Eval pred -> Env Args EvalResult
+    dup eval-err? if
+      nip nip nip  # Error - propagate
+    else
+      eval-ok-value  # -> Env Args PredVal
+      dup sclosure? if
+        sclosure-val  # -> Env Args Closure (unwrap from Sexpr)
+        swap scdr scar 2 pick eval-with-env  # Eval list arg -> Env Closure EvalResult
+        dup eval-err? if
+          nip nip nip  # Error - propagate
+        else
+          eval-ok-value  # -> Env Closure ListVal
+          dup slist? if
+            slist-val  # -> Env Closure SexprList
+            snil swap  # -> Env Closure Acc InputList
+            filter-loop
+          else
+            drop drop drop "filter: second argument must be a list" eval-err
+          then
+        then
+      else
+        drop drop drop "filter: first argument must be a function" eval-err
+      then
+    then
+  then
+;
+
+: filter-loop ( Env LispClosure SexprList SexprList -- EvalResult )
+  # Stack: Env Closure Acc InputList
+  dup snil? if
+    # Done - reverse accumulator and return
+    drop nip nip list-reverse slist eval-ok
+  else
+    # Apply predicate to car of input (value, not expression)
+    dup scar  # -> Env Closure Acc InputList Elem
+    dup  # Save elem for later -> Env Closure Acc InputList Elem Elem
+    # Stack positions: 0:Elem 1:Elem 2:InputList 3:Acc 4:Closure 5:Env
+    4 pick  # -> ... Elem Elem Closure
+    swap  # -> ... Elem Closure Elem
+    6 pick  # -> ... Elem Closure Elem Env
+    apply-closure-val  # -> Env Closure Acc InputList Elem EvalResult
+    dup eval-err? if
+      nip nip nip nip nip nip  # Error - propagate
+    else
+      eval-ok-value  # -> Env Closure Acc InputList Elem PredResult
+      # Check if truthy (not #f and not ())
+      dup ssym? if
+        ssym-val "#f" string-equal if
+          # False - don't include, drop elem and advance
+          # Stack: Env Closure Acc InputList Elem
+          drop  # -> Env Closure Acc InputList
+          scdr  # -> Env Closure Acc RestInput
+          filter-loop
+        else
+          # Truthy symbol - include elem
+          # Stack: Env Closure Acc InputList Elem (result was consumed by ssym-val)
+          rot scons  # -> Env Closure InputList NewAcc
+          swap scdr  # -> Env Closure NewAcc RestInput
+          filter-loop
+        then
+      else
+        dup slist? if
+          slist-val snil? if
+            # Empty list is falsy - don't include
+            # Stack: Env Closure Acc InputList Elem (slist-val consumed result)
+            drop  # -> Env Closure Acc InputList
+            scdr  # -> Env Closure Acc RestInput
+            filter-loop
+          else
+            # Non-empty list is truthy - include elem
+            # Stack: Env Closure Acc InputList Elem
+            rot scons  # -> Env Closure InputList NewAcc
+            swap scdr  # -> Env Closure NewAcc RestInput
+            filter-loop
+          then
+        else
+          # Number or other - truthy, include elem
+          # Stack: Env Closure Acc InputList Elem PredResult
+          drop  # drop result -> Env Closure Acc InputList Elem
+          rot scons  # -> Env Closure InputList NewAcc
+          swap scdr  # -> Env Closure NewAcc RestInput
+          filter-loop
+        then
+      then
+    then
+  then
+;
+
+: eval-fold-with-env ( SexprList Env -- EvalResult )
+  # Stack: List Env
+  # (fold fn init list) - left fold: fn takes (acc elem) returns new acc
+  over 3 "fold" check-arity  # -> List Env List EvalResult
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop  # -> List Env
+    swap scdr  # -> Env Args (skip 'fold')
+    dup scar 2 pick eval-with-env  # Eval fn -> Env Args EvalResult
+    dup eval-err? if
+      nip nip nip  # Error - propagate
+    else
+      eval-ok-value  # -> Env Args FnVal
+      dup sclosure? if
+        sclosure-val  # -> Env Args Closure (unwrap from Sexpr)
+        swap scdr  # -> Env Closure RestArgs
+        dup scar 2 pick eval-with-env  # Eval init -> Env Closure RestArgs EvalResult
+        dup eval-err? if
+          nip nip nip nip  # Error - propagate
+        else
+          eval-ok-value  # -> Env Closure RestArgs InitVal
+          swap scdr scar 3 pick eval-with-env  # Eval list -> Env Closure InitVal EvalResult
+          dup eval-err? if
+            nip nip nip nip  # Error - propagate
+          else
+            eval-ok-value  # -> Env Closure InitVal ListVal
+            dup slist? if
+              slist-val  # -> Env Closure Acc InputList
+              fold-loop
+            else
+              drop drop drop drop "fold: third argument must be a list" eval-err
+            then
+          then
+        then
+      else
+        drop drop drop "fold: first argument must be a function" eval-err
+      then
+    then
+  then
+;
+
+: fold-loop ( Env LispClosure Sexpr SexprList -- EvalResult )
+  # Stack: Env Closure Acc InputList
+  dup snil? if
+    # Done - return accumulator
+    drop nip nip eval-ok
+  else
+    # Get current element
+    dup scar  # -> Env Closure Acc InputList Elem
+    # Build args list (Acc Elem)
+    snil scons  # -> Env Closure Acc InputList (Elem)
+    # Stack: pos 4:Env 3:Closure 2:Acc 1:InputList 0:(Elem)
+    2 pick  # Get Acc
+    swap scons  # -> Env Closure Acc InputList (Acc Elem)
+    # Stack: pos 4:Env 3:Closure 2:Acc 1:InputList 0:(Acc Elem)
+    # Now need: Closure (Acc Elem) Env for apply-closure-2
+    # Rearrange to remove old Acc and call apply-closure-2
+    3 pick  # Get Closure -> ... (Acc Elem) Closure
+    swap    # -> ... Closure (Acc Elem)
+    5 pick  # Get Env -> ... Closure (Acc Elem) Env
+    apply-closure-2  # -> Env Closure Acc InputList EvalResult
+    # Stack: pos 4:Env 3:Closure 2:Acc 1:InputList 0:EvalResult
+    dup eval-err? if
+      # Error - need to clean up 4 items below result
+      nip nip nip nip nip
+    else
+      eval-ok-value  # -> Env Closure Acc InputList NewAcc
+      # Replace old Acc with NewAcc, advance InputList
+      # Stack: pos 4:Env 3:Closure 2:Acc 1:InputList 0:NewAcc
+      swap scdr  # -> Env Closure Acc NewAcc RestInput
+      # Stack: pos 4:Env 3:Closure 2:Acc 1:NewAcc 0:RestInput
+      # Need: Env Closure NewAcc RestInput
+      rot drop  # Remove old Acc -> Env Closure NewAcc RestInput
+      fold-loop
+    then
+  then
+;
+
+# ============================================
 # Predicates (null?, number?, symbol?, list?)
 # ============================================
 
@@ -1446,7 +1631,8 @@ union LispClosure {
     swap scdr scar  # -> Env Params Body
     rot  # -> Params Body Env
     make-closure  # -> Closure
-    eval-ok  # -> EvalResult
+    sclosure      # -> Sexpr (wrapping the closure)
+    eval-ok       # -> EvalResult
   then
 ;
 
@@ -1454,29 +1640,80 @@ union LispClosure {
 # Closure Application
 # ============================================
 
-: apply-closure ( LispClosure SexprList Env -- EvalResult )
-  # Stack: Closure Args CallerEnv
-  # For simplicity, support single-parameter lambdas
+# Single-parameter closure application (for normal function calls)
+# Evaluates the argument expression before binding
+# ClosureSexpr is an Sexpr containing SClosure
+: apply-closure ( Sexpr SexprList Env -- EvalResult )
+  # Stack: ClosureSexpr Args CallerEnv
   # 1. Evaluate the single argument
   # 2. Bind param to value in merged env (closure + caller for recursion)
   # 3. Evaluate body in extended env
-  over scar  # -> Closure Args CallerEnv ArgExpr
-  over eval-with-env  # -> Closure Args CallerEnv EvalResult
+  over scar  # -> ClosureSexpr Args CallerEnv ArgExpr
+  over eval-with-env  # -> ClosureSexpr Args CallerEnv EvalResult
   dup eval-err? if
     nip nip nip  # Error - propagate
   else
-    eval-ok-value  # Unwrap -> Closure Args CallerEnv ArgVal
-    # Now get closure components
-    3 pick closure-params scar ssym-val  # -> Closure Args CallerEnv ArgVal ParamName
-    swap  # -> Closure Args CallerEnv ParamName ArgVal
-    4 pick closure-env  # -> Closure Args CallerEnv ParamName ArgVal ClosureEnv
-    3 pick env-concat  # -> Closure Args CallerEnv ParamName ArgVal MergedEnv
-    env-extend  # -> Closure Args CallerEnv ExtendedEnv
+    eval-ok-value  # Unwrap -> ClosureSexpr Args CallerEnv ArgVal
+    # Extract closure from Sexpr and get components
+    3 pick sclosure-val  # -> ... ArgVal Closure
+    dup closure-params scar ssym-val  # -> ... ArgVal Closure ParamName
+    rot  # -> ... Closure ParamName ArgVal
+    2 pick closure-env  # -> ... Closure ParamName ArgVal ClosureEnv
+    5 pick env-concat  # -> ... Closure ParamName ArgVal MergedEnv
+    env-extend  # -> ClosureSexpr Args CallerEnv Closure ExtendedEnv
     # Evaluate body
-    3 pick closure-body  # -> Closure Args CallerEnv ExtendedEnv Body
-    swap eval-with-env  # -> Closure Args CallerEnv EvalResult
+    swap closure-body  # -> ClosureSexpr Args CallerEnv ExtendedEnv Body
+    swap eval-with-env  # -> ClosureSexpr Args CallerEnv EvalResult
     nip nip nip  # -> EvalResult
   then
+;
+
+# Single-parameter closure application for map/filter
+# Does NOT evaluate the argument - it's already a value
+: apply-closure-val ( LispClosure Sexpr Env -- EvalResult )
+  # Stack: Closure ArgVal CallerEnv
+  # ArgVal is already evaluated, just bind and run
+  # Get closure components
+  2 pick closure-params scar ssym-val  # -> Closure ArgVal CallerEnv ParamName
+  rot  # -> Closure CallerEnv ParamName ArgVal
+  3 pick closure-env  # -> Closure CallerEnv ParamName ArgVal ClosureEnv
+  3 pick env-concat  # -> Closure CallerEnv ParamName ArgVal MergedEnv
+  env-extend  # -> Closure CallerEnv ExtendedEnv
+  # Evaluate body
+  rot closure-body  # -> CallerEnv ExtendedEnv Body
+  swap eval-with-env  # -> CallerEnv EvalResult
+  nip  # -> EvalResult
+;
+
+# Two-parameter closure application (for fold)
+# Simple approach: build env first, then evaluate
+: apply-closure-2 ( LispClosure SexprList Env -- EvalResult )
+  # Input stack: Closure Args CallerEnv (pos: 2 1 0)
+  # Args is (Arg1 Arg2) where Arg1=acc, Arg2=elem for fold
+
+  # Build extended environment: bind both params then eval body
+  # Strategy: start with closure's env merged with caller env,
+  # then extend with param1=arg1, then param2=arg2
+
+  # Get closure's captured env and merge with caller
+  2 pick closure-env     # -> Closure Args CallerEnv ClosureEnv
+  over env-concat        # -> Closure Args CallerEnv BaseEnv
+
+  # Now bind param1 (first param gets first arg)
+  # env-extend signature: ( String Sexpr Env -- Env )
+  3 pick closure-params scar ssym-val  # -> ... BaseEnv Param1Name
+  3 pick scar                          # -> ... BaseEnv Param1Name Arg1
+  rot env-extend                       # -> Closure Args CallerEnv Env1
+
+  # Now bind param2 (second param gets second arg)
+  3 pick closure-params scdr scar ssym-val  # -> ... Env1 Param2Name
+  3 pick scdr scar                          # -> ... Env1 Param2Name Arg2
+  rot env-extend                            # -> Closure Args CallerEnv Env2
+
+  # Evaluate body in extended environment
+  3 pick closure-body                  # -> Closure Args CallerEnv Env2 Body
+  swap eval-with-env                   # -> Closure Args CallerEnv EvalResult
+  nip nip nip                          # -> EvalResult
 ;
 
 # ============================================

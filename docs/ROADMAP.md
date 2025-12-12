@@ -86,7 +86,7 @@ The current architecture is sound for adding comprehensive error handling. No fu
 
 ### Standard Library
 - [x] List utilities: `append`, `reverse`
-- [ ] List utilities: `map`, `filter`, `fold`
+- [x] List utilities: `map`, `filter`, `fold`
 - [ ] Higher-order functions: `apply`, `compose`
 - [ ] Numeric: `abs`, `min`, `max`, `modulo`
 - [ ] String operations (when Seq strings are richer)

@@ -145,5 +145,38 @@ include "eval"
   "(reverse '(1) '(2))" test-error
   "" write_line
 
+  "--- Higher-Order Functions (map, filter, fold) ---" write_line
+  # map tests
+  "(map (lambda (x) (+ x 1)) '(1 2 3))" "(2 3 4)" test-ok
+  "(map (lambda (x) (* x x)) '(1 2 3 4))" "(1 4 9 16)" test-ok
+  "(map (lambda (x) x) '(a b c))" "(a b c)" test-ok
+  "(map (lambda (x) x) '())" "()" test-ok
+  "(map)" test-error
+  "(map (lambda (x) x))" test-error
+  "(map 42 '(1 2 3))" test-error
+  "(map (lambda (x) x) 42)" test-error
+  # filter tests
+  "(filter (lambda (x) (> x 2)) '(1 2 3 4 5))" "(3 4 5)" test-ok
+  "(filter (lambda (x) #t) '(1 2 3))" "(1 2 3)" test-ok
+  "(filter (lambda (x) #f) '(1 2 3))" "()" test-ok
+  "(filter (lambda (x) x) '())" "()" test-ok
+  "(filter)" test-error
+  "(filter (lambda (x) x))" test-error
+  "(filter 42 '(1 2 3))" test-error
+  "(filter (lambda (x) x) 42)" test-error
+  # fold tests
+  "(fold (lambda (acc x) (+ acc x)) 0 '(1 2 3 4 5))" "15" test-ok
+  "(fold (lambda (acc x) (* acc x)) 1 '(1 2 3 4 5))" "120" test-ok
+  "(fold (lambda (acc x) acc) 0 '(1 2 3))" "0" test-ok
+  "(fold (lambda (acc x) x) 0 '(1 2 3))" "3" test-ok
+  "(fold (lambda (acc x) (+ acc 1)) 0 '(a b c d e))" "5" test-ok
+  "(fold (lambda (acc x) acc) 42 '())" "42" test-ok
+  "(fold)" test-error
+  "(fold (lambda (acc x) acc))" test-error
+  "(fold (lambda (acc x) acc) 0)" test-error
+  "(fold 42 0 '(1 2 3))" test-error
+  "(fold (lambda (acc x) acc) 0 42)" test-error
+  "" write_line
+
   "=== All Tests Complete ===" write_line
 ;
