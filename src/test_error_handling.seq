@@ -126,5 +126,24 @@ include "eval"
   "(let x 5 (+ x 3))" "8" test-ok
   "" write_line
 
+  "--- List Operations (append, reverse) ---" write_line
+  # append tests
+  "(append '(1 2) '(3 4))" "(1 2 3 4)" test-ok
+  "(append '() '(1 2))" "(1 2)" test-ok
+  "(append '(1 2) '())" "(1 2)" test-ok
+  "(append '() '())" "()" test-ok
+  "(append)" test-error
+  "(append '(1))" test-error
+  "(append 1 '(2))" test-error
+  "(append '(1) 2)" test-error
+  # reverse tests
+  "(reverse '(1 2 3))" "(3 2 1)" test-ok
+  "(reverse '(a))" "(a)" test-ok
+  "(reverse '())" "()" test-ok
+  "(reverse)" test-error
+  "(reverse 42)" test-error
+  "(reverse '(1) '(2))" test-error
+  "" write_line
+
   "=== All Tests Complete ===" write_line
 ;
