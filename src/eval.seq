@@ -611,11 +611,16 @@ union LispClosure {
     else
       eval-ok-value snum-val
       # Stack: List Acc Env FirstVal
-      rot swap divide
-      # Stack: List Env NewAcc
-      swap rot scdr rot rot
-      # Stack: RestList NewAcc Env
-      eval-fold-div-with-env
+      dup 0 = if
+        # Division by zero - return error
+        drop drop drop drop "division by zero" eval-err
+      else
+        rot swap divide
+        # Stack: List Env NewAcc
+        swap rot scdr rot rot
+        # Stack: RestList NewAcc Env
+        eval-fold-div-with-env
+      then
     then
   then
 ;
@@ -1227,7 +1232,7 @@ union LispClosure {
   dup scar  # -> Env Name RestArgs ValueExpr
   3 pick eval-with-env  # Evaluate value -> Env Name RestArgs EvalResult
   dup eval-err? if
-    nip nip nip nip  # Error - propagate
+    nip nip nip  # Error - propagate (drop RestArgs, Name, Env)
   else
     eval-ok-value  # Unwrap -> Env Name RestArgs Value
     rot  # -> Env RestArgs Value Name

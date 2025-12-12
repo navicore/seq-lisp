@@ -1,0 +1,105 @@
+# Test error handling
+#
+# Tests for arity validation, type errors, undefined symbols,
+# division by zero, and error propagation.
+
+include "eval"
+
+# Helper to test error cases - prints the error message
+: test-error ( String -- )
+  # Stack: Input
+  dup parse env-empty eval-with-env
+  dup eval-err? if
+    swap "PASS " swap string-concat ": " string-concat
+    swap eval-err-message string-concat write_line
+  else
+    drop "FAIL: expected error for " swap string-concat write_line
+  then ;
+
+# Helper to test successful evaluation
+: test-ok ( String String -- )
+  # Stack: Input Expected
+  swap dup  # -> Expected Input Input
+  parse env-empty eval-with-env  # -> Expected Input EvalResult
+  dup eval-ok? if
+    eval-ok-value sexpr-to-string  # -> Expected Input Actual
+    2 pick string-equal if
+      drop "PASS: " swap string-concat write_line
+    else
+      # -> Expected Input Actual
+      "FAIL: " 2 pick string-concat  # FAIL: Input
+      " expected " string-concat
+      rot string-concat  # FAIL: Input expected Expected
+      " but got " string-concat
+      swap string-concat write_line  # FAIL: Input expected Expected but got Actual
+    then
+  else
+    # -> Expected Input EvalResult
+    eval-err-message  # -> Expected Input ErrMsg
+    "FAIL: " 2 pick string-concat  # FAIL: Input
+    " unexpected error: " string-concat
+    swap string-concat write_line
+    drop drop  # Clean up Expected
+  then ;
+
+: main ( -- )
+  "=== Error Handling Tests ===" write_line
+  "" write_line
+
+  "--- Arity Validation ---" write_line
+  "(car)" test-error
+  "(car 'a 'b)" test-error
+  "(cdr)" test-error
+  "(cons 1)" test-error
+  "(cons 1 2 3)" test-error
+  "(if 1 2)" test-error
+  "(let x 10)" test-error
+  "(null?)" test-error
+  "(number? 1 2)" test-error
+  "(symbol?)" test-error
+  "(list? 1 2 3)" test-error
+  "(boolean?)" test-error
+  "(< 1)" test-error
+  "(> 1 2 3)" test-error
+  "(<= 5)" test-error
+  "(>= 1 2 3)" test-error
+  "(= 1)" test-error
+  "" write_line
+
+  "--- Type Validation ---" write_line
+  "(car 42)" test-error
+  "(cdr 'symbol)" test-error
+  "(cons 1 2)" test-error
+  "" write_line
+
+  "--- Undefined Symbols ---" write_line
+  "undefined-var" test-error
+  "(undefined-func 1 2)" test-error
+  "(+ 1 unknown)" test-error
+  "" write_line
+
+  "--- Division by Zero ---" write_line
+  "(/ 1 0)" test-error
+  "(/ 10 2 0)" test-error
+  "(/ 100 (- 5 5))" test-error
+  "" write_line
+
+  "--- Error Propagation ---" write_line
+  "(+ 1 (car))" test-error
+  "(* (/ 1 0) 5)" test-error
+  "(if (car) 1 2)" test-error
+  "(let x (/ 1 0) x)" test-error
+  "(list 1 (car) 3)" test-error
+  "(begin 1 (/ 1 0) 3)" test-error
+  "" write_line
+
+  "--- Recovery After Errors ---" write_line
+  "(+ 1 2)" "3" test-ok
+  "(car '(a b c))" "a" test-ok
+  "(/ 10 2)" "5" test-ok
+  "(if #t 'yes 'no)" "yes" test-ok
+  "(let x 5 (+ x 3))" "8" test-ok
+  "" write_line
+
+  "=== All Tests Complete ===" write_line
+;
