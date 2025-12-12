@@ -382,7 +382,7 @@ union LispClosure {
 ;
 
 # ----------------------------------------
-# Group 4: List Operations (cons, car, cdr, list)
+# Group 4: List Operations (cons, car, cdr, list, append, reverse)
 # ----------------------------------------
 : dispatch-list-ops ( SexprList Env String -- EvalResult )
   dup "cons" string-equal if
@@ -393,9 +393,13 @@ union LispClosure {
     drop eval-cdr-with-env
   else dup "list" string-equal if
     drop eval-list-builtin-with-env
+  else dup "append" string-equal if
+    drop eval-append-with-env
+  else dup "reverse" string-equal if
+    drop eval-reverse-with-env
   else
     dispatch-predicates
-  then then then then
+  then then then then then then
 ;
 
 # ----------------------------------------
@@ -1026,6 +1030,82 @@ union LispClosure {
       swap  # -> Args NewAcc Env
       rot scdr rot rot  # -> RestArgs NewAcc Env
       eval-list-items
+    then
+  then
+;
+
+: eval-append-with-env ( SexprList Env -- EvalResult )
+  # Stack: List Env
+  # (append list1 list2) - concatenates two lists
+  over 2 "append" check-arity  # -> List Env List EvalResult
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop  # -> List Env
+    swap scdr  # -> Env Args (skip 'append')
+    dup scar 2 pick eval-with-env  # Eval first arg -> Env Args EvalResult
+    dup eval-err? if
+      nip nip nip  # Error - propagate (was missing a nip!)
+    else
+      eval-ok-value  # -> Env Args List1Val
+      dup slist? if
+        slist-val  # -> Env Args List1
+        swap scdr scar 2 pick eval-with-env  # Eval second arg -> Env List1 EvalResult
+        dup eval-err? if
+          nip nip nip  # Error - propagate
+        else
+          eval-ok-value  # -> Env List1 List2Val
+          dup slist? if
+            slist-val  # -> Env List1 List2
+            append-lists slist nip eval-ok
+          else
+            drop drop drop "append: arguments must be lists" eval-err
+          then
+        then
+      else
+        drop drop drop "append: arguments must be lists" eval-err
+      then
+    then
+  then
+;
+
+# Helper: append two SexprLists
+: append-lists ( SexprList SexprList -- SexprList )
+  # Stack: List1 List2
+  # Reverse List1, then prepend each element to List2
+  swap list-reverse swap append-loop
+;
+
+: append-loop ( SexprList SexprList -- SexprList )
+  # Stack: ReversedList1 List2
+  over snil? if
+    nip  # List1 empty - return List2
+  else
+    over scar swap scons  # -> RevList1 (car :: List2)
+    swap scdr swap  # -> RestRevList1 NewList2
+    append-loop
+  then
+;
+
+: eval-reverse-with-env ( SexprList Env -- EvalResult )
+  # Stack: List Env
+  # (reverse list) - reverses a list
+  over 1 "reverse" check-arity  # -> List Env List EvalResult
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop  # -> List Env
+    swap scdr scar  # -> Env Arg (skip 'reverse', get arg)
+    swap eval-with-env  # Eval arg -> EvalResult
+    dup eval-err? if
+      # Error - propagate
+    else
+      eval-ok-value  # -> ListVal
+      dup slist? if
+        slist-val list-reverse slist eval-ok
+      else
+        drop "reverse: argument must be a list" eval-err
+      then
     then
   then
 ;
