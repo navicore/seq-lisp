@@ -1045,7 +1045,7 @@ union LispClosure {
     swap scdr  # -> Env Args (skip 'append')
     dup scar 2 pick eval-with-env  # Eval first arg -> Env Args EvalResult
     dup eval-err? if
-      nip nip nip  # Error - propagate (was missing a nip!)
+      nip nip nip  # Error - propagate
     else
       eval-ok-value  # -> Env Args List1Val
       dup slist? if
