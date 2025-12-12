@@ -77,9 +77,24 @@ include "eval"
   "" write_line
 
   "--- Type Validation ---" write_line
+  # List operations require lists
   "(car 42)" test-error
   "(cdr 'symbol)" test-error
   "(cons 1 2)" test-error
+  # car/cdr of empty list
+  "(car '())" test-error
+  "(cdr '())" test-error
+  # Arithmetic operations require numbers
+  "(+ 'a 1)" test-error
+  "(- 'b 2)" test-error
+  "(* 3 'c)" test-error
+  "(/ 4 'd)" test-error
+  # Comparison operations require numbers
+  "(< 'x 1)" test-error
+  "(> 2 'y)" test-error
+  "(<= 'a 'b)" test-error
+  "(>= 1 '())" test-error
+  "(= 'foo 'bar)" test-error
   "" write_line
 
   "--- Undefined Symbols ---" write_line

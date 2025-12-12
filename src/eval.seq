@@ -491,13 +491,20 @@ union LispClosure {
       # Error - propagate it up, clean stack
       nip nip nip
     else
-      eval-ok-value snum-val
-      # Stack: List Acc Env FirstVal
-      rot add
-      # Stack: List Env NewAcc
-      swap rot scdr rot rot
-      # Stack: RestList NewAcc Env
-      eval-fold-add-with-env
+      eval-ok-value
+      # Stack: List Acc Env Value
+      dup snum? if
+        snum-val
+        # Stack: List Acc Env FirstVal
+        rot add
+        # Stack: List Env NewAcc
+        swap rot scdr rot rot
+        # Stack: RestList NewAcc Env
+        eval-fold-add-with-env
+      else
+        # Type error - not a number
+        drop drop drop drop "+: argument must be a number" eval-err
+      then
     then
   then
 ;
@@ -512,15 +519,21 @@ union LispClosure {
     dup eval-err? if
       nip nip nip
     else
-      eval-ok-value snum-val
-      swap scdr
-      dup snil? if
-        # Unary minus: negate
-        drop nip 0 swap subtract snum eval-ok
+      eval-ok-value
+      dup snum? if
+        snum-val
+        swap scdr
+        dup snil? if
+          # Unary minus: negate
+          drop nip 0 swap subtract snum eval-ok
+        else
+          # Binary minus: first - rest
+          # Stack: Env FirstVal RestList -> need RestList FirstVal Env
+          rot rot swap eval-fold-sub-with-env
+        then
       else
-        # Binary minus: first - rest
-        # Stack: Env FirstVal RestList -> need RestList FirstVal Env
-        rot rot swap eval-fold-sub-with-env
+        # Type error - not a number
+        drop drop drop "-: argument must be a number" eval-err
       then
     then
   then
@@ -537,13 +550,19 @@ union LispClosure {
     dup eval-err? if
       nip nip nip
     else
-      eval-ok-value snum-val
-      # Stack: List Acc Env FirstVal
-      rot swap subtract
-      # Stack: List Env NewAcc
-      swap rot scdr rot rot
-      # Stack: RestList NewAcc Env
-      eval-fold-sub-with-env
+      eval-ok-value
+      dup snum? if
+        snum-val
+        # Stack: List Acc Env FirstVal
+        rot swap subtract
+        # Stack: List Env NewAcc
+        swap rot scdr rot rot
+        # Stack: RestList NewAcc Env
+        eval-fold-sub-with-env
+      else
+        # Type error - not a number
+        drop drop drop drop "-: argument must be a number" eval-err
+      then
     then
   then
 ;
@@ -565,13 +584,19 @@ union LispClosure {
     dup eval-err? if
       nip nip nip
     else
-      eval-ok-value snum-val
-      # Stack: List Acc Env FirstVal
-      rot multiply
-      # Stack: List Env NewAcc
-      swap rot scdr rot rot
-      # Stack: RestList NewAcc Env
-      eval-fold-mul-with-env
+      eval-ok-value
+      dup snum? if
+        snum-val
+        # Stack: List Acc Env FirstVal
+        rot multiply
+        # Stack: List Env NewAcc
+        swap rot scdr rot rot
+        # Stack: RestList NewAcc Env
+        eval-fold-mul-with-env
+      else
+        # Type error - not a number
+        drop drop drop drop "*: argument must be a number" eval-err
+      then
     then
   then
 ;
@@ -586,13 +611,19 @@ union LispClosure {
     dup eval-err? if
       nip nip nip
     else
-      eval-ok-value snum-val
-      swap scdr
-      dup snil? if
-        drop nip snum eval-ok
+      eval-ok-value
+      dup snum? if
+        snum-val
+        swap scdr
+        dup snil? if
+          drop nip snum eval-ok
+        else
+          # Stack: Env FirstVal RestList -> need RestList FirstVal Env
+          rot rot swap eval-fold-div-with-env
+        then
       else
-        # Stack: Env FirstVal RestList -> need RestList FirstVal Env
-        rot rot swap eval-fold-div-with-env
+        # Type error - not a number
+        drop drop drop "/: argument must be a number" eval-err
       then
     then
   then
@@ -609,17 +640,23 @@ union LispClosure {
     dup eval-err? if
       nip nip nip
     else
-      eval-ok-value snum-val
-      # Stack: List Acc Env FirstVal
-      dup 0 = if
-        # Division by zero - return error
-        drop drop drop drop "division by zero" eval-err
+      eval-ok-value
+      dup snum? if
+        snum-val
+        # Stack: List Acc Env FirstVal
+        dup 0 = if
+          # Division by zero - return error
+          drop drop drop drop "/: division by zero" eval-err
+        else
+          rot swap divide
+          # Stack: List Env NewAcc
+          swap rot scdr rot rot
+          # Stack: RestList NewAcc Env
+          eval-fold-div-with-env
+        then
       else
-        rot swap divide
-        # Stack: List Env NewAcc
-        swap rot scdr rot rot
-        # Stack: RestList NewAcc Env
-        eval-fold-div-with-env
+        # Type error - not a number
+        drop drop drop drop "/: argument must be a number" eval-err
       then
     then
   then
@@ -642,13 +679,23 @@ union LispClosure {
     dup eval-err? if
       nip nip nip  # Error - propagate
     else
-      eval-ok-value snum-val  # -> Env Args First
-      swap scdr scar 2 pick eval-with-env  # Eval second arg -> Env First EvalResult
-      dup eval-err? if
-        nip nip nip  # Error - propagate
+      eval-ok-value  # -> Env Args FirstVal
+      dup snum? if
+        snum-val  # -> Env Args First
+        swap scdr scar 2 pick eval-with-env  # Eval second arg -> Env First EvalResult
+        dup eval-err? if
+          nip nip nip  # Error - propagate
+        else
+          eval-ok-value  # -> Env First SecondVal
+          dup snum? if
+            snum-val  # -> Env First Second
+            < if "#t" else "#f" then ssym eval-ok nip
+          else
+            drop drop drop "<: arguments must be numbers" eval-err
+          then
+        then
       else
-        eval-ok-value snum-val  # -> Env First Second
-        < if "#t" else "#f" then ssym eval-ok nip
+        drop drop drop "<: arguments must be numbers" eval-err
       then
     then
   then
@@ -666,13 +713,23 @@ union LispClosure {
     dup eval-err? if
       nip nip nip  # -> EvalResult
     else
-      eval-ok-value snum-val  # -> Env Args First
-      swap scdr scar 2 pick eval-with-env  # -> Env First EvalResult
-      dup eval-err? if
-        nip nip nip  # -> EvalResult
+      eval-ok-value  # -> Env Args FirstVal
+      dup snum? if
+        snum-val  # -> Env Args First
+        swap scdr scar 2 pick eval-with-env  # -> Env First EvalResult
+        dup eval-err? if
+          nip nip nip  # -> EvalResult
+        else
+          eval-ok-value  # -> Env First SecondVal
+          dup snum? if
+            snum-val  # -> Env First Second
+            > if "#t" else "#f" then ssym eval-ok nip  # -> EvalResult
+          else
+            drop drop drop ">: arguments must be numbers" eval-err
+          then
+        then
       else
-        eval-ok-value snum-val  # -> Env First Second
-        > if "#t" else "#f" then ssym eval-ok nip  # -> EvalResult
+        drop drop drop ">: arguments must be numbers" eval-err
       then
     then
   then
@@ -690,13 +747,23 @@ union LispClosure {
     dup eval-err? if
       nip nip nip  # -> EvalResult
     else
-      eval-ok-value snum-val  # -> Env Args First
-      swap scdr scar 2 pick eval-with-env  # -> Env First EvalResult
-      dup eval-err? if
-        nip nip nip  # -> EvalResult
+      eval-ok-value  # -> Env Args FirstVal
+      dup snum? if
+        snum-val  # -> Env Args First
+        swap scdr scar 2 pick eval-with-env  # -> Env First EvalResult
+        dup eval-err? if
+          nip nip nip  # -> EvalResult
+        else
+          eval-ok-value  # -> Env First SecondVal
+          dup snum? if
+            snum-val  # -> Env First Second
+            <= if "#t" else "#f" then ssym eval-ok nip  # -> EvalResult
+          else
+            drop drop drop "<=: arguments must be numbers" eval-err
+          then
+        then
       else
-        eval-ok-value snum-val  # -> Env First Second
-        <= if "#t" else "#f" then ssym eval-ok nip  # -> EvalResult
+        drop drop drop "<=: arguments must be numbers" eval-err
       then
     then
   then
@@ -714,13 +781,23 @@ union LispClosure {
     dup eval-err? if
       nip nip nip  # -> EvalResult
     else
-      eval-ok-value snum-val  # -> Env Args First
-      swap scdr scar 2 pick eval-with-env  # -> Env First EvalResult
-      dup eval-err? if
-        nip nip nip  # -> EvalResult
+      eval-ok-value  # -> Env Args FirstVal
+      dup snum? if
+        snum-val  # -> Env Args First
+        swap scdr scar 2 pick eval-with-env  # -> Env First EvalResult
+        dup eval-err? if
+          nip nip nip  # -> EvalResult
+        else
+          eval-ok-value  # -> Env First SecondVal
+          dup snum? if
+            snum-val  # -> Env First Second
+            >= if "#t" else "#f" then ssym eval-ok nip  # -> EvalResult
+          else
+            drop drop drop ">=: arguments must be numbers" eval-err
+          then
+        then
       else
-        eval-ok-value snum-val  # -> Env First Second
-        >= if "#t" else "#f" then ssym eval-ok nip  # -> EvalResult
+        drop drop drop ">=: arguments must be numbers" eval-err
       then
     then
   then
@@ -738,13 +815,23 @@ union LispClosure {
     dup eval-err? if
       nip nip nip  # -> EvalResult
     else
-      eval-ok-value snum-val  # -> Env Args First
-      swap scdr scar 2 pick eval-with-env  # -> Env First EvalResult
-      dup eval-err? if
-        nip nip nip  # -> EvalResult
+      eval-ok-value  # -> Env Args FirstVal
+      dup snum? if
+        snum-val  # -> Env Args First
+        swap scdr scar 2 pick eval-with-env  # -> Env First EvalResult
+        dup eval-err? if
+          nip nip nip  # -> EvalResult
+        else
+          eval-ok-value  # -> Env First SecondVal
+          dup snum? if
+            snum-val  # -> Env First Second
+            = if "#t" else "#f" then ssym eval-ok nip  # -> EvalResult
+          else
+            drop drop drop "=: arguments must be numbers" eval-err
+          then
+        then
       else
-        eval-ok-value snum-val  # -> Env First Second
-        = if "#t" else "#f" then ssym eval-ok nip  # -> EvalResult
+        drop drop drop "=: arguments must be numbers" eval-err
       then
     then
   then
@@ -867,8 +954,8 @@ union LispClosure {
       dup slist? if
         slist-val  # -> SexprList
         dup snil? if
-          # Empty list - return empty list
-          drop snil slist eval-ok
+          # Empty list - error
+          drop "car: cannot take car of empty list" eval-err
         else
           scar eval-ok  # -> First element
         then
@@ -900,8 +987,8 @@ union LispClosure {
       dup slist? if
         slist-val  # -> SexprList
         dup snil? if
-          # Empty list - return empty list
-          drop snil slist eval-ok
+          # Empty list - error
+          drop "cdr: cannot take cdr of empty list" eval-err
         else
           scdr slist eval-ok  # -> Rest as EvalOk
         then
