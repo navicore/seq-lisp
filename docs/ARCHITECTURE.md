@@ -164,7 +164,49 @@ Tests live alongside source because Seq's include system resolves paths relative
 
 ## Error Handling
 
-Currently minimal - undefined symbols and type errors produce runtime failures. Future work could add:
-- Error variants with messages
-- Source location tracking
-- Graceful REPL recovery
+SeqLisp uses a comprehensive `EvalResult` union type for error handling:
+
+```seq
+union EvalResult {
+  EvalOk { value: Sexpr }       # Successful evaluation
+  EvalErr { message: String }   # Error with message
+  EvalDefine { name: String, def_value: Sexpr }  # Definition result
+}
+```
+
+All `eval-*-with-env` functions return `EvalResult`, enabling:
+- **Error propagation**: Errors bubble up through nested expressions
+- **Graceful REPL recovery**: REPL continues after errors
+- **Consistent error messages**: All errors use the same format
+
+### Error Categories
+
+| Category | Example | Message |
+|----------|---------|---------|
+| Arity | `(car 1 2)` | `car expects 1 argument(s)` |
+| Type | `(car 42)` | `car: argument must be a list` |
+| Undefined | `(foo)` | `undefined symbol: foo` |
+| Division | `(/ 1 0)` | `division by zero` |
+
+### Recursion Depth Limits
+
+SeqLisp uses native Seq recursion for evaluation, which means deeply nested expressions or deeply recursive functions will eventually exhaust the Seq runtime stack. This is a security consideration for untrusted input.
+
+**Practical limits:**
+- Typical Lisp expressions (10-20 levels of nesting) work fine
+- Recursive functions like factorial/fibonacci work to reasonable depths (~1000 iterations)
+- Pathological inputs (e.g., 10,000+ nested parens) may crash
+
+**Mitigation strategies (future work):**
+- Add explicit depth counter to `eval-with-env`
+- Return `EvalErr` when depth exceeds configurable limit
+- Implement tail-call optimization to reduce stack pressure
+
+For now, users should avoid processing untrusted input with potentially unbounded nesting.
+
+### Future Improvements
+
+- Source location tracking through tokenizer/parser/evaluator
+- Stack traces showing call chain
+- "Did you mean X?" suggestions for undefined symbols
+- Explicit recursion depth limits

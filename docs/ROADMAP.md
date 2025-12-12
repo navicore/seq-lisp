@@ -64,17 +64,18 @@ The current architecture is sound for adding comprehensive error handling. No fu
 - [x] Graceful error messages instead of crashes
 - [x] Error propagation through nested expressions
 
-**Phase 2: Full Error Handling (Medium Term)**
-- [ ] `EvalResult` union type for error propagation
+**Phase 2: Full Error Handling (Medium Term)** ✓
+- [x] `EvalResult` union type for error propagation
   ```seq
   union EvalResult {
-    Ok { value: Sexpr }
-    Err { message: String }
+    EvalOk { value: Sexpr }
+    EvalErr { message: String }
+    EvalDefine { name: String, def_value: Sexpr }
   }
   ```
-- [ ] Update all `eval-*-with-env` functions to return `EvalResult`
-- [ ] Type validation for builtins (e.g., `car` requires a list)
-- [ ] Undefined symbol errors with suggestions
+- [x] Update all `eval-*-with-env` functions to return `EvalResult`
+- [x] Type validation for builtins (e.g., `car` requires a list, `cons` requires list as second arg)
+- [ ] Undefined symbol errors with suggestions (partially done - returns error, no suggestions yet)
 
 **Phase 3: Rich Diagnostics (Long Term)**
 - [ ] Source location tracking through tokenizer/parser/evaluator
