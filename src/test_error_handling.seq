@@ -160,6 +160,10 @@ include "eval"
   "(filter (lambda (x) #t) '(1 2 3))" "(1 2 3)" test-ok
   "(filter (lambda (x) #f) '(1 2 3))" "()" test-ok
   "(filter (lambda (x) x) '())" "()" test-ok
+  # filter with various truthy returns (symbols, numbers, lists are truthy; only #f and () are falsy)
+  "(filter (lambda (x) 'yes) '(1 2 3))" "(1 2 3)" test-ok
+  "(filter (lambda (x) (if (> x 2) x #f)) '(1 2 3 4 5))" "(3 4 5)" test-ok
+  "(filter (lambda (x) (if (> x 2) '() #t)) '(1 2 3 4 5))" "(1 2)" test-ok
   "(filter)" test-error
   "(filter (lambda (x) x))" test-error
   "(filter 42 '(1 2 3))" test-error
