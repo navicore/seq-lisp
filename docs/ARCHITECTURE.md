@@ -188,8 +188,25 @@ All `eval-*-with-env` functions return `EvalResult`, enabling:
 | Undefined | `(foo)` | `undefined symbol: foo` |
 | Division | `(/ 1 0)` | `division by zero` |
 
+### Recursion Depth Limits
+
+SeqLisp uses native Seq recursion for evaluation, which means deeply nested expressions or deeply recursive functions will eventually exhaust the Seq runtime stack. This is a security consideration for untrusted input.
+
+**Practical limits:**
+- Typical Lisp expressions (10-20 levels of nesting) work fine
+- Recursive functions like factorial/fibonacci work to reasonable depths (~1000 iterations)
+- Pathological inputs (e.g., 10,000+ nested parens) may crash
+
+**Mitigation strategies (future work):**
+- Add explicit depth counter to `eval-with-env`
+- Return `EvalErr` when depth exceeds configurable limit
+- Implement tail-call optimization to reduce stack pressure
+
+For now, users should avoid processing untrusted input with potentially unbounded nesting.
+
 ### Future Improvements
 
 - Source location tracking through tokenizer/parser/evaluator
 - Stack traces showing call chain
 - "Did you mean X?" suggestions for undefined symbols
+- Explicit recursion depth limits

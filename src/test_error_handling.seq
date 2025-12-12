@@ -47,18 +47,28 @@ include "eval"
   "" write_line
 
   "--- Arity Validation ---" write_line
+  # List operations
   "(car)" test-error
   "(car 'a 'b)" test-error
   "(cdr)" test-error
   "(cons 1)" test-error
   "(cons 1 2 3)" test-error
+  # Special forms
   "(if 1 2)" test-error
   "(let x 10)" test-error
+  "(lambda (x))" test-error
+  "(lambda)" test-error
+  "(define x)" test-error
+  "(define)" test-error
+  "(quote)" test-error
+  "(quote 1 2)" test-error
+  # Predicates
   "(null?)" test-error
   "(number? 1 2)" test-error
   "(symbol?)" test-error
   "(list? 1 2 3)" test-error
   "(boolean?)" test-error
+  # Comparisons
   "(< 1)" test-error
   "(> 1 2 3)" test-error
   "(<= 5)" test-error

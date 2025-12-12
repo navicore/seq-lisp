@@ -655,92 +655,96 @@ union LispClosure {
 ;
 
 : eval-gt-with-env ( SexprList Env -- EvalResult )
-  over 2 ">" check-arity
+  # (> a b) returns #t if a > b, else #f
+  over 2 ">" check-arity  # -> List Env List EvalResult
   dup eval-err? if
-    nip nip nip
+    nip nip nip  # -> EvalResult
   else
-    drop drop
-    swap scdr
-    dup scar 2 pick eval-with-env
+    drop drop  # -> List Env
+    swap scdr  # -> Env Args
+    dup scar 2 pick eval-with-env  # -> Env Args EvalResult
     dup eval-err? if
-      nip nip nip
+      nip nip nip  # -> EvalResult
     else
-      eval-ok-value snum-val
-      swap scdr scar 2 pick eval-with-env
+      eval-ok-value snum-val  # -> Env Args First
+      swap scdr scar 2 pick eval-with-env  # -> Env First EvalResult
       dup eval-err? if
-        nip nip nip
+        nip nip nip  # -> EvalResult
       else
-        eval-ok-value snum-val
-        > if "#t" else "#f" then ssym eval-ok nip
+        eval-ok-value snum-val  # -> Env First Second
+        > if "#t" else "#f" then ssym eval-ok nip  # -> EvalResult
       then
     then
   then
 ;
 
 : eval-lte-with-env ( SexprList Env -- EvalResult )
-  over 2 "<=" check-arity
+  # (<= a b) returns #t if a <= b, else #f
+  over 2 "<=" check-arity  # -> List Env List EvalResult
   dup eval-err? if
-    nip nip nip
+    nip nip nip  # -> EvalResult
   else
-    drop drop
-    swap scdr
-    dup scar 2 pick eval-with-env
+    drop drop  # -> List Env
+    swap scdr  # -> Env Args
+    dup scar 2 pick eval-with-env  # -> Env Args EvalResult
     dup eval-err? if
-      nip nip nip
+      nip nip nip  # -> EvalResult
     else
-      eval-ok-value snum-val
-      swap scdr scar 2 pick eval-with-env
+      eval-ok-value snum-val  # -> Env Args First
+      swap scdr scar 2 pick eval-with-env  # -> Env First EvalResult
       dup eval-err? if
-        nip nip nip
+        nip nip nip  # -> EvalResult
       else
-        eval-ok-value snum-val
-        <= if "#t" else "#f" then ssym eval-ok nip
+        eval-ok-value snum-val  # -> Env First Second
+        <= if "#t" else "#f" then ssym eval-ok nip  # -> EvalResult
       then
     then
   then
 ;
 
 : eval-gte-with-env ( SexprList Env -- EvalResult )
-  over 2 ">=" check-arity
+  # (>= a b) returns #t if a >= b, else #f
+  over 2 ">=" check-arity  # -> List Env List EvalResult
   dup eval-err? if
-    nip nip nip
+    nip nip nip  # -> EvalResult
   else
-    drop drop
-    swap scdr
-    dup scar 2 pick eval-with-env
+    drop drop  # -> List Env
+    swap scdr  # -> Env Args
+    dup scar 2 pick eval-with-env  # -> Env Args EvalResult
     dup eval-err? if
-      nip nip nip
+      nip nip nip  # -> EvalResult
     else
-      eval-ok-value snum-val
-      swap scdr scar 2 pick eval-with-env
+      eval-ok-value snum-val  # -> Env Args First
+      swap scdr scar 2 pick eval-with-env  # -> Env First EvalResult
       dup eval-err? if
-        nip nip nip
+        nip nip nip  # -> EvalResult
       else
-        eval-ok-value snum-val
-        >= if "#t" else "#f" then ssym eval-ok nip
+        eval-ok-value snum-val  # -> Env First Second
+        >= if "#t" else "#f" then ssym eval-ok nip  # -> EvalResult
       then
     then
   then
 ;
 
 : eval-eq-with-env ( SexprList Env -- EvalResult )
-  over 2 "=" check-arity
+  # (= a b) returns #t if a equals b, else #f
+  over 2 "=" check-arity  # -> List Env List EvalResult
   dup eval-err? if
-    nip nip nip
+    nip nip nip  # -> EvalResult
   else
-    drop drop
-    swap scdr
-    dup scar 2 pick eval-with-env
+    drop drop  # -> List Env
+    swap scdr  # -> Env Args
+    dup scar 2 pick eval-with-env  # -> Env Args EvalResult
     dup eval-err? if
-      nip nip nip
+      nip nip nip  # -> EvalResult
     else
-      eval-ok-value snum-val
-      swap scdr scar 2 pick eval-with-env
+      eval-ok-value snum-val  # -> Env Args First
+      swap scdr scar 2 pick eval-with-env  # -> Env First EvalResult
       dup eval-err? if
-        nip nip nip
+        nip nip nip  # -> EvalResult
       else
-        eval-ok-value snum-val
-        = if "#t" else "#f" then ssym eval-ok nip
+        eval-ok-value snum-val  # -> Env First Second
+        = if "#t" else "#f" then ssym eval-ok nip  # -> EvalResult
       then
     then
   then
@@ -770,16 +774,22 @@ union LispClosure {
 : eval-define-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
   # (define name value) - evaluate value, return special result
-  swap scdr  # Skip 'define' -> Env Args
-  dup scar ssym-val  # Get name string -> Env Args Name
-  swap scdr scar  # Get value expr -> Env Name ValueExpr
-  rot  # -> Name ValueExpr Env
-  eval-with-env  # Evaluate value -> Name EvalResult
+  over 2 "define" check-arity  # -> List Env List EvalResult
   dup eval-err? if
-    nip  # Error - drop name, return error
+    nip nip nip  # -> EvalResult
   else
-    eval-ok-value  # Unwrap -> Name Value
-    eval-define  # Return EvalDefine
+    drop drop  # -> List Env
+    swap scdr  # Skip 'define' -> Env Args
+    dup scar ssym-val  # -> Env Args Name
+    swap scdr scar  # -> Env Name ValueExpr
+    rot  # -> Name ValueExpr Env
+    eval-with-env  # -> Name EvalResult
+    dup eval-err? if
+      nip  # -> EvalResult
+    else
+      eval-ok-value  # -> Name Value
+      eval-define  # -> EvalDefine
+    then
   then
 ;
 
@@ -790,9 +800,15 @@ union LispClosure {
 : eval-quote-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
   # (quote expr) - return expr without evaluating
-  drop  # Drop environment, not needed
-  scdr scar  # Skip 'quote', get the expression
-  eval-ok  # Wrap in EvalOk
+  over 1 "quote" check-arity  # -> List Env List EvalResult
+  dup eval-err? if
+    nip nip nip  # -> EvalResult
+  else
+    drop drop  # -> List Env
+    drop  # -> List (drop environment, not needed)
+    scdr scar  # -> Expr (skip 'quote', get the expression)
+    eval-ok  # -> EvalResult
+  then
 ;
 
 # ============================================
@@ -1171,7 +1187,7 @@ union LispClosure {
   # List is (if cond then-expr else-expr)
   over 3 "if" check-arity  # -> List Env List EvalResult
   dup eval-err? if
-    nip nip nip
+    nip nip nip  # -> EvalResult
   else
     drop drop  # -> List Env
     swap scdr  # Skip the if -> Env Args
@@ -1179,38 +1195,36 @@ union LispClosure {
     dup scar   # -> Env Args CondExpr
     2 pick     # -> Env Args CondExpr Env
     eval-with-env  # -> Env Args EvalResult
-  dup eval-err? if
-    nip nip  # Error - propagate
-  else
-    eval-ok-value  # Unwrap -> Env Args CondResult
-    # Check if condition is false (numeric 0 or #f)
-    dup snum? if
-      snum-val 0 = if
-        # False (0) - eval else branch
-        # Stack: Env Args
-        scdr scdr scar swap eval-with-env
-      else
-        # True (non-zero) - eval then branch
-        # Stack: Env Args
-        scdr scar swap eval-with-env
-      then
+    dup eval-err? if
+      nip nip  # -> EvalResult
     else
-      # Check for #f symbol
-      dup ssym? if
-        ssym-val "#f" string-equal if
-          # False (#f) - eval else branch
+      eval-ok-value  # -> Env Args CondResult
+      # Check if condition is false (numeric 0 or #f)
+      dup snum? if
+        snum-val 0 = if  # -> Env Args
+          # False (0) - eval else branch
           scdr scdr scar swap eval-with-env
         else
-          # Other symbol - treat as true
+          # True (non-zero) - eval then branch
           scdr scar swap eval-with-env
         then
       else
-        # Non-numeric, non-symbol - treat as true
-        drop  # Drop CondResult -> Env Args
-        scdr scar swap eval-with-env
+        # Check for #f symbol
+        dup ssym? if
+          ssym-val "#f" string-equal if  # -> Env Args
+            # False (#f) - eval else branch
+            scdr scdr scar swap eval-with-env
+          else
+            # Other symbol - treat as true
+            scdr scar swap eval-with-env
+          then
+        else
+          # Non-numeric, non-symbol (list) - treat as true
+          drop  # -> Env Args
+          scdr scar swap eval-with-env
+        then
       then
     then
-  then
   then
 ;
 
@@ -1254,13 +1268,19 @@ union LispClosure {
 : eval-lambda-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
   # List is (lambda (params) body)
-  swap scdr  # Skip 'lambda' -> Env Args
-  # Args is ((params) body)
-  dup scar slist-val  # Get params list -> Env Args Params
-  swap scdr scar  # Get body -> Env Params Body
-  rot  # -> Params Body Env
-  make-closure  # -> Closure
-  eval-ok  # Wrap closure in EvalOk
+  over 2 "lambda" check-arity  # -> List Env List EvalResult
+  dup eval-err? if
+    nip nip nip  # -> EvalResult
+  else
+    drop drop  # -> List Env
+    swap scdr  # Skip 'lambda' -> Env Args
+    # Args is ((params) body)
+    dup scar slist-val  # -> Env Args Params
+    swap scdr scar  # -> Env Params Body
+    rot  # -> Params Body Env
+    make-closure  # -> Closure
+    eval-ok  # -> EvalResult
+  then
 ;
 
 # ============================================
