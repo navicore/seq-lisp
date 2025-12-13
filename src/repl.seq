@@ -7,6 +7,8 @@
 #   echo "(+ 1 2)" | ./seqlisp - Piped input
 #
 # REPL features:
+#   - Line editing with arrow keys (via libedit)
+#   - Command history (up/down arrows)
 #   - Multi-line input (detects incomplete expressions)
 #   - Continuation prompt (...) for multi-line
 #   - Environment persists across expressions
@@ -16,6 +18,7 @@
 
 include "eval"
 include "version"
+include ffi:libedit
 
 # ============================================
 # File Mode - Read file, parse all, evaluate
@@ -169,13 +172,12 @@ include "version"
 # Interactive REPL Mode
 # ============================================
 
-# Print prompt based on whether we're continuing a multi-line expression
-# Note: write_line adds newline, so prompt appears on its own line
-: print-prompt ( Int -- )
+# Get prompt string based on whether we're continuing a multi-line expression
+: get-prompt ( Int -- String )
     0 = if
-        ">" write_line
+        "> "
     else
-        "..." write_line
+        "... "
     then ;
 
 # Handle EOF in REPL
@@ -215,7 +217,8 @@ include "version"
         2 pick has-content
         # Stack: NewAcc Env BalancedBool HasContentBool
         and if
-            # Balanced and has content - evaluate
+            # Balanced and has content - add to history and evaluate
+            over add-history
             swap tokenize parse-all
             swap eval-all-print
             "" swap repl-loop
@@ -228,13 +231,13 @@ include "version"
 # Interactive REPL loop with multi-line support
 : repl-loop ( String Env -- )
     # Stack: Accumulator Env
-    over paren-balance print-prompt
-    read_line+
-    0 = if
-        # EOF
+    over paren-balance get-prompt readline
+    dup string-empty if
+        # EOF (Ctrl+D or empty input)
         drop repl-handle-eof
     else
-        # Got a line
+        # Got a line - add newline since readline strips it
+        "\n" string-concat
         repl-handle-line
     then ;
 
