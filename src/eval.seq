@@ -38,26 +38,26 @@ union EvalResult {
 
 # Predicates
 : eval-ok? ( EvalResult -- Int )
-  variant-tag 0 = ;
+  variant.tag 0 = ;
 
 : eval-err? ( EvalResult -- Int )
-  variant-tag 1 = ;
+  variant.tag 1 = ;
 
 : eval-define? ( EvalResult -- Int )
-  variant-tag 2 = ;
+  variant.tag 2 = ;
 
 # Accessors
 : eval-ok-value ( EvalResult -- Sexpr )
-  0 variant-field-at ;
+  0 variant.field-at ;
 
 : eval-err-message ( EvalResult -- String )
-  0 variant-field-at ;
+  0 variant.field-at ;
 
 : eval-define-name ( EvalResult -- String )
-  0 variant-field-at ;
+  0 variant.field-at ;
 
 : eval-define-value ( EvalResult -- Sexpr )
-  1 variant-field-at ;
+  1 variant.field-at ;
 
 
 # ============================================
@@ -96,9 +96,9 @@ union EvalResult {
     snil slist eval-ok  # Return List and EvalOk
   else
     # Stack: List Expected FuncName - arity mismatch
-    " expects " string-concat  # "funcname expects "
-    swap int->string string-concat  # "funcname expects N"
-    " argument(s)" string-concat  # "funcname expects N argument(s)"
+    " expects " string.concat  # "funcname expects "
+    swap int->string string.concat  # "funcname expects N"
+    " argument(s)" string.concat  # "funcname expects N argument(s)"
     eval-err  # Stack: List EvalErr
   then ;
 
@@ -112,14 +112,14 @@ union EvalResult {
 : env-lookup ( String Env -- EvalResult )
   # Stack: Name Env
   # Returns EvalOk with the value, or EvalErr if not found
-  dup variant-tag 0 = if
+  dup variant.tag 0 = if
     # EnvEmpty - not found, return error
-    drop "undefined symbol: " swap string-concat eval-err
+    drop "undefined symbol: " swap string.concat eval-err
   else
     # EnvExtend - extract binding and parent
-    dup 0 variant-field-at  # Name Env Binding
+    dup 0 variant.field-at  # Name Env Binding
     dup binding-name        # Name Env Binding BindingName
-    3 pick string-equal if
+    3 pick string.equal? if
       # Found it
       binding-value         # Name Env Value
       nip nip               # Value
@@ -127,7 +127,7 @@ union EvalResult {
     else
       # Keep looking
       drop                  # Name Env
-      1 variant-field-at    # Name Parent
+      1 variant.field-at    # Name Parent
       env-lookup
     then
   then ;
@@ -136,13 +136,13 @@ union EvalResult {
 : env-concat ( Env Env -- Env )
   # Stack: Env1 Env2 -> Result where Env1 bindings come first
   swap  # Env2 Env1
-  dup variant-tag 0 = if
+  dup variant.tag 0 = if
     # EnvEmpty - just return Env2
     drop
   else
     # EnvExtend - extract binding and parent
-    dup 0 variant-field-at  # Env2 Env1 Binding
-    swap 1 variant-field-at # Env2 Binding Parent
+    dup 0 variant.field-at  # Env2 Env1 Binding
+    swap 1 variant.field-at # Env2 Binding Parent
     rot                     # Binding Parent Env2
     env-concat              # Binding ConcatResult
     Make-EnvExtend          # Result
@@ -166,7 +166,7 @@ union EvalResult {
 # Returns: EvalResult (EvalOk, EvalErr, or EvalDefine)
 : eval-with-env ( Sexpr Env -- EvalResult )
   # Stack: Expr Env
-  over variant-tag
+  over variant.tag
   dup 0 = if
     # SNum - return as-is wrapped in EvalOk
     drop drop eval-ok
@@ -174,7 +174,7 @@ union EvalResult {
     dup 1 = if
       # SSym - check for self-evaluating symbols (#t, #f) or lookup
       drop swap dup ssym-val
-      dup "#t" string-equal over "#f" string-equal or if
+      dup "#t" string.equal? over "#f" string.equal? or if
         # Boolean literal - return as-is
         drop nip eval-ok
       else
@@ -269,13 +269,13 @@ union EvalResult {
 # Group 1: Arithmetic (+, -, *, /)
 # ----------------------------------------
 : dispatch-arithmetic ( SexprList Env String -- EvalResult )
-  dup "+" string-equal if
+  dup "+" string.equal? if
     drop eval-add-with-env
-  else dup "-" string-equal if
+  else dup "-" string.equal? if
     drop eval-sub-with-env
-  else dup "*" string-equal if
+  else dup "*" string.equal? if
     drop eval-mul-with-env
-  else dup "/" string-equal if
+  else dup "/" string.equal? if
     drop eval-div-with-env
   else
     dispatch-comparison
@@ -286,15 +286,15 @@ union EvalResult {
 # Group 2: Comparison (<, >, <=, >=, =)
 # ----------------------------------------
 : dispatch-comparison ( SexprList Env String -- EvalResult )
-  dup "<" string-equal if
+  dup "<" string.equal? if
     drop eval-lt-with-env
-  else dup ">" string-equal if
+  else dup ">" string.equal? if
     drop eval-gt-with-env
-  else dup "<=" string-equal if
+  else dup "<=" string.equal? if
     drop eval-lte-with-env
-  else dup ">=" string-equal if
+  else dup ">=" string.equal? if
     drop eval-gte-with-env
-  else dup "=" string-equal if
+  else dup "=" string.equal? if
     drop eval-eq-with-env
   else
     dispatch-special-forms
@@ -305,15 +305,15 @@ union EvalResult {
 # Group 3: Special Forms (if, let, lambda, define, quote)
 # ----------------------------------------
 : dispatch-special-forms ( SexprList Env String -- EvalResult )
-  dup "if" string-equal if
+  dup "if" string.equal? if
     drop eval-if-with-env
-  else dup "let" string-equal if
+  else dup "let" string.equal? if
     drop eval-let-with-env
-  else dup "lambda" string-equal if
+  else dup "lambda" string.equal? if
     drop eval-lambda-with-env
-  else dup "define" string-equal if
+  else dup "define" string.equal? if
     drop eval-define-with-env
-  else dup "quote" string-equal if
+  else dup "quote" string.equal? if
     drop eval-quote-with-env
   else
     dispatch-list-ops
@@ -324,23 +324,23 @@ union EvalResult {
 # Group 4: List Operations (cons, car, cdr, list, append, reverse, map, filter, fold)
 # ----------------------------------------
 : dispatch-list-ops ( SexprList Env String -- EvalResult )
-  dup "cons" string-equal if
+  dup "cons" string.equal? if
     drop eval-cons-with-env
-  else dup "car" string-equal if
+  else dup "car" string.equal? if
     drop eval-car-with-env
-  else dup "cdr" string-equal if
+  else dup "cdr" string.equal? if
     drop eval-cdr-with-env
-  else dup "list" string-equal if
+  else dup "list" string.equal? if
     drop eval-list-builtin-with-env
-  else dup "append" string-equal if
+  else dup "append" string.equal? if
     drop eval-append-with-env
-  else dup "reverse" string-equal if
+  else dup "reverse" string.equal? if
     drop eval-reverse-with-env
-  else dup "map" string-equal if
+  else dup "map" string.equal? if
     drop eval-map-with-env
-  else dup "filter" string-equal if
+  else dup "filter" string.equal? if
     drop eval-filter-with-env
-  else dup "fold" string-equal if
+  else dup "fold" string.equal? if
     drop eval-fold-with-env
   else
     dispatch-predicates
@@ -351,15 +351,15 @@ union EvalResult {
 # Group 5: Predicates (null?, number?, symbol?, list?, boolean?)
 # ----------------------------------------
 : dispatch-predicates ( SexprList Env String -- EvalResult )
-  dup "null?" string-equal if
+  dup "null?" string.equal? if
     drop eval-null?-with-env
-  else dup "number?" string-equal if
+  else dup "number?" string.equal? if
     drop eval-number?-with-env
-  else dup "symbol?" string-equal if
+  else dup "symbol?" string.equal? if
     drop eval-symbol?-with-env
-  else dup "list?" string-equal if
+  else dup "list?" string.equal? if
     drop eval-list?-with-env
-  else dup "boolean?" string-equal if
+  else dup "boolean?" string.equal? if
     drop eval-boolean?-with-env
   else
     dispatch-control-flow
@@ -370,9 +370,9 @@ union EvalResult {
 # Group 6: Control Flow (begin, cond)
 # ----------------------------------------
 : dispatch-control-flow ( SexprList Env String -- EvalResult )
-  dup "begin" string-equal if
+  dup "begin" string.equal? if
     drop eval-begin-with-env
-  else dup "cond" string-equal if
+  else dup "cond" string.equal? if
     drop eval-cond-with-env
   else
     dispatch-io
@@ -383,7 +383,7 @@ union EvalResult {
 # Group 7: I/O (print)
 # ----------------------------------------
 : dispatch-io ( SexprList Env String -- EvalResult )
-  dup "print" string-equal if
+  dup "print" string.equal? if
     drop eval-print-with-env
   else
     dispatch-user-defined
@@ -798,7 +798,7 @@ union EvalResult {
   dup eval-err? if
     # Error - just return it
   else
-    dup eval-ok-value sexpr-to-string write_line  # Print it
+    dup eval-ok-value sexpr-to-string io.write-line  # Print it
     # Return the EvalResult as-is
   then
 ;
@@ -1175,7 +1175,7 @@ union EvalResult {
       eval-ok-value  # -> Env Closure Acc InputList Elem PredResult
       # Check if truthy (not #f and not ())
       dup ssym? if
-        ssym-val "#f" string-equal if
+        ssym-val "#f" string.equal? if
           # False - don't include, drop elem and advance
           # Stack: Env Closure Acc InputList Elem
           drop  # -> Env Closure Acc InputList
@@ -1395,7 +1395,7 @@ union EvalResult {
     else
       eval-ok-value
       dup ssym? if
-        ssym-val dup "#t" string-equal swap "#f" string-equal or
+        ssym-val dup "#t" string.equal? swap "#f" string.equal? or
         if "#t" else "#f" then
       else
         drop "#f"
@@ -1462,7 +1462,7 @@ union EvalResult {
     dup scar  # Clauses Env ClauseList Test
     # Check for 'else' keyword
     dup ssym? if
-      dup ssym-val "else" string-equal if
+      dup ssym-val "else" string.equal? if
         # else clause - evaluate the expression(s)
         drop scdr  # Clauses Env BodyExprs
         rot drop  # Env BodyExprs
@@ -1517,7 +1517,7 @@ union EvalResult {
     snum-val 0 = if 0 else 1 then
   else
     dup ssym? if
-      ssym-val "#f" string-equal if 0 else 1 then
+      ssym-val "#f" string.equal? if 0 else 1 then
     else
       drop 1  # Lists and other values are truthy
     then
@@ -1563,7 +1563,7 @@ union EvalResult {
       else
         # Check for #f symbol
         dup ssym? if
-          ssym-val "#f" string-equal if  # -> Env Args
+          ssym-val "#f" string.equal? if  # -> Env Args
             # False (#f) - eval else branch
             scdr scdr scar swap eval-with-env
           else
@@ -1659,7 +1659,7 @@ union EvalResult {
     dup closure-params scar ssym-val  # -> ... ArgVal Closure ParamName
     rot  # -> ... Closure ParamName ArgVal
     2 pick closure-env  # -> ... Closure ParamName ArgVal ClosureEnv
-    5 pick env-concat  # -> ... Closure ParamName ArgVal MergedEnv
+    4 pick env-concat  # -> ... Closure ParamName ArgVal MergedEnv
     env-extend  # -> ClosureSexpr Args CallerEnv Closure ExtendedEnv
     # Evaluate body
     swap closure-body  # -> ClosureSexpr Args CallerEnv ExtendedEnv Body
@@ -1723,7 +1723,7 @@ union EvalResult {
 : eval-print ( String -- )
   parse env-empty eval-with-env
   dup eval-err? if
-    "Error: " swap eval-err-message string-concat write_line
+    "Error: " swap eval-err-message string.concat io.write-line
   else
-    eval-ok-value sexpr-to-string write_line
+    eval-ok-value sexpr-to-string io.write-line
   then ;

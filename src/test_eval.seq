@@ -3,7 +3,7 @@
 include "eval"
 
 : main ( -- )
-  "Testing evaluator:" write_line
+  "Testing evaluator:" io.write-line
 
   # Simple numbers
   "42" eval-print
@@ -99,7 +99,7 @@ include "eval"
   "(cond (#t 1 2 3))" eval-print
 
   # Error handling - arity validation
-  "Testing error handling:" write_line
+  "Testing error handling:" io.write-line
   "(car)" eval-print  # Error: car expects 1 argument(s)
   "(car '(a b c))" eval-print  # a (continues after error)
   "(cdr)" eval-print  # Error: cdr expects 1 argument(s)
@@ -107,7 +107,7 @@ include "eval"
   "(car 'a 'b)" eval-print  # Error: car expects 1 argument(s) (too many)
 
   # Error propagation in nested expressions
-  "Testing error propagation:" write_line
+  "Testing error propagation:" io.write-line
   "(+ 1 (car))" eval-print  # Error propagates through +
   "(+ 1 2)" eval-print  # 3 (continues after nested error)
   "(+ (car) (cdr))" eval-print  # First error propagates

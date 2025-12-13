@@ -4,11 +4,13 @@
 #   ./seqlisp              - Interactive REPL (multi-line, Ctrl+D to exit)
 #   ./seqlisp file.lisp    - Run a file
 #   ./seqlisp --version    - Print version
+#   ./seqlisp --help       - Print help
 #   echo "(+ 1 2)" | ./seqlisp - Piped input
 #
 # REPL features:
 #   - Line editing with arrow keys (via libedit)
 #   - Command history (up/down arrows)
+#   - Persistent history saved to ~/.seqlisp_history
 #   - Multi-line input (detects incomplete expressions)
 #   - Continuation prompt (...) for multi-line
 #   - Environment persists across expressions
@@ -56,7 +58,7 @@ include ffi:libedit
         else
             dup eval-err? if
                 # Print error but continue
-                "Error: " swap eval-err-message string-concat write_line
+                "Error: " swap eval-err-message string.concat io.write-line
                 scdr swap
                 eval-all-quiet
             else
@@ -83,20 +85,20 @@ include ffi:libedit
         else
             dup eval-err? if
                 # Print error and continue
-                "Error: " swap eval-err-message string-concat write_line
+                "Error: " swap eval-err-message string.concat io.write-line
                 scdr swap
                 eval-all-print
             else
                 # EvalOk result - unwrap and print if not empty list
                 eval-ok-value
-                dup variant-tag 2 = if
+                dup variant.tag 2 = if
                     dup slist-val snil? if
                         drop
                     else
-                        sexpr-to-string write_line
+                        sexpr-to-string io.write-line
                     then
                 else
-                    sexpr-to-string write_line
+                    sexpr-to-string io.write-line
                 then
                 scdr swap
                 eval-all-print
@@ -107,7 +109,7 @@ include ffi:libedit
 
 # Run a file
 : run-file ( String -- )
-    file-slurp tokenize parse-all
+    file.slurp tokenize parse-all
     env-empty eval-all-print drop
 ;
 
@@ -123,12 +125,12 @@ include ffi:libedit
 : paren-balance-loop ( Int String Int -- Int )
     # Stack: Balance Str Pos
     # Check if Pos >= Length (done)
-    dup 2 pick string-length >= if
+    dup 2 pick string.length >= if
         # End of string - return Balance
         drop drop  # Drop Str Pos, leave Balance
     else
         # Get char at pos
-        over over string-char-at
+        over over string.char-at
         dup 40 = if      # '('
             drop rot 1 add rot rot 1 add paren-balance-loop
         else
@@ -149,11 +151,11 @@ include ffi:libedit
 : has-content-loop ( Int String Int -- Int )
     # Stack: Found Str Pos
     # Check if Pos >= Length (done)
-    dup 2 pick string-length >= if
+    dup 2 pick string.length >= if
         # End of string - return Found
         drop drop  # Drop Str Pos, leave Found
     else
-        over over string-char-at
+        over over string.char-at
         # Stack: Found Str Pos CharCode
         dup 59 = if  # ';' - comment starts, stop scanning
             # Return what we've found so far (0 if nothing before comment)
@@ -172,6 +174,14 @@ include ffi:libedit
 # Interactive REPL Mode
 # ============================================
 
+# History file path - uses os.home-dir to get user's home directory
+: history-file ( -- String )
+    os.home-dir if
+        "/.seqlisp_history" string.concat
+    else
+        drop "/tmp/.seqlisp_history"  # Fallback if os.home-dir fails
+    then ;
+
 # Get prompt string based on whether we're continuing a multi-line expression
 : get-prompt ( Int -- String )
     0 = if
@@ -188,20 +198,20 @@ include ffi:libedit
             # Balanced - evaluate remaining
             swap tokenize parse-all
             swap eval-all-print drop
-            "Goodbye!" write_line
+            "Goodbye!" io.write-line
         else
             # Unbalanced at EOF
-            drop drop "Error: unbalanced parentheses" write_line
+            drop drop "Error: unbalanced parentheses" io.write-line
         then
     else
-        drop drop "Goodbye!" write_line
+        drop drop "Goodbye!" io.write-line
     then ;
 
 # Handle a line of input
 : repl-handle-line ( String Env String -- )
     # Stack: Acc Env Line
     # Build: Acc + Line (Acc already has newlines from previous lines)
-    rot swap string-concat
+    rot swap string.concat
     # Stack: Env NewAcc
     swap
     # Stack: NewAcc Env
@@ -209,7 +219,7 @@ include ffi:libedit
     # Stack: NewAcc Env Balance
     dup 0 < if
         # Negative balance - too many closing parens
-        drop "Error: unexpected ')'" write_line
+        drop "Error: unexpected ')'" io.write-line
         drop "" swap repl-loop
     else
         0 =
@@ -232,18 +242,22 @@ include ffi:libedit
 : repl-loop ( String Env -- )
     # Stack: Accumulator Env
     over paren-balance get-prompt readline
-    dup string-empty if
+    dup string.empty? if
         # EOF (Ctrl+D or empty input)
         drop repl-handle-eof
     else
         # Got a line - add newline since readline strips it
-        "\n" string-concat
+        "\n" string.concat
         repl-handle-line
     then ;
 
 # Start interactive REPL
 : run-repl ( -- )
-    "" env-empty repl-loop ;
+    # Load history from previous sessions (ignore error if file doesn't exist)
+    history-file read-history drop
+    "" env-empty repl-loop
+    # Save history for next session
+    history-file write-history drop ;
 
 # ============================================
 # Stdin Mode - Read all lines, then evaluate (for piped input)
@@ -251,13 +265,13 @@ include ffi:libedit
 
 # Read all lines until EOF (preserves newlines for comments)
 : read-all-stdin ( String -- String )
-    read_line+
+    io.read-line+
     0 = if
         # EOF reached
         drop
     else
         # Got a line - append to accumulator (keep newline for comments)
-        string-concat
+        string.concat
         read-all-stdin
     then
 ;
@@ -265,7 +279,7 @@ include ffi:libedit
 # Run from stdin (non-interactive, for piped input)
 : run-stdin ( -- )
     "" read-all-stdin
-    dup string-empty if
+    dup string.empty? if
         drop
     else
         tokenize parse-all
@@ -278,27 +292,70 @@ include ffi:libedit
 
 # Check if argument is a version flag
 : is-version-flag ( String -- Int )
-    dup "--version" string-equal if
+    dup "--version" string.equal? if
         drop 1
     else
-        "-v" string-equal
+        "-v" string.equal?
+    then
+;
+
+# Check if argument is a help flag
+: is-help-flag ( String -- Int )
+    dup "--help" string.equal? if
+        drop 1
+    else
+        "-h" string.equal?
     then
 ;
 
 # Print version information
 : print-version ( -- )
-    "seqlisp " seqlisp-version string-concat write_line
+    "seqlisp " seqlisp-version string.concat io.write-line
+;
+
+# Print help information
+: print-help ( -- )
+    "SeqLisp - A Lisp interpreter" io.write-line
+    "" io.write-line
+    "Usage:" io.write-line
+    "  seqlisp              Interactive REPL" io.write-line
+    "  seqlisp <file>       Run a Lisp file" io.write-line
+    "  seqlisp --version    Show version" io.write-line
+    "  seqlisp --help       Show this help" io.write-line
+    "" io.write-line
+    "Examples:" io.write-line
+    "  seqlisp examples/factorial.lisp" io.write-line
+    "  echo '(+ 1 2)' | seqlisp" io.write-line
+;
+
+# Run a file safely (handle missing files)
+: run-file-safe ( String -- )
+    dup file.slurp-safe if
+        # Stack: Filename Content (success)
+        nip  # Drop filename, keep content
+        tokenize parse-all
+        env-empty eval-all-print drop
+    else
+        # Stack: Filename Content (failure)
+        drop  # Drop empty/error content
+        "Error: Cannot read file '" swap string.concat "'" string.concat io.write-line
+    then
 ;
 
 : main ( -- )
-    arg-count 1 > if
-        1 arg dup is-version-flag if
+    args.count 1 > if
+        1 args.at
+        dup is-version-flag if
             drop print-version
         else
-            run-file
+            dup is-help-flag if
+                drop print-help
+            else
+                run-file-safe
+            then
         then
     else
-        "SeqLisp " seqlisp-version string-concat write_line
+        "SeqLisp " seqlisp-version string.concat io.write-line
         run-repl
     then
 ;

@@ -32,7 +32,7 @@ A working interpreter with:
 - [x] Continuation prompt (...) for incomplete expressions
 - [x] Environment persists across expressions
 - [x] Error recovery (REPL continues after errors)
-- [x] Command history (via libedit FFI)
+- [x] Command history with persistence (via libedit FFI, saved to ~/.seqlisp_history)
 
 ### Core Lisp Features
 - [x] `quote` and `'` syntax

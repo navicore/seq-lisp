@@ -10,10 +10,10 @@ include "eval"
   # Stack: Input
   dup parse env-empty eval-with-env
   dup eval-err? if
-    swap "PASS " swap string-concat ": " string-concat
-    swap eval-err-message string-concat write_line
+    swap "PASS " swap string.concat ": " string.concat
+    swap eval-err-message string.concat io.write-line
   else
-    drop "FAIL: expected error for " swap string-concat write_line
+    drop "FAIL: expected error for " swap string.concat io.write-line
   then ;
 
 # Helper to test successful evaluation
@@ -23,30 +23,30 @@ include "eval"
   parse env-empty eval-with-env  # -> Expected Input EvalResult
   dup eval-ok? if
     eval-ok-value sexpr-to-string  # -> Expected Input Actual
-    2 pick string-equal if
-      drop "PASS: " swap string-concat write_line
+    2 pick string.equal? if
+      drop "PASS: " swap string.concat io.write-line
     else
       # -> Expected Input Actual
-      "FAIL: " 2 pick string-concat  # FAIL: Input
-      " expected " string-concat
-      rot string-concat  # FAIL: Input expected Expected
-      " but got " string-concat
-      swap string-concat write_line  # FAIL: Input expected Expected but got Actual
+      "FAIL: " 2 pick string.concat  # FAIL: Input
+      " expected " string.concat
+      rot string.concat  # FAIL: Input expected Expected
+      " but got " string.concat
+      swap string.concat io.write-line  # FAIL: Input expected Expected but got Actual
     then
   else
     # -> Expected Input EvalResult
     eval-err-message  # -> Expected Input ErrMsg
-    "FAIL: " 2 pick string-concat  # FAIL: Input
-    " unexpected error: " string-concat
-    swap string-concat write_line
+    "FAIL: " 2 pick string.concat  # FAIL: Input
+    " unexpected error: " string.concat
+    swap string.concat io.write-line
     drop drop  # Clean up Expected
   then ;
 
 : main ( -- )
-  "=== Error Handling Tests ===" write_line
-  "" write_line
+  "=== Error Handling Tests ===" io.write-line
+  "" io.write-line
 
-  "--- Arity Validation ---" write_line
+  "--- Arity Validation ---" io.write-line
   # List operations
   "(car)" test-error
   "(car 'a 'b)" test-error
@@ -74,9 +74,9 @@ include "eval"
   "(<= 5)" test-error
   "(>= 1 2 3)" test-error
   "(= 1)" test-error
-  "" write_line
+  "" io.write-line
 
-  "--- Type Validation ---" write_line
+  "--- Type Validation ---" io.write-line
   # List operations require lists
   "(car 42)" test-error
   "(cdr 'symbol)" test-error
@@ -95,38 +95,38 @@ include "eval"
   "(<= 'a 'b)" test-error
   "(>= 1 '())" test-error
   "(= 'foo 'bar)" test-error
-  "" write_line
+  "" io.write-line
 
-  "--- Undefined Symbols ---" write_line
+  "--- Undefined Symbols ---" io.write-line
   "undefined-var" test-error
   "(undefined-func 1 2)" test-error
   "(+ 1 unknown)" test-error
-  "" write_line
+  "" io.write-line
 
-  "--- Division by Zero ---" write_line
+  "--- Division by Zero ---" io.write-line
   "(/ 1 0)" test-error
   "(/ 10 2 0)" test-error
   "(/ 100 (- 5 5))" test-error
-  "" write_line
+  "" io.write-line
 
-  "--- Error Propagation ---" write_line
+  "--- Error Propagation ---" io.write-line
   "(+ 1 (car))" test-error
   "(* (/ 1 0) 5)" test-error
   "(if (car) 1 2)" test-error
   "(let x (/ 1 0) x)" test-error
   "(list 1 (car) 3)" test-error
   "(begin 1 (/ 1 0) 3)" test-error
-  "" write_line
+  "" io.write-line
 
-  "--- Recovery After Errors ---" write_line
+  "--- Recovery After Errors ---" io.write-line
   "(+ 1 2)" "3" test-ok
   "(car '(a b c))" "a" test-ok
   "(/ 10 2)" "5" test-ok
   "(if #t 'yes 'no)" "yes" test-ok
   "(let x 5 (+ x 3))" "8" test-ok
-  "" write_line
+  "" io.write-line
 
-  "--- List Operations (append, reverse) ---" write_line
+  "--- List Operations (append, reverse) ---" io.write-line
   # append tests
   "(append '(1 2) '(3 4))" "(1 2 3 4)" test-ok
   "(append '() '(1 2))" "(1 2)" test-ok
@@ -143,9 +143,9 @@ include "eval"
   "(reverse)" test-error
   "(reverse 42)" test-error
   "(reverse '(1) '(2))" test-error
-  "" write_line
+  "" io.write-line
 
-  "--- Higher-Order Functions (map, filter, fold) ---" write_line
+  "--- Higher-Order Functions (map, filter, fold) ---" io.write-line
   # map tests
   "(map (lambda (x) (+ x 1)) '(1 2 3))" "(2 3 4)" test-ok
   "(map (lambda (x) (* x x)) '(1 2 3 4))" "(1 4 9 16)" test-ok
@@ -180,7 +180,7 @@ include "eval"
   "(fold (lambda (acc x) acc) 0)" test-error
   "(fold 42 0 '(1 2 3))" test-error
   "(fold (lambda (acc x) acc) 0 42)" test-error
-  "" write_line
+  "" io.write-line
 
-  "=== All Tests Complete ===" write_line
+  "=== All Tests Complete ===" io.write-line
 ;
