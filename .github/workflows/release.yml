@@ -44,10 +44,11 @@ jobs:
       - name: Setup static clang wrapper
         run: |
           # Create wrapper that forces static linking
+          # Append ncurses after libedit (link order matters for static libs)
           mv /usr/bin/clang /usr/bin/clang-real
           cat > /usr/bin/clang << 'EOF'
           #!/bin/sh
-          exec /usr/bin/clang-real -static "$@"
+          exec /usr/bin/clang-real -static "$@" -lncursesw
           EOF
           chmod +x /usr/bin/clang
 
