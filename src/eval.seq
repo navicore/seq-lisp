@@ -341,7 +341,7 @@ union EvalResult {
 ;
 
 # ----------------------------------------
-# Group 4: List Operations (cons, car, cdr, list, append, reverse, map, filter, fold)
+# Group 4: List Operations (cons, car, cdr, list, append, reverse, length, nth, last, take, drop, map, filter, fold)
 # ----------------------------------------
 : dispatch-list-ops ( SexprList Env String -- EvalResult )
   dup "cons" string.equal? if
@@ -356,6 +356,16 @@ union EvalResult {
     drop eval-append-with-env
   else dup "reverse" string.equal? if
     drop eval-reverse-with-env
+  else dup "length" string.equal? if
+    drop eval-length-with-env
+  else dup "nth" string.equal? if
+    drop eval-nth-with-env
+  else dup "last" string.equal? if
+    drop eval-last-with-env
+  else dup "take" string.equal? if
+    drop eval-take-with-env
+  else dup "drop" string.equal? if
+    drop eval-drop-with-env
   else dup "map" string.equal? if
     drop eval-map-with-env
   else dup "filter" string.equal? if
@@ -364,7 +374,7 @@ union EvalResult {
     drop eval-fold-with-env
   else
     dispatch-predicates
-  then then then then then then then then then
+  then then then then then then then then then then then then then then
 ;
 
 # ----------------------------------------
@@ -1121,6 +1131,242 @@ union EvalResult {
       else
         drop "reverse: argument must be a list" eval-err
       then
+    then
+  then
+;
+
+# ============================================
+# List Utilities (length, nth, last, take, drop)
+# ============================================
+
+: eval-length-with-env ( SexprList Env -- EvalResult )
+  # Stack: List Env
+  # (length list) - returns the length of a list
+  over 1 "length" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop  # -> List Env
+    swap scdr scar  # -> Env Arg (skip 'length', get arg)
+    swap eval-with-env  # Eval arg -> EvalResult
+    dup eval-err? if
+      # Error - propagate
+    else
+      eval-ok-value  # -> ListVal
+      dup slist? if
+        slist-val list-length snum eval-ok
+      else
+        drop "length: argument must be a list" eval-err
+      then
+    then
+  then
+;
+
+: eval-nth-with-env ( SexprList Env -- EvalResult )
+  # Stack: List Env
+  # (nth n list) - returns the nth element (0-indexed)
+  over 2 "nth" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop  # -> List Env
+    swap scdr  # -> Env Args (skip 'nth')
+    dup scar 2 pick eval-with-env  # Eval first arg (n) -> Env Args EvalResult
+    dup eval-err? if
+      nip nip nip
+    else
+      eval-ok-value  # -> Env Args NVal
+      dup snum? if
+        snum-val  # -> Env Args N
+        dup 0 < if
+          drop drop drop "nth: index must be non-negative" eval-err
+        else
+          swap scdr scar 2 pick eval-with-env  # Eval second arg -> Env N EvalResult
+          dup eval-err? if
+            nip nip nip
+          else
+            eval-ok-value  # -> Env N ListVal
+            dup slist? if
+              slist-val  # -> Env N List
+              swap nth-helper
+              nip  # -> EvalResult
+            else
+              drop drop drop "nth: second argument must be a list" eval-err
+            then
+          then
+        then
+      else
+        drop drop drop "nth: first argument must be a number" eval-err
+      then
+    then
+  then
+;
+
+# Helper: get nth element from SexprList (0-indexed)
+: nth-helper ( SexprList Int -- EvalResult )
+  # Stack: List N
+  over snil? if
+    drop drop "nth: index out of bounds" eval-err
+  else
+    dup 0 = if
+      drop scar eval-ok
+    else
+      1 subtract  # -> List N-1
+      swap scdr swap  # -> RestList N-1
+      nth-helper
+    then
+  then
+;
+
+: eval-last-with-env ( SexprList Env -- EvalResult )
+  # Stack: List Env
+  # (last list) - returns the last element of a list
+  over 1 "last" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop  # -> List Env
+    swap scdr scar  # -> Env Arg (skip 'last', get arg)
+    swap eval-with-env  # Eval arg -> EvalResult
+    dup eval-err? if
+      # Error - propagate
+    else
+      eval-ok-value  # -> ListVal
+      dup slist? if
+        slist-val  # -> List
+        dup snil? if
+          drop "last: empty list" eval-err
+        else
+          last-helper eval-ok
+        then
+      else
+        drop "last: argument must be a list" eval-err
+      then
+    then
+  then
+;
+
+# Helper: get last element from non-empty SexprList
+: last-helper ( SexprList -- Sexpr )
+  # Stack: List (non-empty)
+  dup scdr snil? if
+    scar  # This is the last element
+  else
+    scdr last-helper
+  then
+;
+
+: eval-take-with-env ( SexprList Env -- EvalResult )
+  # Stack: List Env
+  # (take n list) - returns first n elements
+  over 2 "take" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop  # -> List Env
+    swap scdr  # -> Env Args (skip 'take')
+    dup scar 2 pick eval-with-env  # Eval first arg (n) -> Env Args EvalResult
+    dup eval-err? if
+      nip nip nip
+    else
+      eval-ok-value  # -> Env Args NVal
+      dup snum? if
+        snum-val  # -> Env Args N
+        dup 0 < if
+          drop drop drop "take: count must be non-negative" eval-err
+        else
+          swap scdr scar 2 pick eval-with-env  # Eval second arg -> Env N EvalResult
+          dup eval-err? if
+            nip nip nip
+          else
+            eval-ok-value  # -> Env N ListVal
+            dup slist? if
+              slist-val  # -> Env N List
+              swap take-helper slist
+              nip eval-ok
+            else
+              drop drop drop "take: second argument must be a list" eval-err
+            then
+          then
+        then
+      else
+        drop drop drop "take: first argument must be a number" eval-err
+      then
+    then
+  then
+;
+
+# Helper: take first N elements from SexprList
+: take-helper ( SexprList Int -- SexprList )
+  # Stack: List N
+  dup 0 <= if
+    drop drop snil
+  else
+    over snil? if
+      drop drop snil
+    else
+      # Get first element and recurse on rest with N-1
+      over scar      # -> List N First
+      rot scdr       # -> N First Rest
+      rot 1 subtract # -> First Rest N-1
+      take-helper    # -> First TakenRest
+      scons
+    then
+  then
+;
+
+: eval-drop-with-env ( SexprList Env -- EvalResult )
+  # Stack: List Env
+  # (drop n list) - drops first n elements, returns rest
+  over 2 "drop" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop  # -> List Env
+    swap scdr  # -> Env Args (skip 'drop')
+    dup scar 2 pick eval-with-env  # Eval first arg (n) -> Env Args EvalResult
+    dup eval-err? if
+      nip nip nip
+    else
+      eval-ok-value  # -> Env Args NVal
+      dup snum? if
+        snum-val  # -> Env Args N
+        dup 0 < if
+          drop drop drop "drop: count must be non-negative" eval-err
+        else
+          swap scdr scar 2 pick eval-with-env  # Eval second arg -> Env N EvalResult
+          dup eval-err? if
+            nip nip nip
+          else
+            eval-ok-value  # -> Env N ListVal
+            dup slist? if
+              slist-val  # -> Env N List
+              swap drop-helper slist
+              nip eval-ok
+            else
+              drop drop drop "drop: second argument must be a list" eval-err
+            then
+          then
+        then
+      else
+        drop drop drop "drop: first argument must be a number" eval-err
+      then
+    then
+  then
+;
+
+# Helper: drop first N elements from SexprList
+: drop-helper ( SexprList Int -- SexprList )
+  # Stack: List N
+  dup 0 <= if
+    drop  # Return whole list
+  else
+    over snil? if
+      drop drop snil  # List exhausted
+    else
+      1 subtract  # -> List N-1
+      swap scdr swap  # -> Rest N-1
+      drop-helper
     then
   then
 ;

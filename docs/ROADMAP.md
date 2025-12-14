@@ -87,6 +87,7 @@ The current architecture is sound for adding comprehensive error handling. No fu
 ### Standard Library
 - [x] List utilities: `append`, `reverse`
 - [x] List utilities: `map`, `filter`, `fold`
+- [x] List utilities: `length`, `nth`, `last`, `take`, `drop`
 - [ ] Higher-order functions: `apply`, `compose`
 - [ ] Numeric: `abs`, `min`, `max`, `modulo`
 - [ ] String operations (when Seq strings are richer)
@@ -95,7 +96,9 @@ The current architecture is sound for adding comprehensive error handling. No fu
 - [x] `define` at top-level for global definitions
   - Simple binding: `(define name value)`
   - Function shorthand: `(define (name params...) body)`
-  - Multi-parameter closures (1-3 params supported, 4+ planned)
+- [x] Currying and partial application
+  - Automatic currying for multi-parameter lambdas
+  - Over-application passes extra args to returned closures
 - [ ] Variadic functions
 - [ ] Optional/rest parameters
 - [ ] Tail call optimization (important for idiomatic Lisp)
@@ -104,6 +107,17 @@ The current architecture is sound for adding comprehensive error handling. No fu
 - [ ] `defmacro` for syntactic abstraction
 - [ ] Quasiquote (`` ` ``), unquote (`,`), splice (`,@`)
 - [ ] Macro expansion phase
+
+### Test Framework
+- [ ] Assertion-based test runner
+  - `assert-eq` for value comparison
+  - `assert-error` for expected errors
+  - Pass/fail counters with summary output
+  - Non-zero exit code on failure
+- [ ] Reorganize test suites by feature
+  - Separate files for stdlib (map, filter, fold, list utilities)
+  - Move demos from `test_eval.seq` to assertion-based tests
+- [ ] CI integration with clear pass/fail reporting
 
 ### Tooling
 - [ ] LSP (Language Server Protocol) support
