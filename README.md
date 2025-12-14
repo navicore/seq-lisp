@@ -64,7 +64,7 @@ SeqLisp supports:
 - **Booleans**: `#t`, `#f`
 - **Definitions**: `define`, `lambda`, `let`
 - **Conditionals**: `if`, `cond`
-- **Lists**: `cons`, `car`, `cdr`, `list`, `quote` (`'`), `append`, `reverse`
+- **Lists**: `cons`, `car`, `cdr`, `list`, `quote` (`'`), `append`, `reverse`, `length`, `nth`, `last`, `take`, `drop`
 - **Higher-order**: `map`, `filter`, `fold`
 - **Predicates**: `null?`, `number?`, `symbol?`, `list?`, `boolean?`
 - **Sequencing**: `begin`
@@ -81,6 +81,25 @@ SeqLisp supports:
         (* n (factorial (- n 1))))))
 
 (print (factorial 5))  ;; 120
+```
+
+### List Utilities
+
+```lisp
+;; Length of a list
+(length '(1 2 3 4 5))    ;; => 5
+
+;; Get nth element (0-indexed)
+(nth 2 '(a b c d e))     ;; => c
+
+;; Get last element
+(last '(1 2 3 4 5))      ;; => 5
+
+;; Take first n elements
+(take 3 '(a b c d e))    ;; => (a b c)
+
+;; Drop first n elements
+(drop 2 '(a b c d e))    ;; => (c d e)
 ```
 
 ### Higher-Order Functions

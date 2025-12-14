@@ -175,5 +175,36 @@ include "eval"
 
   # Recursive define (factorial)
   "(begin (define (fact n) (if (< n 2) 1 (* n (fact (- n 1))))) (fact 5))" eval-print  # 120
+
+  # ============================================
+  # List Utility Tests
+  # ============================================
+  "Testing list utilities:" io.write-line
+
+  # length
+  "(length '())" eval-print  # 0
+  "(length '(a))" eval-print  # 1
+  "(length '(1 2 3 4 5))" eval-print  # 5
+
+  # nth (0-indexed)
+  "(nth 0 '(a b c d e))" eval-print  # a
+  "(nth 2 '(a b c d e))" eval-print  # c
+  "(nth 4 '(a b c d e))" eval-print  # e
+  "(nth 10 '(a b c))" eval-print  # Error: index out of bounds
+
+  # last
+  "(last '(1 2 3 4 5))" eval-print  # 5
+  "(last '(x))" eval-print  # x
+  "(last '())" eval-print  # Error: empty list
+
+  # take
+  "(take 0 '(a b c d e))" eval-print  # ()
+  "(take 3 '(a b c d e))" eval-print  # (a b c)
+  "(take 10 '(a b c))" eval-print  # (a b c)
+
+  # drop
+  "(drop 0 '(a b c d e))" eval-print  # (a b c d e)
+  "(drop 2 '(a b c d e))" eval-print  # (c d e)
+  "(drop 10 '(a b c))" eval-print  # ()
 ;
 
