@@ -182,5 +182,48 @@ include "eval"
   "(fold (lambda (acc x) acc) 0 42)" test-error
   "" io.write-line
 
+  "--- List Utilities (length, nth, last, take, drop) ---" io.write-line
+  # length tests
+  "(length '())" "0" test-ok
+  "(length '(a))" "1" test-ok
+  "(length '(1 2 3 4 5))" "5" test-ok
+  "(length)" test-error
+  "(length 42)" test-error
+  # nth tests
+  "(nth 0 '(a b c))" "a" test-ok
+  "(nth 2 '(a b c d e))" "c" test-ok
+  "(nth 4 '(a b c d e))" "e" test-ok
+  "(nth 10 '(a b c))" test-error
+  "(nth -1 '(a b c))" test-error
+  "(nth)" test-error
+  "(nth 0)" test-error
+  "(nth 'x '(a b))" test-error
+  "(nth 0 42)" test-error
+  # last tests
+  "(last '(1 2 3))" "3" test-ok
+  "(last '(x))" "x" test-ok
+  "(last '())" test-error
+  "(last)" test-error
+  "(last 42)" test-error
+  # take tests
+  "(take 0 '(a b c))" "()" test-ok
+  "(take 2 '(a b c d e))" "(a b)" test-ok
+  "(take 10 '(a b c))" "(a b c)" test-ok
+  "(take -1 '(a b c))" test-error
+  "(take)" test-error
+  "(take 2)" test-error
+  "(take 'x '(a b))" test-error
+  "(take 2 42)" test-error
+  # drop tests
+  "(drop 0 '(a b c))" "(a b c)" test-ok
+  "(drop 2 '(a b c d e))" "(c d e)" test-ok
+  "(drop 10 '(a b c))" "()" test-ok
+  "(drop -1 '(a b c))" test-error
+  "(drop)" test-error
+  "(drop 2)" test-error
+  "(drop 'x '(a b))" test-error
+  "(drop 2 42)" test-error
+  "" io.write-line
+
   "=== All Tests Complete ===" io.write-line
 ;

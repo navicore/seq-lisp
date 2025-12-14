@@ -1178,17 +1178,21 @@ union EvalResult {
       eval-ok-value  # -> Env Args NVal
       dup snum? if
         snum-val  # -> Env Args N
-        swap scdr scar 2 pick eval-with-env  # Eval second arg -> Env N EvalResult
-        dup eval-err? if
-          nip nip nip
+        dup 0 < if
+          drop drop drop "nth: index must be non-negative" eval-err
         else
-          eval-ok-value  # -> Env N ListVal
-          dup slist? if
-            slist-val  # -> Env N List
-            swap nth-helper
-            nip  # -> EvalResult
+          swap scdr scar 2 pick eval-with-env  # Eval second arg -> Env N EvalResult
+          dup eval-err? if
+            nip nip nip
           else
-            drop drop drop "nth: second argument must be a list" eval-err
+            eval-ok-value  # -> Env N ListVal
+            dup slist? if
+              slist-val  # -> Env N List
+              swap nth-helper
+              nip  # -> EvalResult
+            else
+              drop drop drop "nth: second argument must be a list" eval-err
+            then
           then
         then
       else
@@ -1268,17 +1272,21 @@ union EvalResult {
       eval-ok-value  # -> Env Args NVal
       dup snum? if
         snum-val  # -> Env Args N
-        swap scdr scar 2 pick eval-with-env  # Eval second arg -> Env N EvalResult
-        dup eval-err? if
-          nip nip nip
+        dup 0 < if
+          drop drop drop "take: count must be non-negative" eval-err
         else
-          eval-ok-value  # -> Env N ListVal
-          dup slist? if
-            slist-val  # -> Env N List
-            swap take-helper slist
-            nip eval-ok
+          swap scdr scar 2 pick eval-with-env  # Eval second arg -> Env N EvalResult
+          dup eval-err? if
+            nip nip nip
           else
-            drop drop drop "take: second argument must be a list" eval-err
+            eval-ok-value  # -> Env N ListVal
+            dup slist? if
+              slist-val  # -> Env N List
+              swap take-helper slist
+              nip eval-ok
+            else
+              drop drop drop "take: second argument must be a list" eval-err
+            then
           then
         then
       else
@@ -1323,17 +1331,21 @@ union EvalResult {
       eval-ok-value  # -> Env Args NVal
       dup snum? if
         snum-val  # -> Env Args N
-        swap scdr scar 2 pick eval-with-env  # Eval second arg -> Env N EvalResult
-        dup eval-err? if
-          nip nip nip
+        dup 0 < if
+          drop drop drop "drop: count must be non-negative" eval-err
         else
-          eval-ok-value  # -> Env N ListVal
-          dup slist? if
-            slist-val  # -> Env N List
-            swap drop-helper slist
-            nip eval-ok
+          swap scdr scar 2 pick eval-with-env  # Eval second arg -> Env N EvalResult
+          dup eval-err? if
+            nip nip nip
           else
-            drop drop drop "drop: second argument must be a list" eval-err
+            eval-ok-value  # -> Env N ListVal
+            dup slist? if
+              slist-val  # -> Env N List
+              swap drop-helper slist
+              nip eval-ok
+            else
+              drop drop drop "drop: second argument must be a list" eval-err
+            then
           then
         then
       else
