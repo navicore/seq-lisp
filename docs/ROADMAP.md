@@ -92,7 +92,10 @@ The current architecture is sound for adding comprehensive error handling. No fu
 - [ ] String operations (when Seq strings are richer)
 
 ### Language Features
-- [ ] `define` at top-level for global definitions
+- [x] `define` at top-level for global definitions
+  - Simple binding: `(define name value)`
+  - Function shorthand: `(define (name params...) body)`
+  - Multi-parameter closures (1-3 params supported, 4+ planned)
 - [ ] Variadic functions
 - [ ] Optional/rest parameters
 - [ ] Tail call optimization (important for idiomatic Lisp)
