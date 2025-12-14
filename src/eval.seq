@@ -849,18 +849,23 @@ union EvalResult {
   #   Args = ((square n) (* n n))
   #   Extract: name="square", params=(n), body=(* n n)
 
-  # Get name first and keep it safe at bottom
-  over scar slist-val scar ssym-val  # -> Args Env Name
-  rot rot  # -> Name Args Env
+  # Validate that the name/params list is not empty
+  over scar slist-val snil? if
+    drop drop "define: empty function name" eval-err
+  else
+    # Get name first and keep it safe at bottom
+    over scar slist-val scar ssym-val  # -> Args Env Name
+    rot rot  # -> Name Args Env
 
-  # Now build closure like lambda: need Params Body Env
-  swap  # -> Name Env Args
-  dup scar slist-val scdr  # -> Name Env Args Params (skip name, just params)
-  swap scdr scar  # -> Name Env Params Body
-  rot  # -> Name Params Body Env
-  make-closure  # -> Name Closure
-  sclosure  # -> Name ClosureSexpr
-  eval-define  # -> EvalDefine
+    # Now build closure like lambda: need Params Body Env
+    swap  # -> Name Env Args
+    dup scar slist-val scdr slist  # -> Name Env Args Params (skip name, wrap as Sexpr)
+    swap scdr scar  # -> Name Env Params Body
+    rot  # -> Name Params Body Env
+    make-closure  # -> Name Closure
+    sclosure  # -> Name ClosureSexpr
+    eval-define  # -> EvalDefine
+  then
 ;
 
 : eval-define-with-env ( SexprList Env -- EvalResult )
@@ -1492,13 +1497,21 @@ union EvalResult {
       # Last expression - evaluate and return
       swap scar swap eval-with-env
     else
-      # More expressions - evaluate this one, discard result if ok, continue
+      # More expressions - evaluate this one
       over scar over eval-with-env
       dup eval-err? if
         nip nip  # Error - propagate
       else
-        drop  # Discard result
-        swap scdr swap eval-begin-exprs
+        dup eval-define? if
+          # Define - extend environment with the binding
+          dup eval-define-name swap eval-define-value
+          # Stack: Exprs Env Name Value
+          rot env-extend  # -> Exprs NewEnv
+          swap scdr swap eval-begin-exprs
+        else
+          drop  # Discard EvalOk result
+          swap scdr swap eval-begin-exprs
+        then
       then
     then
   then
@@ -1886,12 +1899,17 @@ union EvalResult {
     # Error - clean up and return
     nip nip nip nip  # -> EvalResult
   else
-    # Got a result (should be a closure), apply rest args to it
-    eval-ok-value  # -> ClosureSexpr Args CallerEnv RestArgs ResultClosure
-    # Need to call apply-closure with (ResultClosure RestArgs CallerEnv)
-    swap rot       # -> ... ResultClosure RestArgs CallerEnv
-    apply-closure  # -> ClosureSexpr Args EvalResult
-    nip nip        # -> EvalResult
+    # Got a result - verify it's a closure before trying to apply more args
+    eval-ok-value  # -> ClosureSexpr Args CallerEnv RestArgs ResultValue
+    dup sclosure? if
+      # It's a closure - apply rest args to it
+      swap rot       # -> ... ResultClosure RestArgs CallerEnv
+      apply-closure  # -> ClosureSexpr Args EvalResult
+      nip nip        # -> EvalResult
+    else
+      # Not a closure - can't apply more arguments
+      drop drop drop drop drop "over-application: result is not a function" eval-err
+    then
   then
 ;
 

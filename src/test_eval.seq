@@ -111,4 +111,69 @@ include "eval"
   "(+ 1 (car))" eval-print  # Error propagates through +
   "(+ 1 2)" eval-print  # 3 (continues after nested error)
   "(+ (car) (cdr))" eval-print  # First error propagates
+
+  # ============================================
+  # Currying / Partial Application Tests
+  # ============================================
+  "Testing currying:" io.write-line
+
+  # Basic partial application - 2 params, 1 arg -> closure
+  "((lambda (x y) (+ x y)) 3)" eval-print  # #<closure>
+
+  # Partial then full - curried addition
+  "(((lambda (x y) (+ x y)) 3) 4)" eval-print  # 7
+
+  # Full application - all args at once
+  "((lambda (x y) (+ x y)) 3 4)" eval-print  # 7
+
+  # Three-level currying
+  "((((lambda (x y z) (+ x (+ y z))) 1) 2) 3)" eval-print  # 6
+
+  # Partial with 2 of 3 params
+  "(((lambda (x y z) (+ x (+ y z))) 1 2) 3)" eval-print  # 6
+
+  # Over-application: nested lambdas with extra args
+  "((lambda (x) (lambda (y) (+ x y))) 3 4)" eval-print  # 7
+
+  # Deep over-application: three nested lambdas
+  "((lambda (a) (lambda (b) (lambda (c) (+ a (+ b c))))) 1 2 3)" eval-print  # 6
+
+  # Zero-param lambda (should work)
+  "((lambda () 42))" eval-print  # 42
+
+  # Single param, no args -> closure
+  "((lambda (x) x))" eval-print  # #<closure>
+
+  # Over-application with non-function result - should error
+  "((lambda (x) x) 42 extra)" eval-print  # Error: over-application: result is not a function
+
+  # ============================================
+  # Define Tests
+  # ============================================
+  "Testing define:" io.write-line
+
+  # Simple value define
+  "(begin (define x 42) x)" eval-print  # 42
+
+  # Define then use in expression
+  "(begin (define a 10) (define b 20) (+ a b))" eval-print  # 30
+
+  # Define a lambda
+  "(begin (define add (lambda (x y) (+ x y))) (add 3 4))" eval-print  # 7
+
+  # Curried define usage
+  "(begin (define add (lambda (x y) (+ x y))) ((add 10) 5))" eval-print  # 15
+
+  # Function shorthand define
+  "(begin (define (square n) (* n n)) (square 5))" eval-print  # 25
+
+  # Function define with multiple params
+  "(begin (define (add3 a b c) (+ a (+ b c))) (add3 1 2 3))" eval-print  # 6
+
+  # Curried function define
+  "(begin (define (mul x y) (* x y)) ((mul 3) 4))" eval-print  # 12
+
+  # Recursive define (factorial)
+  "(begin (define (fact n) (if (< n 2) 1 (* n (fact (- n 1))))) (fact 5))" eval-print  # 120
 ;
+
