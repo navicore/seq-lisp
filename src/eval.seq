@@ -64,17 +64,21 @@ union EvalResult {
 # Arity Checking Helpers
 # ============================================
 
-# Count arguments in a list (excluding the function name)
-: count-args ( SexprList -- Int )
-  scdr  # Skip function name
-  0 swap count-args-loop ;
+# Count elements in an SexprList
+: list-length ( SexprList -- Int )
+  0 swap list-length-loop ;
 
-: count-args-loop ( Int SexprList -- Int )
+: list-length-loop ( Int SexprList -- Int )
   dup snil? if
     drop
   else
-    scdr swap 1 add swap count-args-loop
+    scdr swap 1 add swap list-length-loop
   then ;
+
+# Count arguments in a list (excluding the function name)
+: count-args ( SexprList -- Int )
+  scdr  # Skip function name
+  list-length ;
 
 # Check if argument count equals expected
 # Returns: EvalOk with unit value (empty list) on success, EvalErr on failure
@@ -99,6 +103,22 @@ union EvalResult {
     " expects " string.concat  # "funcname expects "
     swap int->string string.concat  # "funcname expects N"
     " argument(s)" string.concat  # "funcname expects N argument(s)"
+    eval-err  # Stack: List EvalErr
+  then ;
+
+# Check minimum arity (for variadic forms like function define)
+: check-min-arity ( SexprList Int String -- SexprList EvalResult )
+  # Stack: List MinExpected FuncName
+  2 pick count-args  # Stack: List MinExpected FuncName Actual
+  2 pick >= if       # Actual >= MinExpected
+    # Stack: List MinExpected FuncName - arity ok
+    drop drop        # Stack: List
+    snil slist eval-ok  # Return List and EvalOk
+  else
+    # Stack: List MinExpected FuncName - not enough args
+    " expects at least " string.concat
+    swap int->string string.concat
+    " argument(s)" string.concat
     eval-err  # Stack: List EvalErr
   then ;
 
@@ -235,7 +255,7 @@ union EvalResult {
         then
       else
         # Non-symbol, non-list in function position
-        drop nip "invalid function position" eval-err
+        drop drop drop "invalid function position" eval-err
       then
     then
   then
@@ -807,24 +827,74 @@ union EvalResult {
 # Define (returns a special result for REPL)
 # ============================================
 
+# Simple value binding: (define name value)
+: eval-define-simple ( SexprList Env -- EvalResult )
+  # Stack: Args Env (Args = (name value))
+  over scar ssym-val  # -> Args Env Name
+  rot scdr scar  # -> Env Name ValueExpr
+  rot  # -> Name ValueExpr Env
+  eval-with-env  # -> Name EvalResult
+  dup eval-err? if
+    nip  # -> EvalResult
+  else
+    eval-ok-value  # -> Name Value
+    eval-define  # -> EvalDefine
+  then
+;
+
+# Function shorthand: (define (name params...) body)
+: eval-define-function ( SexprList Env -- EvalResult )
+  # Stack: Args Env (Args = ((name params...) body))
+  # For (define (square n) (* n n)):
+  #   Args = ((square n) (* n n))
+  #   Extract: name="square", params=(n), body=(* n n)
+
+  # Validate that the name/params list is not empty
+  over scar slist-val snil? if
+    drop drop "define: empty function name" eval-err
+  else
+    # Get name first and keep it safe at bottom
+    over scar slist-val scar ssym-val  # -> Args Env Name
+    rot rot  # -> Name Args Env
+
+    # Now build closure like lambda: need Params Body Env
+    swap  # -> Name Env Args
+    dup scar slist-val scdr slist  # -> Name Env Args Params (skip name, wrap as Sexpr)
+    swap scdr scar  # -> Name Env Params Body
+    rot  # -> Name Params Body Env
+    make-closure  # -> Name Closure
+    sclosure  # -> Name ClosureSexpr
+    eval-define  # -> EvalDefine
+  then
+;
+
 : eval-define-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
-  # (define name value) - evaluate value, return special result
-  over 2 "define" check-arity  # -> List Env List EvalResult
+  # Two forms:
+  #   (define name value) - simple binding
+  #   (define (name params...) body) - function shorthand
+  # First check we have at least 2 args before accessing them
+  over 2 "define" check-min-arity
   dup eval-err? if
-    nip nip nip  # -> EvalResult
+    nip nip nip
   else
     drop drop  # -> List Env
-    swap scdr  # Skip 'define' -> Env Args
-    dup scar ssym-val  # -> Env Args Name
-    swap scdr scar  # -> Env Name ValueExpr
-    rot  # -> Name ValueExpr Env
-    eval-with-env  # -> Name EvalResult
-    dup eval-err? if
-      nip  # -> EvalResult
+    over scdr scar  # -> List Env FirstArg
+    dup slist? if
+      # Function shorthand
+      drop
+      swap scdr swap  # -> Args Env
+      eval-define-function
     else
-      eval-ok-value  # -> Name Value
-      eval-define  # -> EvalDefine
+      # Value binding - need exactly 2 args (name and value)
+      drop
+      # Check: skip 'define', skip name, skip value, should be nil
+      over scdr scdr scdr snil? if
+        swap scdr swap  # -> Args Env
+        eval-define-simple
+      else
+        drop drop "define expects 2 argument(s)" eval-err
+      then
     then
   then
 ;
@@ -1427,13 +1497,21 @@ union EvalResult {
       # Last expression - evaluate and return
       swap scar swap eval-with-env
     else
-      # More expressions - evaluate this one, discard result if ok, continue
+      # More expressions - evaluate this one
       over scar over eval-with-env
       dup eval-err? if
         nip nip  # Error - propagate
       else
-        drop  # Discard result
-        swap scdr swap eval-begin-exprs
+        dup eval-define? if
+          # Define - extend environment with the binding
+          dup eval-define-name swap eval-define-value
+          # Stack: Exprs Env Name Value
+          rot env-extend  # -> Exprs NewEnv
+          swap scdr swap eval-begin-exprs
+        else
+          drop  # Discard EvalOk result
+          swap scdr swap eval-begin-exprs
+        then
       then
     then
   then
@@ -1627,46 +1705,248 @@ union EvalResult {
     drop drop  # -> List Env
     swap scdr  # Skip 'lambda' -> Env Args
     # Args is ((params) body)
-    dup scar slist-val  # -> Env Args Params
+    dup scar  # -> Env Args Params (Params is Sexpr/SList containing param list)
+    # Note: We keep params as Sexpr, not unwrapping with slist-val
+    # This matches what apply-closure-val expects
     swap scdr scar  # -> Env Params Body
     rot  # -> Params Body Env
-    make-closure  # -> Closure
+    make-closure  # -> Closure (params stored as Sexpr)
     sclosure      # -> Sexpr (wrapping the closure)
     eval-ok       # -> EvalResult
   then
 ;
 
 # ============================================
-# Closure Application
+# Closure Application (with Currying)
 # ============================================
 
-# Single-parameter closure application (for normal function calls)
-# Evaluates the argument expression before binding
-# ClosureSexpr is an Sexpr containing SClosure
+# Apply closure with automatic currying/partial application
+# - Fewer args than params: return partially applied closure
+# - Exact args: evaluate body
+# - More args than params: apply first batch, chain-apply rest
 : apply-closure ( Sexpr SexprList Env -- EvalResult )
   # Stack: ClosureSexpr Args CallerEnv
-  # 1. Evaluate the single argument
-  # 2. Bind param to value in merged env (closure + caller for recursion)
-  # 3. Evaluate body in extended env
-  over scar  # -> ClosureSexpr Args CallerEnv ArgExpr
-  over eval-with-env  # -> ClosureSexpr Args CallerEnv EvalResult
-  dup eval-err? if
-    nip nip nip  # Error - propagate
+  # Count args and params
+  2 pick sclosure-val closure-params slist-val list-length  # -> ... ParamCount
+  2 pick list-length  # -> ... ParamCount ArgCount
+
+  # Compare: ArgCount vs ParamCount
+  # Stack is ParamCount ArgCount (ArgCount on top)
+  # In Seq, `a b <` checks a < b
+  over over = if
+    # Exact match: full application
+    drop drop apply-full
   else
-    eval-ok-value  # Unwrap -> ClosureSexpr Args CallerEnv ArgVal
-    # Extract closure from Sexpr and get components
-    3 pick sclosure-val  # -> ... ArgVal Closure
-    dup closure-params scar ssym-val  # -> ... ArgVal Closure ParamName
-    rot  # -> ... Closure ParamName ArgVal
-    2 pick closure-env  # -> ... Closure ParamName ArgVal ClosureEnv
-    4 pick env-concat  # -> ... Closure ParamName ArgVal MergedEnv
-    env-extend  # -> ClosureSexpr Args CallerEnv Closure ExtendedEnv
-    # Evaluate body
-    swap closure-body  # -> ClosureSexpr Args CallerEnv ExtendedEnv Body
-    swap eval-with-env  # -> ClosureSexpr Args CallerEnv EvalResult
-    nip nip nip  # -> EvalResult
+    # Not equal - check if ArgCount < ParamCount for partial application
+    # Stack: ParamCount ArgCount
+    # We want to check ArgCount < ParamCount
+    # `dup 2 pick <` gives us ArgCount < ParamCount
+    dup 2 pick < if
+      # ArgCount < ParamCount: partial application
+      drop drop apply-partial
+    else
+      # ArgCount > ParamCount: apply then chain
+      drop drop apply-chain
+    then
   then
 ;
+
+# Partial application: bind available args, return new closure
+: apply-partial ( Sexpr SexprList Env -- EvalResult )
+  # Stack: ClosureSexpr Args CallerEnv (pos 2,1,0)
+  # Evaluate all provided args and bind them
+  2 pick sclosure-val  # -> ClosureSexpr Args CallerEnv Closure (pos 3,2,1,0)
+  dup closure-env 2 pick env-concat  # -> ClosureSexpr Args CallerEnv Closure BaseEnv (pos 4,3,2,1,0)
+
+  # Bind args to first N params (where N = arg count)
+  over closure-params slist-val  # -> ... Closure BaseEnv Params (unwrap to SexprList, pos 5,4,3,2,1,0)
+  4 pick  # -> ... Params Args (Args is at position 4)
+  4 pick  # -> ... Params Args CallerEnv (CallerEnv is now at position 4)
+  partial-bind-loop  # -> ... Closure ExtEnv RemainingParams EvalResult
+
+  dup eval-err? if
+    # Error during arg eval
+    nip nip nip nip nip nip
+  else
+    drop  # drop success marker
+    # Stack: ClosureSexpr Args CallerEnv Closure ExtEnv RemainingParams
+    # Create new closure with remaining params, same body, extended env
+    rot closure-body  # -> ... ExtEnv RemainingParams Body
+    swap              # -> ... ExtEnv Body RemainingParams
+    slist             # -> ... ExtEnv Body ParamsSexpr
+    swap rot          # -> ... ParamsSexpr Body ExtEnv
+    make-closure sclosure eval-ok
+    nip nip nip
+  then
+;
+
+# Helper: rearrange stack after binding for next recursion
+# Takes old layout, advances Params/Args, returns new layout
+: bind-rearrange ( SexprList SexprList Env Env -- Env SexprList SexprList Env )
+  # Input: Params Args EvalEnv NewEnv (3,2,1,0) - 4 items
+  # Output: NewEnv NewParams NewArgs EvalEnv (3,2,1,0) - 4 items
+  # Step 1: Compute NewParams and NewArgs
+  swap rot   # -> Params NewEnv EvalEnv Args (4 items)
+  scdr       # -> Params NewEnv EvalEnv NewArgs (4 items)
+  3 roll     # -> NewEnv EvalEnv NewArgs Params (moves item at depth 3 to top)
+  scdr       # -> NewEnv EvalEnv NewArgs NewParams (4 items)
+  # Step 2: Rearrange to final order
+  # Current: NewEnv EvalEnv NewArgs NewParams (3,2,1,0)
+  # Want: NewEnv NewParams NewArgs EvalEnv (3,2,1,0)
+  rot        # -> NewEnv NewArgs NewParams EvalEnv
+  rot swap   # -> NewEnv NewParams NewArgs EvalEnv
+;
+
+# Helper: bind args to params, return extended env and remaining params
+: partial-bind-loop ( Env SexprList SexprList Env -- Env SexprList EvalResult )
+  # Stack: AccEnv Params Args EvalEnv
+  # Base case: no more args
+  over snil? if
+    drop drop  # -> AccEnv Params (remove EvalEnv then Args from top)
+    0 snum eval-ok  # success marker (dummy value, we only care about Params)
+  else
+    # Eval first arg
+    over scar over eval-with-env  # -> AccEnv Params Args EvalEnv EvalResult
+    dup eval-err? if
+      # Error - clean up and return
+      # Stack: AccEnv Params Args EvalEnv EvalResult (4,3,2,1,0)
+      swap drop    # -> AccEnv Params Args EvalResult
+      swap drop    # -> AccEnv Params EvalResult
+      swap drop    # -> AccEnv EvalResult
+      swap snil swap  # -> AccEnv () EvalResult
+    else
+      eval-ok-value  # -> AccEnv Params Args EvalEnv ArgVal
+      # Rearrange to get AccEnv to top for env-extend
+      4 roll  # -> Params Args EvalEnv ArgVal AccEnv
+      # Get param name from Params
+      4 pick scar ssym-val  # -> Params Args EvalEnv ArgVal AccEnv ParamName
+      # env-extend: String Sexpr Env -> Env
+      rot rot env-extend  # -> Params Args EvalEnv NewEnv
+      # Use helper to rearrange and advance for recursion
+      bind-rearrange
+      partial-bind-loop
+    then
+  then
+;
+
+# Full application: bind all args, evaluate body
+: apply-full ( Sexpr SexprList Env -- EvalResult )
+  # Stack: ClosureSexpr Args CallerEnv (pos 2,1,0)
+  2 pick sclosure-val  # -> ClosureSexpr Args CallerEnv Closure (pos 3,2,1,0)
+  dup closure-env 2 pick env-concat  # -> ClosureSexpr Args CallerEnv Closure BaseEnv (pos 4,3,2,1,0)
+  over closure-params slist-val  # -> ClosureSexpr Args CallerEnv Closure BaseEnv Params (unwrap to SexprList, pos 5,4,3,2,1,0)
+  4 pick  # -> ... Params Args (Args is at position 4)
+  4 pick  # -> ... Params Args CallerEnv (CallerEnv is now at position 4)
+  full-bind-loop  # -> ... Closure ExtEnv EvalResult
+
+  dup eval-err? if
+    nip nip nip nip nip
+  else
+    drop  # drop success marker
+    # Stack: ClosureSexpr Args CallerEnv Closure ExtEnv
+    swap closure-body swap eval-with-env
+    nip nip nip
+  then
+;
+
+# Helper: bind all args to all params
+: full-bind-loop ( Env SexprList SexprList Env -- Env EvalResult )
+  # Stack: AccEnv Params Args EvalEnv
+  # Base case: no more params (and args)
+  2 pick snil? if
+    drop drop drop  # -> AccEnv
+    snil slist eval-ok  # success marker
+  else
+    # Eval first arg
+    over scar over eval-with-env  # -> AccEnv Params Args EvalEnv EvalResult
+    dup eval-err? if
+      # Error - clean up and return
+      # Stack: AccEnv Params Args EvalEnv EvalResult
+      nip nip nip  # -> AccEnv EvalResult
+    else
+      eval-ok-value  # -> AccEnv Params Args EvalEnv ArgVal
+      # Rearrange to get AccEnv to top for env-extend
+      4 roll  # -> Params Args EvalEnv ArgVal AccEnv
+      # Get param name from Params
+      4 pick scar ssym-val  # -> Params Args EvalEnv ArgVal AccEnv ParamName
+      # env-extend: String Sexpr Env -> Env
+      rot rot env-extend  # -> Params Args EvalEnv NewEnv
+      # Use helper to rearrange and advance for recursion
+      bind-rearrange
+      full-bind-loop
+    then
+  then
+;
+
+# Over-application: apply with available params, chain-apply rest
+: apply-chain ( Sexpr SexprList Env -- EvalResult )
+  # Stack: ClosureSexpr Args CallerEnv
+  # Get param count to know how many args to consume
+  2 pick sclosure-val closure-params slist-val list-length  # -> ... ParamCount
+
+  # Split args into first batch (for this call) and rest (for chaining)
+  2 pick swap split-list  # -> ClosureSexpr Args CallerEnv FirstArgs RestArgs
+
+  # Apply closure to first batch
+  # Stack: ClosureSexpr Args CallerEnv FirstArgs RestArgs (4,3,2,1,0)
+  swap             # -> ClosureSexpr Args CallerEnv RestArgs FirstArgs
+  4 pick           # -> ... FirstArgs ClosureSexpr (copy closure)
+  swap             # -> ... ClosureSexpr FirstArgs
+  3 pick           # -> ... ClosureSexpr FirstArgs CallerEnv (copy env)
+  apply-full       # -> ClosureSexpr Args CallerEnv RestArgs EvalResult
+
+  dup eval-err? if
+    # Error - clean up and return
+    nip nip nip nip  # -> EvalResult
+  else
+    # Got a result - verify it's a closure before trying to apply more args
+    eval-ok-value  # -> ClosureSexpr Args CallerEnv RestArgs ResultValue
+    dup sclosure? if
+      # It's a closure - apply rest args to it
+      swap rot       # -> ... ResultClosure RestArgs CallerEnv
+      apply-closure  # -> ClosureSexpr Args EvalResult
+      nip nip        # -> EvalResult
+    else
+      # Not a closure - can't apply more arguments
+      drop drop drop drop drop "over-application: result is not a function" eval-err
+    then
+  then
+;
+
+# Split a list: take first N elements, return (first-n, rest)
+: split-list ( SexprList Int -- SexprList SexprList )
+  # Stack: List Count
+  snil rot rot  # -> snil List Count (Acc Rest Count for loop)
+  split-list-loop
+  swap list-reverse swap  # reverse accumulated first part
+;
+
+: split-list-loop ( SexprList SexprList Int -- SexprList SexprList )
+  # Stack: Acc Rest Count (2,1,0)
+  dup 0 = if
+    drop  # -> Acc Rest
+  else
+    # Count > 0: take one element from Rest, add to Acc, decrement Count
+    1 subtract         # -> Acc Rest NewCount
+    swap               # -> Acc NewCount Rest
+    dup scar           # -> Acc NewCount Rest FirstElem
+    swap scdr          # -> Acc NewCount FirstElem RestTail
+    # Rearrange and cons FirstElem onto Acc
+    rot                # -> Acc FirstElem RestTail NewCount
+    3 roll             # -> FirstElem RestTail NewCount Acc
+    rot                # -> FirstElem NewCount Acc RestTail
+    3 roll             # -> NewCount Acc RestTail FirstElem
+    3 roll             # -> Acc RestTail FirstElem NewCount
+    rot                # -> Acc FirstElem NewCount RestTail
+    rot                # -> Acc NewCount RestTail FirstElem
+    3 roll             # -> NewCount RestTail FirstElem Acc
+    scons              # -> NewCount RestTail NewAcc
+    rot rot swap       # -> NewAcc RestTail NewCount
+    split-list-loop
+  then
+;
+
+# Note: list-reverse is already defined in parser.seq
 
 # Single-parameter closure application for map/filter
 # Does NOT evaluate the argument - it's already a value
@@ -1674,7 +1954,7 @@ union EvalResult {
   # Stack: Closure ArgVal CallerEnv
   # ArgVal is already evaluated, just bind and run
   # Get closure components
-  2 pick closure-params scar ssym-val  # -> Closure ArgVal CallerEnv ParamName
+  2 pick closure-params slist-val scar ssym-val  # -> Closure ArgVal CallerEnv ParamName
   rot  # -> Closure CallerEnv ParamName ArgVal
   3 pick closure-env  # -> Closure CallerEnv ParamName ArgVal ClosureEnv
   3 pick env-concat  # -> Closure CallerEnv ParamName ArgVal MergedEnv
@@ -1701,12 +1981,12 @@ union EvalResult {
 
   # Now bind param1 (first param gets first arg)
   # env-extend signature: ( String Sexpr Env -- Env )
-  3 pick closure-params scar ssym-val  # -> ... BaseEnv Param1Name
+  3 pick closure-params slist-val scar ssym-val  # -> ... BaseEnv Param1Name
   3 pick scar                          # -> ... BaseEnv Param1Name Arg1
   rot env-extend                       # -> Closure Args CallerEnv Env1
 
   # Now bind param2 (second param gets second arg)
-  3 pick closure-params scdr scar ssym-val  # -> ... Env1 Param2Name
+  3 pick closure-params slist-val scdr scar ssym-val  # -> ... Env1 Param2Name
   3 pick scdr scar                          # -> ... Env1 Param2Name Arg2
   rot env-extend                            # -> Closure Args CallerEnv Env2
 
