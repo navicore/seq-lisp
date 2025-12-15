@@ -13,6 +13,10 @@
 
 include "parser"
 
+# Generate a unique symbol name from prefix and number
+: make-gensym-name ( String Int -- String )
+  int->string string.concat ;
+
 # ============================================
 # EvalResult Union Type
 #
@@ -322,7 +326,7 @@ union EvalResult {
 ;
 
 # ----------------------------------------
-# Group 3: Special Forms (if, let, lambda, define, quote)
+# Group 3: Special Forms (if, let, lambda, define, quote, defmacro)
 # ----------------------------------------
 : dispatch-special-forms ( SexprList Env String -- EvalResult )
   dup "if" string.equal? if
@@ -335,9 +339,13 @@ union EvalResult {
     drop eval-define-with-env
   else dup "quote" string.equal? if
     drop eval-quote-with-env
+  else dup "quasiquote" string.equal? if
+    drop eval-quasiquote-with-env
+  else dup "defmacro" string.equal? if
+    drop eval-defmacro-with-env
   else
     dispatch-list-ops
-  then then then then then
+  then then then then then then then
 ;
 
 # ----------------------------------------
@@ -378,7 +386,7 @@ union EvalResult {
 ;
 
 # ----------------------------------------
-# Group 5: Predicates (null?, number?, symbol?, list?, boolean?)
+# Group 5: Predicates and Utilities (null?, number?, symbol?, list?, boolean?, gensym)
 # ----------------------------------------
 : dispatch-predicates ( SexprList Env String -- EvalResult )
   dup "null?" string.equal? if
@@ -391,9 +399,11 @@ union EvalResult {
     drop eval-list?-with-env
   else dup "boolean?" string.equal? if
     drop eval-boolean?-with-env
+  else dup "gensym" string.equal? if
+    drop eval-gensym-with-env
   else
     dispatch-control-flow
-  then then then then then
+  then then then then then then
 ;
 
 # ----------------------------------------
@@ -421,7 +431,7 @@ union EvalResult {
 ;
 
 # ----------------------------------------
-# Group 8: User-defined functions (environment lookup)
+# Group 8: User-defined functions and macros (environment lookup)
 # ----------------------------------------
 : dispatch-user-defined ( SexprList Env String -- EvalResult )
   # Stack: List Env FuncName
@@ -440,10 +450,17 @@ union EvalResult {
       scdr  # Env ClosureSexpr Args (skip function name)
       rot  # ClosureSexpr Args Env
       apply-closure
+    else dup smacro? if
+      # Apply the macro
+      # Stack: List Env MacroSexpr
+      rot  # Env MacroSexpr List
+      scdr  # Env MacroSexpr Args (skip macro name) - args are UNEVALUATED
+      rot  # MacroSexpr Args Env
+      apply-macro
     else
-      # Not a closure - type error
-      drop drop drop "not a function" eval-err
-    then
+      # Not a closure or macro - type error
+      drop drop drop "not a function or macro" eval-err
+    then then
   then
 ;
 
@@ -910,6 +927,68 @@ union EvalResult {
 ;
 
 # ============================================
+# Defmacro (creates a macro)
+#
+# IMPORTANT: Macros in SeqLisp are UNHYGIENIC
+# This means macro-introduced bindings can accidentally capture
+# variables from the calling context. Use gensym to generate
+# unique symbol names to avoid variable capture.
+#
+# Example of variable capture problem:
+#   (defmacro (swap a b) `(let tmp ,a (begin (define ,a ,b) (define ,b tmp))))
+#   (let tmp 10 (swap x tmp))  ; BUG: macro's 'tmp' captures caller's 'tmp'
+#
+# Solution using gensym:
+#   (defmacro (swap a b)
+#     (let t (gensym 0)  ; generate unique name
+#       `(let ,t ,a (begin (define ,a ,b) (define ,b ,t)))))
+# ============================================
+
+# Defmacro function shorthand: (defmacro (name params...) body)
+: eval-defmacro-function ( SexprList Env -- EvalResult )
+  # Stack: Args Env (Args = ((name params...) body))
+  # Validate that the name/params list is not empty
+  over scar slist-val snil? if
+    drop drop "defmacro: empty macro name" eval-err
+  else
+    # Get name first and keep it safe at bottom
+    over scar slist-val scar ssym-val  # -> Args Env Name
+    rot rot  # -> Name Args Env
+
+    # Now build macro: need Params Body Env
+    swap  # -> Name Env Args
+    dup scar slist-val scdr slist  # -> Name Env Args Params (skip name, wrap as Sexpr)
+    swap scdr scar  # -> Name Env Params Body
+    rot  # -> Name Params Body Env
+    make-closure  # -> Name MacroClosure
+    smacro  # -> Name MacroSexpr
+    eval-define  # -> EvalDefine
+  then
+;
+
+: eval-defmacro-with-env ( SexprList Env -- EvalResult )
+  # Stack: List Env
+  # (defmacro (name params...) body) - function shorthand
+  # First check we have at least 2 args before accessing them
+  over 2 "defmacro" check-min-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop  # -> List Env
+    over scdr scar  # -> List Env FirstArg
+    dup slist? if
+      # Function shorthand (the expected form)
+      drop
+      swap scdr swap  # -> Args Env
+      eval-defmacro-function
+    else
+      # Not a list - error (we only support function shorthand)
+      drop drop drop "defmacro expects (defmacro (name params...) body)" eval-err
+    then
+  then
+;
+
+# ============================================
 # Quote (returns argument unevaluated)
 # ============================================
 
@@ -924,6 +1003,189 @@ union EvalResult {
     drop  # -> List (drop environment, not needed)
     scdr scar  # -> Expr (skip 'quote', get the expression)
     eval-ok  # -> EvalResult
+  then
+;
+
+# ============================================
+# Quasiquote Evaluation
+# ============================================
+
+: eval-quasiquote-with-env ( SexprList Env -- EvalResult )
+  # Stack: Args Env
+  # (quasiquote expr) - process template with unquote/unquote-splicing
+  over 1 "quasiquote" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop  # -> Args Env
+    swap scdr scar  # -> Env Expr (get the expression)
+    swap  # -> Expr Env
+    qq-process
+  then
+;
+
+# Process a quasiquote template
+: qq-process ( Sexpr Env -- EvalResult )
+  # Stack: Expr Env
+  over snum? if
+    drop eval-ok
+  else over ssym? if
+    drop eval-ok
+  else over sclosure? if
+    drop eval-ok
+  else
+    # It's a list
+    over slist-val dup snil? if
+      drop drop eval-ok
+    else
+      # Check for (unquote x)
+      dup scar dup ssym? if
+        ssym-val dup "unquote" string.equal? if
+          # (unquote x) - evaluate x
+          drop scdr scar  # -> Expr Env UnquotedExpr
+          swap eval-with-env nip
+        else
+          "unquote-splicing" string.equal? if
+            drop drop drop "unquote-splicing: invalid outside list context" eval-err
+          else
+            # Regular list - process elements
+            drop  # -> Expr Env
+            over slist-val swap qq-list nip  # qq-list now returns EvalResult
+          then
+        then
+      else
+        # First elem not symbol - process list elements
+        drop drop  # -> Expr Env
+        over slist-val swap qq-list nip  # qq-list now returns EvalResult
+      then
+    then
+  then then then
+;
+
+# Process list elements for quasiquote, returns EvalResult with SList
+# Simple recursive approach: process each element, cons onto result
+: qq-list ( SexprList Env -- EvalResult )
+  over snil? if
+    drop drop snil slist eval-ok  # Return empty list, drop both List and Env
+  else
+    # Process first element
+    over scar over           # -> List Env First Env
+    qq-elem-one              # -> List Env EvalResult IsSplice
+    # Stack: List Env EvalResult IsSplice
+    over eval-err? if
+      # Error - propagate it
+      drop nip nip           # -> EvalResult
+    else
+      # Got first result, now process rest
+      swap eval-ok-value     # -> List Env IsSplice FirstProcessed
+      3 pick scdr 3 pick     # -> List Env IsSplice FirstProcessed RestList Env
+      qq-list                # -> List Env IsSplice FirstProcessed RestResult
+      dup eval-err? if
+        # Error in rest - propagate
+        nip nip nip nip      # -> EvalResult
+      else
+        eval-ok-value slist-val  # -> List Env IsSplice FirstProcessed RestList
+        # Combine first with rest based on splice flag
+        rot if
+          # Splice: append FirstProcessed (a list) in front of RestList
+          # Stack after rot/if: List Env FirstProcessed RestList
+          # qq-append-lists needs (Sexpr SexprList): second=Sexpr, top=SexprList
+          # Current: second=FirstProcessed (Sexpr), top=RestList (SexprList) - correct order!
+          qq-append-lists        # -> List Env ResultList
+        else
+          # Single element: cons onto RestList
+          # scons needs (Sexpr SexprList): second=Sexpr, top=SexprList
+          # Current: second=FirstProcessed, top=RestList - correct order!
+          scons                  # -> List Env ResultList
+        then
+        slist eval-ok nip nip    # -> EvalResult
+      then
+    then
+  then
+;
+
+# Process single element, returns (EvalResult, IsSplice) where IsSplice is 0 or 1
+# If error, IsSplice is undefined (caller should check error first)
+: qq-elem-one ( Sexpr Env -- EvalResult Int )
+  over qq-is-unquote? if
+    # (unquote x) - evaluate x
+    swap slist-val scdr scar swap eval-with-env
+    0  # Not a splice
+  else over qq-is-splice? if
+    # (unquote-splicing x) - evaluate x, must be a list
+    swap slist-val scdr scar swap eval-with-env
+    dup eval-err? if
+      1  # Mark as splice (error will be propagated anyway)
+    else
+      dup eval-ok-value slist? if
+        1  # Return list value, marked as splice
+      else
+        # Not a list - return error
+        drop "unquote-splicing: value must be a list" eval-err
+        1  # Marked as splice
+      then
+    then
+  else
+    # Regular element - recursively process
+    qq-process
+    0  # Not a splice
+  then then
+;
+
+# Append first list to front of second list (first comes before second)
+: qq-append-lists ( Sexpr SexprList -- SexprList )
+  # First is an SList Sexpr, need to extract and append
+  swap dup slist? if
+    slist-val             # -> Rest FirstList
+    swap qq-append-helper
+  else
+    drop                  # Not a list, just return Rest
+  then
+;
+
+: qq-append-helper ( SexprList SexprList -- SexprList )
+  # Stack: FirstList Rest -> Combined (FirstList elements then Rest)
+  over snil? if
+    nip  # FirstList empty, return Rest
+  else
+    # Recurse on rest of FirstList, then cons first element
+    over scdr over qq-append-helper  # -> FirstList Rest Combined
+    rot scar swap scons              # -> FirstList (First :: Combined)
+    nip                              # -> Result
+  then
+;
+
+# Check if expr is (unquote x)
+: qq-is-unquote? ( Sexpr -- Int )
+  dup slist? if
+    slist-val dup snil? if
+      drop 0
+    else
+      scar dup ssym? if
+        ssym-val "unquote" string.equal?
+      else
+        drop 0
+      then
+    then
+  else
+    drop 0
+  then
+;
+
+# Check if expr is (unquote-splicing x)
+: qq-is-splice? ( Sexpr -- Int )
+  dup slist? if
+    slist-val dup snil? if
+      drop 0
+    else
+      scar dup ssym? if
+        ssym-val "unquote-splicing" string.equal?
+      else
+        drop 0
+      then
+    then
+  else
+    drop 0
   then
 ;
 
@@ -1722,6 +1984,77 @@ union EvalResult {
 ;
 
 # ============================================
+# Gensym (generate unique symbol)
+#
+# NOTE: Users must manually manage the counter for uniqueness.
+# Each call to (gensym n) returns the symbol g<n>.
+# To avoid collisions, use different numbers for each gensym call.
+#
+# Usage:
+#   (gensym 0)        ; -> g0
+#   (gensym 1)        ; -> g1
+#   (gensym 'temp 5)  ; -> temp5
+#
+# For macro hygiene, use incrementing counters:
+#   (defmacro (my-macro x)
+#     (let t1 (gensym 0)
+#       (let t2 (gensym 1)
+#         `(let ,t1 ,x (let ,t2 (+ ,t1 1) ,t2)))))
+# ============================================
+
+: eval-gensym-with-env ( SexprList Env -- EvalResult )
+  # Stack: List Env
+  # (gensym n) - returns symbol g<n>
+  # (gensym prefix n) - returns symbol <prefix><n>
+  over count-args
+  dup 1 = if
+    # One arg: (gensym n) -> g<n>
+    drop
+    swap scdr scar  # Skip 'gensym', get arg -> Env Arg
+    swap eval-with-env  # Eval arg -> EvalResult
+    dup eval-err? if
+      # Error - propagate
+    else
+      eval-ok-value
+      dup snum? if
+        snum-val "g" swap make-gensym-name ssym eval-ok
+      else
+        drop "gensym: argument must be a number" eval-err
+      then
+    then
+  else dup 2 = if
+    # Two args: (gensym prefix n) -> <prefix><n>
+    drop
+    swap scdr  # Skip 'gensym' -> Env Args
+    dup scar 2 pick eval-with-env  # Eval first arg (prefix) -> Env Args EvalResult
+    dup eval-err? if
+      nip nip
+    else
+      eval-ok-value  # -> Env Args PrefixVal
+      dup ssym? if
+        ssym-val  # -> Env Args PrefixStr
+        swap scdr scar 2 pick eval-with-env  # Eval second arg (n) -> Env PrefixStr EvalResult
+        dup eval-err? if
+          nip nip
+        else
+          eval-ok-value  # -> Env PrefixStr NVal
+          dup snum? if
+            snum-val  # -> Env PrefixStr N
+            make-gensym-name ssym eval-ok nip
+          else
+            drop drop drop "gensym: second argument must be a number" eval-err
+          then
+        then
+      else
+        drop drop drop "gensym: first argument must be a symbol" eval-err
+      then
+    then
+  else
+    drop drop drop "gensym expects 1 or 2 argument(s)" eval-err
+  then then
+;
+
+# ============================================
 # Begin (sequencing)
 # ============================================
 
@@ -2240,6 +2573,83 @@ union EvalResult {
   3 pick closure-body                  # -> Closure Args CallerEnv Env2 Body
   swap eval-with-env                   # -> Closure Args CallerEnv EvalResult
   nip nip nip                          # -> EvalResult
+;
+
+# ============================================
+# Macro Application
+# ============================================
+
+# Apply macro: args are NOT evaluated, bind directly to params
+# Then evaluate body (produces expansion), then evaluate expansion
+: apply-macro ( Sexpr SexprList Env -- EvalResult )
+  # Stack: MacroSexpr Args CallerEnv
+  # MacroSexpr wraps a LispClosure (params, body, captured_env)
+
+  # Check arity before binding
+  2 pick smacro-val closure-params slist-val list-length  # -> MacroSexpr Args CallerEnv ParamCount
+  2 pick list-length  # -> MacroSexpr Args CallerEnv ParamCount ArgCount
+  over over = if
+    # Arity matches - proceed
+    drop drop
+    # Get macro components
+    2 pick smacro-val  # -> MacroSexpr Args CallerEnv MacroClosure
+    dup closure-env    # -> MacroSexpr Args CallerEnv MacroClosure MacroEnv
+    swap closure-params slist-val  # -> MacroSexpr Args CallerEnv MacroEnv Params
+
+    # Bind unevaluated args to params
+    # Start with macro's captured env as base
+    3 pick  # -> MacroSexpr Args CallerEnv MacroEnv Params Args
+    macro-bind-loop  # -> MacroSexpr Args CallerEnv ExtendedEnv
+
+    # Evaluate macro body in extended env (produces expansion)
+    3 pick smacro-val closure-body  # -> MacroSexpr Args CallerEnv ExtendedEnv Body
+    swap eval-with-env  # -> MacroSexpr Args CallerEnv EvalResult
+
+    dup eval-err? if
+      # Error during expansion - propagate
+      nip nip nip
+    else
+      # Got expansion - now evaluate it in caller's environment
+      eval-ok-value  # -> MacroSexpr Args CallerEnv Expansion
+      swap eval-with-env  # -> MacroSexpr Args EvalResult
+      nip nip
+    then
+  else
+    # Arity mismatch - return error
+    # Stack: MacroSexpr Args CallerEnv ParamCount ArgCount
+    drop  # -> MacroSexpr Args CallerEnv ParamCount
+    "macro expects " swap int->string string.concat
+    " argument(s), got " string.concat
+    2 pick list-length int->string string.concat
+    eval-err
+    nip nip nip
+  then
+;
+
+# Helper: bind unevaluated args to params
+: macro-bind-loop ( Env SexprList SexprList -- Env )
+  # Stack: AccEnv Params Args
+  over snil? if
+    # No more params - return accumulated env
+    drop drop  # -> AccEnv
+  else over snil? if
+    # No more args but have params - error case, just stop
+    drop drop  # -> AccEnv
+  else
+    # Get first param name and first arg
+    over scar ssym-val  # -> AccEnv Params Args ParamName
+    over scar           # -> AccEnv Params Args ParamName ArgExpr
+    # Extend env
+    4 pick              # -> AccEnv Params Args ParamName ArgExpr AccEnv
+    env-extend          # -> AccEnv Params Args NewEnv
+    # Rearrange: need NewEnv RestParams RestArgs
+    3 roll drop         # -> Params Args NewEnv (remove old AccEnv)
+    rot scdr            # -> Args NewEnv RestParams
+    rot scdr            # -> NewEnv RestParams RestArgs
+    rot                 # -> RestParams RestArgs NewEnv
+    rot rot             # -> NewEnv RestParams RestArgs
+    macro-bind-loop
+  then then
 ;
 
 # ============================================

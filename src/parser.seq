@@ -40,6 +40,15 @@ union ParseResult {
 : is-quote ( String -- Int )
   "'" string.equal? ;
 
+: is-quasiquote ( String -- Int )
+  "`" string.equal? ;
+
+: is-unquote ( String -- Int )
+  "," string.equal? ;
+
+: is-unquote-splice ( String -- Int )
+  ",@" string.equal? ;
+
 : is-digit ( Int -- Int )
   dup 48 >= swap 57 <= and ;
 
@@ -88,11 +97,26 @@ union ParseResult {
           # Quote: 'expr -> (quote expr)
           drop tcdr parse-quote
         else
-          # Atom (number or symbol)
-          dup is-number-token if
-            string->int drop snum swap tcdr make-parse-result
+          dup is-quasiquote if
+            # Quasiquote: `expr -> (quasiquote expr)
+            drop tcdr parse-quasiquote
           else
-            ssym swap tcdr make-parse-result
+            dup is-unquote-splice if
+              # Unquote-splice: ,@expr -> (unquote-splicing expr)
+              drop tcdr parse-unquote-splice
+            else
+              dup is-unquote if
+                # Unquote: ,expr -> (unquote expr)
+                drop tcdr parse-unquote
+              else
+                # Atom (number or symbol)
+                dup is-number-token if
+                  string->int drop snum swap tcdr make-parse-result
+                else
+                  ssym swap tcdr make-parse-result
+                then
+              then
+            then
           then
         then
       then
@@ -111,6 +135,39 @@ union ParseResult {
   swap snil scons  # RemTokens (expr)
   "quote" ssym swap scons  # RemTokens (quote expr)
   slist  # RemTokens SList
+  swap make-parse-result
+;
+
+# Parse quasiquote: expand `expr to (quasiquote expr)
+: parse-quasiquote ( TokenList -- ParseResult )
+  parse-tokens
+  dup result-expr
+  swap result-tokens
+  swap snil scons
+  "quasiquote" ssym swap scons
+  slist
+  swap make-parse-result
+;
+
+# Parse unquote: expand ,expr to (unquote expr)
+: parse-unquote ( TokenList -- ParseResult )
+  parse-tokens
+  dup result-expr
+  swap result-tokens
+  swap snil scons
+  "unquote" ssym swap scons
+  slist
+  swap make-parse-result
+;
+
+# Parse unquote-splice: expand ,@expr to (unquote-splicing expr)
+: parse-unquote-splice ( TokenList -- ParseResult )
+  parse-tokens
+  dup result-expr
+  swap result-tokens
+  swap snil scons
+  "unquote-splicing" ssym swap scons
+  slist
   swap make-parse-result
 ;
 

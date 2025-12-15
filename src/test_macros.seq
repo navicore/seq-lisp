@@ -1,0 +1,77 @@
+# Test macros
+
+include "eval"
+
+: main ( -- )
+  "Testing macros:" io.write-line
+
+  # Basic macro - identity
+  "(begin (defmacro (id x) x) (id 42))" eval-print  # 42
+
+  # Simple macro with quasiquote - wrap in list
+  "(begin (defmacro (wrap x) `(list ,x)) (wrap 5))" eval-print  # (5)
+
+  # Macro that generates addition
+  "(begin (defmacro (add-one x) `(+ ,x 1)) (add-one 10))" eval-print  # 11
+
+  # Macro with multiple params
+  "(begin (defmacro (swap-args a b) `(list ,b ,a)) (swap-args 1 2))" eval-print  # (2 1)
+
+  # unless macro (common example)
+  "(begin (defmacro (unless cond body) `(if ,cond '() ,body)) (unless #f 42))" eval-print  # 42
+  "(begin (defmacro (unless cond body) `(if ,cond '() ,body)) (unless #t 42))" eval-print  # ()
+
+  # when macro
+  "(begin (defmacro (when cond body) `(if ,cond ,body '())) (when #t 'yes))" eval-print  # yes
+  "(begin (defmacro (when cond body) `(if ,cond ,body '())) (when #f 'yes))" eval-print  # ()
+
+  # and2 macro (short-circuit and for 2 args)
+  "(begin (defmacro (and2 a b) `(if ,a ,b #f)) (and2 #t #t))" eval-print  # #t
+  "(begin (defmacro (and2 a b) `(if ,a ,b #f)) (and2 #t #f))" eval-print  # #f
+  "(begin (defmacro (and2 a b) `(if ,a ,b #f)) (and2 #f 'never-evaluated))" eval-print  # #f
+
+  # or2 macro (short-circuit or for 2 args)
+  "(begin (defmacro (or2 a b) `(if ,a #t ,b)) (or2 #f #t))" eval-print  # #t
+  "(begin (defmacro (or2 a b) `(if ,a #t ,b)) (or2 #f #f))" eval-print  # #f
+  "(begin (defmacro (or2 a b) `(if ,a #t ,b)) (or2 #t 'never-evaluated))" eval-print  # #t
+
+  # Macro that demonstrates quoting symbols
+  "(begin (defmacro (quote-it x) `(quote ,x)) (quote-it foo))" eval-print  # foo
+
+  # Macro with splicing - list concatenation
+  "(begin (defmacro (prepend-a xs) `(list 'a ,@xs)) (prepend-a ('b 'c)))" eval-print  # Should print (a b c)
+
+  "Testing gensym:" io.write-line
+
+  # Basic gensym with number
+  "(gensym 0)" eval-print  # g0
+  "(gensym 42)" eval-print  # g42
+  "(gensym 123)" eval-print  # g123
+
+  # Gensym with prefix
+  "(gensym 'temp 0)" eval-print  # temp0
+  "(gensym 'x 5)" eval-print  # x5
+
+  # Using gensym in a let binding
+  "(let n 0 (gensym n))" eval-print  # g0
+  "(let n 10 (gensym 'var n))" eval-print  # var10
+
+  "Testing error cases:" io.write-line
+
+  # Macro arity mismatch - too few args
+  "(begin (defmacro (foo a b) `(+ ,a ,b)) (foo 1))" eval-print  # Error: macro expects 2 argument(s), got 1
+
+  # Macro arity mismatch - too many args
+  "(begin (defmacro (bar x) x) (bar 1 2 3))" eval-print  # Error: macro expects 1 argument(s), got 3
+
+  # Unquote-splicing with non-list should error
+  "(let x 42 `(a ,@x b))" eval-print  # Error: unquote-splicing: value must be a list
+
+  # Error in unquote should propagate
+  "(let x 1 `(a ,(undefined-symbol) b))" eval-print  # Error: undefined symbol
+
+  # Error in macro body should propagate
+  "(begin (defmacro (bad-macro x) (undefined-fn x)) (bad-macro 1))" eval-print  # Error
+
+  "Done testing macros." io.write-line
+;
