@@ -951,18 +951,28 @@ union EvalResult {
   over scar slist-val snil? if
     drop drop "defmacro: empty macro name" eval-err
   else
-    # Get name first and keep it safe at bottom
-    over scar slist-val scar ssym-val  # -> Args Env Name
-    rot rot  # -> Name Args Env
+    # Get params list for validation
+    over scar slist-val scdr  # -> Args Env ParamsList
+    validate-rest-params      # -> Args Env IsValid ErrorMsg
+    swap if
+      # Valid params - proceed
+      drop  # -> Args Env
+      # Get name first and keep it safe at bottom
+      over scar slist-val scar ssym-val  # -> Args Env Name
+      rot rot  # -> Name Args Env
 
-    # Now build macro: need Params Body Env
-    swap  # -> Name Env Args
-    dup scar slist-val scdr slist  # -> Name Env Args Params (skip name, wrap as Sexpr)
-    swap scdr scar  # -> Name Env Params Body
-    rot  # -> Name Params Body Env
-    make-closure  # -> Name MacroClosure
-    smacro  # -> Name MacroSexpr
-    eval-define  # -> EvalDefine
+      # Now build macro: need Params Body Env
+      swap  # -> Name Env Args
+      dup scar slist-val scdr slist  # -> Name Env Args Params (skip name, wrap as Sexpr)
+      swap scdr scar  # -> Name Env Params Body
+      rot  # -> Name Params Body Env
+      make-closure  # -> Name MacroClosure
+      smacro  # -> Name MacroSexpr
+      eval-define  # -> EvalDefine
+    else
+      # Invalid params - return error
+      eval-err nip nip  # -> EvalErr
+    then
   then
 ;
 
@@ -1986,19 +1996,26 @@ union EvalResult {
 # ============================================
 # Gensym (generate unique symbol)
 #
-# NOTE: Users must manually manage the counter for uniqueness.
+# NOTE: This is a manual gensym - users must manage counters.
 # Each call to (gensym n) returns the symbol g<n>.
-# To avoid collisions, use different numbers for each gensym call.
+# Unlike Scheme/CL gensym, this does NOT auto-increment.
 #
 # Usage:
 #   (gensym 0)        ; -> g0
 #   (gensym 1)        ; -> g1
 #   (gensym 'temp 5)  ; -> temp5
+#   (gensym '__or 0)  ; -> __or0 (use unique prefixes for hygiene)
 #
-# For macro hygiene, use incrementing counters:
+# MACRO HYGIENE CONSIDERATIONS:
+# - For recursive macros, use unique prefixes to avoid collisions:
+#     (gensym '__mymacro 0)  ; Less likely to clash with user code
+# - Lexical scoping handles nested expansions correctly
+# - The main risk is user code coincidentally using the same symbol
+#
+# Example with multiple bindings:
 #   (defmacro (my-macro x)
-#     (let t1 (gensym 0)
-#       (let t2 (gensym 1)
+#     (let t1 (gensym '__mm 0)
+#       (let t2 (gensym '__mm 1)
 #         `(let ,t1 ,x (let ,t2 (+ ,t1 1) ,t2)))))
 # ============================================
 
@@ -2702,15 +2719,76 @@ union EvalResult {
   then
 ;
 
-# Get the rest param name (symbol after .)
-: get-rest-param-name ( SexprList -- String )
+# Count dot symbols in a param list
+: count-dots ( SexprList -- Int )
+  0 swap count-dots-loop
+;
+
+: count-dots-loop ( Int SexprList -- Int )
   dup snil? if
-    drop ""
+    drop
   else
     dup scar is-dot-symbol? if
-      scdr scar ssym-val  # Return symbol after .
+      scdr swap 1 add swap count-dots-loop
     else
-      scdr get-rest-param-name
+      scdr count-dots-loop
+    then
+  then
+;
+
+# Validate rest parameter syntax
+# Returns: 1 if valid, 0 if invalid
+# Also returns error message (or empty string if valid)
+: validate-rest-params ( SexprList -- Int String )
+  # Check number of dots
+  dup count-dots
+  dup 1 > if
+    # More than one dot
+    drop drop 0 "defmacro: multiple dots in parameter list"
+  else dup 0 = if
+    # No dots - valid
+    drop drop 1 ""
+  else
+    # Exactly one dot - check syntax
+    drop  # -> Params
+    dup has-rest-param? if
+      # Find the dot and check what follows
+      validate-after-dot
+    else
+      drop 1 ""  # No rest param (shouldn't happen if count-dots is 1)
+    then
+  then then
+;
+
+# Helper to validate what comes after the dot
+: validate-after-dot ( SexprList -- Int String )
+  dup snil? if
+    drop 1 ""
+  else
+    dup scar is-dot-symbol? if
+      # Found the dot - check what follows
+      scdr  # -> RestOfList (after dot)
+      dup snil? if
+        # Dot at end with nothing after
+        drop 0 "defmacro: dot requires a parameter name after it"
+      else
+        dup scar dup ssym? if
+          # Next element is a symbol - good!
+          drop scdr  # -> Rest after the symbol
+          snil? if
+            # Nothing after the rest param name - valid!
+            1 ""
+          else
+            # Extra elements after rest param
+            0 "defmacro: only one parameter allowed after dot"
+          then
+        else
+          # Not a symbol after dot
+          drop drop 0 "defmacro: parameter after dot must be a symbol"
+        then
+      then
+    else
+      scdr validate-after-dot
     then
   then
 ;

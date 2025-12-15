@@ -33,12 +33,14 @@
           `(if ,(car args) (and ,@(cdr args)) #f))))
 
 ;; Variadic or: returns first truthy value, otherwise #f
+;; NOTE: Uses gensym with prefix to avoid common symbol collisions.
+;; For full hygiene, avoid using symbols starting with "__or" in user code.
 (defmacro (or . args)
   (if (null? args)
       '#f
       (if (null? (cdr args))
           (car args)
-          (let tmp (gensym 0)
+          (let tmp (gensym '__or 0)
             `(let ,tmp ,(car args)
                (if ,tmp ,tmp (or ,@(cdr args))))))))
 

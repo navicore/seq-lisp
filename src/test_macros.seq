@@ -90,5 +90,19 @@ include "eval"
   # Error in macro body should propagate
   "(begin (defmacro (bad-macro x) (undefined-fn x)) (bad-macro 1))" eval-print  # Error
 
+  "Testing malformed rest parameter syntax:" io.write-line
+
+  # Multiple dots
+  "(defmacro (bad1 . . args) `(quote ,args))" eval-print  # Error: multiple dots
+
+  # Dot at end without param name
+  "(defmacro (bad2 a .) `(quote ,a))" eval-print  # Error: dot requires param name
+
+  # Multiple params after dot
+  "(defmacro (bad3 . a b) `(quote ,a))" eval-print  # Error: only one param after dot
+
+  # Non-symbol after dot
+  "(defmacro (bad4 . 123) `(quote x))" eval-print  # Error: param must be symbol
+
   "Done testing macros." io.write-line
 ;
