@@ -951,18 +951,28 @@ union EvalResult {
   over scar slist-val snil? if
     drop drop "defmacro: empty macro name" eval-err
   else
-    # Get name first and keep it safe at bottom
-    over scar slist-val scar ssym-val  # -> Args Env Name
-    rot rot  # -> Name Args Env
+    # Get params list for validation
+    over scar slist-val scdr  # -> Args Env ParamsList
+    validate-rest-params      # -> Args Env IsValid ErrorMsg
+    swap if
+      # Valid params - proceed
+      drop  # -> Args Env
+      # Get name first and keep it safe at bottom
+      over scar slist-val scar ssym-val  # -> Args Env Name
+      rot rot  # -> Name Args Env
 
-    # Now build macro: need Params Body Env
-    swap  # -> Name Env Args
-    dup scar slist-val scdr slist  # -> Name Env Args Params (skip name, wrap as Sexpr)
-    swap scdr scar  # -> Name Env Params Body
-    rot  # -> Name Params Body Env
-    make-closure  # -> Name MacroClosure
-    smacro  # -> Name MacroSexpr
-    eval-define  # -> EvalDefine
+      # Now build macro: need Params Body Env
+      swap  # -> Name Env Args
+      dup scar slist-val scdr slist  # -> Name Env Args Params (skip name, wrap as Sexpr)
+      swap scdr scar  # -> Name Env Params Body
+      rot  # -> Name Params Body Env
+      make-closure  # -> Name MacroClosure
+      smacro  # -> Name MacroSexpr
+      eval-define  # -> EvalDefine
+    else
+      # Invalid params - return error
+      eval-err nip nip  # -> EvalErr
+    then
   then
 ;
 
@@ -1986,19 +1996,26 @@ union EvalResult {
 # ============================================
 # Gensym (generate unique symbol)
 #
-# NOTE: Users must manually manage the counter for uniqueness.
+# NOTE: This is a manual gensym - users must manage counters.
 # Each call to (gensym n) returns the symbol g<n>.
-# To avoid collisions, use different numbers for each gensym call.
+# Unlike Scheme/CL gensym, this does NOT auto-increment.
 #
 # Usage:
 #   (gensym 0)        ; -> g0
 #   (gensym 1)        ; -> g1
 #   (gensym 'temp 5)  ; -> temp5
+#   (gensym '__or 0)  ; -> __or0 (use unique prefixes for hygiene)
 #
-# For macro hygiene, use incrementing counters:
+# MACRO HYGIENE CONSIDERATIONS:
+# - For recursive macros, use unique prefixes to avoid collisions:
+#     (gensym '__mymacro 0)  ; Less likely to clash with user code
+# - Lexical scoping handles nested expansions correctly
+# - The main risk is user code coincidentally using the same symbol
+#
+# Example with multiple bindings:
 #   (defmacro (my-macro x)
-#     (let t1 (gensym 0)
-#       (let t2 (gensym 1)
+#     (let t1 (gensym '__mm 0)
+#       (let t2 (gensym '__mm 1)
 #         `(let ,t1 ,x (let ,t2 (+ ,t1 1) ,t2)))))
 # ============================================
 
@@ -2579,25 +2596,68 @@ union EvalResult {
 # Macro Application
 # ============================================
 
+# Check macro arity - returns 1 if OK, 0 if mismatch
+# Also returns error message (or empty string if OK)
+: check-macro-arity ( SexprList SexprList -- Int String )
+  # Stack: Params Args
+  # Returns: (IsOK, ErrorMsg)
+  over has-rest-param? if
+    # Variadic: need >= required params
+    over count-required-params  # -> Params Args Required
+    over list-length            # -> Params Args Required ArgCount
+    over over <= if             # Required <= ArgCount means ArgCount >= Required
+      drop drop drop drop 1 ""  # OK
+    else
+      # Not enough args
+      # Stack: Params Args Required ArgCount
+      swap  # -> Params Args ArgCount Required
+      "macro expects at least " swap int->string string.concat
+      " argument(s), got " string.concat
+      swap int->string string.concat
+      # Stack: Params Args ErrorMsg
+      nip nip       # -> ErrorMsg
+      0 swap        # -> 0 ErrorMsg
+    then
+  else
+    # Non-variadic: need exact match
+    # Stack: Params Args
+    swap dup list-length  # -> Args Params ParamCount
+    rot dup list-length   # -> Params ParamCount Args ArgCount
+    rot swap              # -> Params Args ParamCount ArgCount
+    over over = if
+      drop drop drop drop 1 ""  # OK
+    else
+      # Mismatch: Stack is Params Args ParamCount ArgCount
+      swap  # -> Params Args ArgCount ParamCount
+      "macro expects " swap int->string string.concat
+      " argument(s), got " string.concat
+      swap int->string string.concat
+      # Stack: Params Args ErrorMsg
+      nip nip       # -> ErrorMsg
+      0 swap        # -> 0 ErrorMsg
+    then
+  then
+;
+
 # Apply macro: args are NOT evaluated, bind directly to params
 # Then evaluate body (produces expansion), then evaluate expansion
 : apply-macro ( Sexpr SexprList Env -- EvalResult )
   # Stack: MacroSexpr Args CallerEnv
-  # MacroSexpr wraps a LispClosure (params, body, captured_env)
 
-  # Check arity before binding
-  2 pick smacro-val closure-params slist-val list-length  # -> MacroSexpr Args CallerEnv ParamCount
-  2 pick list-length  # -> MacroSexpr Args CallerEnv ParamCount ArgCount
-  over over = if
-    # Arity matches - proceed
-    drop drop
+  # Check arity
+  2 pick smacro-val closure-params slist-val  # -> MacroSexpr Args CallerEnv Params
+  2 pick  # -> MacroSexpr Args CallerEnv Params Args
+  check-macro-arity  # -> MacroSexpr Args CallerEnv IsOK ErrorMsg
+
+  swap if
+    # Arity OK - proceed with expansion
+    drop  # Drop empty error message
     # Get macro components
     2 pick smacro-val  # -> MacroSexpr Args CallerEnv MacroClosure
     dup closure-env    # -> MacroSexpr Args CallerEnv MacroClosure MacroEnv
     swap closure-params slist-val  # -> MacroSexpr Args CallerEnv MacroEnv Params
 
     # Bind unevaluated args to params
-    # Start with macro's captured env as base
     3 pick  # -> MacroSexpr Args CallerEnv MacroEnv Params Args
     macro-bind-loop  # -> MacroSexpr Args CallerEnv ExtendedEnv
 
@@ -2616,40 +2676,160 @@ union EvalResult {
     then
   else
     # Arity mismatch - return error
-    # Stack: MacroSexpr Args CallerEnv ParamCount ArgCount
-    drop  # -> MacroSexpr Args CallerEnv ParamCount
-    "macro expects " swap int->string string.concat
-    " argument(s), got " string.concat
-    2 pick list-length int->string string.concat
-    eval-err
-    nip nip nip
+    eval-err nip nip nip
   then
 ;
 
-# Helper: bind unevaluated args to params
+# Check if a symbol is the dot (.) for rest params
+: is-dot-symbol? ( Sexpr -- Int )
+  dup ssym? if
+    ssym-val "." string.equal?
+  else
+    drop 0
+  then
+;
+
+# Check if params list has a rest param (contains .)
+: has-rest-param? ( SexprList -- Int )
+  dup snil? if
+    drop 0
+  else
+    dup scar is-dot-symbol? if
+      drop 1
+    else
+      scdr has-rest-param?
+    then
+  then
+;
+
+# Count params before the dot (or all if no dot)
+: count-required-params ( SexprList -- Int )
+  0 swap count-required-params-loop
+;
+
+: count-required-params-loop ( Int SexprList -- Int )
+  dup snil? if
+    drop
+  else
+    dup scar is-dot-symbol? if
+      drop  # Found dot, return current count
+    else
+      scdr swap 1 add swap count-required-params-loop
+    then
+  then
+;
+
+# Count dot symbols in a param list
+: count-dots ( SexprList -- Int )
+  0 swap count-dots-loop
+;
+
+: count-dots-loop ( Int SexprList -- Int )
+  dup snil? if
+    drop
+  else
+    dup scar is-dot-symbol? if
+      scdr swap 1 add swap count-dots-loop
+    else
+      scdr count-dots-loop
+    then
+  then
+;
+
+# Validate rest parameter syntax
+# Returns: 1 if valid, 0 if invalid
+# Also returns error message (or empty string if valid)
+: validate-rest-params ( SexprList -- Int String )
+  # Check number of dots
+  dup count-dots
+  dup 1 > if
+    # More than one dot
+    drop drop 0 "defmacro: multiple dots in parameter list"
+  else dup 0 = if
+    # No dots - valid
+    drop drop 1 ""
+  else
+    # Exactly one dot - check syntax
+    drop  # -> Params
+    dup has-rest-param? if
+      # Find the dot and check what follows
+      validate-after-dot
+    else
+      drop 1 ""  # No rest param (shouldn't happen if count-dots is 1)
+    then
+  then then
+;
+
+# Helper to validate what comes after the dot
+: validate-after-dot ( SexprList -- Int String )
+  dup snil? if
+    drop 1 ""
+  else
+    dup scar is-dot-symbol? if
+      # Found the dot - check what follows
+      scdr  # -> RestOfList (after dot)
+      dup snil? if
+        # Dot at end with nothing after
+        drop 0 "defmacro: dot requires a parameter name after it"
+      else
+        dup scar dup ssym? if
+          # Next element is a symbol - good!
+          drop scdr  # -> Rest after the symbol
+          snil? if
+            # Nothing after the rest param name - valid!
+            1 ""
+          else
+            # Extra elements after rest param
+            0 "defmacro: only one parameter allowed after dot"
+          then
+        else
+          # Not a symbol after dot
+          drop drop 0 "defmacro: parameter after dot must be a symbol"
+        then
+      then
+    else
+      scdr validate-after-dot
+    then
+  then
+;
+
+# Collect remaining args into a list (as Sexpr)
+: collect-rest-args ( SexprList -- Sexpr )
+  slist
+;
+
+# Helper: bind unevaluated args to params (supports rest params)
 : macro-bind-loop ( Env SexprList SexprList -- Env )
   # Stack: AccEnv Params Args
   over snil? if
     # No more params - return accumulated env
     drop drop  # -> AccEnv
-  else over snil? if
-    # No more args but have params - error case, just stop
-    drop drop  # -> AccEnv
   else
-    # Get first param name and first arg
-    over scar ssym-val  # -> AccEnv Params Args ParamName
-    over scar           # -> AccEnv Params Args ParamName ArgExpr
-    # Extend env
-    4 pick              # -> AccEnv Params Args ParamName ArgExpr AccEnv
-    env-extend          # -> AccEnv Params Args NewEnv
-    # Rearrange: need NewEnv RestParams RestArgs
-    3 roll drop         # -> Params Args NewEnv (remove old AccEnv)
-    rot scdr            # -> Args NewEnv RestParams
-    rot scdr            # -> NewEnv RestParams RestArgs
-    rot                 # -> RestParams RestArgs NewEnv
-    rot rot             # -> NewEnv RestParams RestArgs
-    macro-bind-loop
-  then then
+    # Check if first param is the dot
+    over scar is-dot-symbol? if
+      # Rest param: bind remaining args to param after dot
+      swap scdr scar ssym-val  # -> AccEnv Args RestParamName
+      swap collect-rest-args   # -> AccEnv RestParamName ArgsAsList
+      rot env-extend           # -> ExtendedEnv
+    else dup snil? if
+      # No more args but have params - error case, just stop
+      drop drop  # -> AccEnv
+    else
+      # Regular param: bind first arg to first param
+      over scar ssym-val  # -> AccEnv Params Args ParamName
+      over scar           # -> AccEnv Params Args ParamName ArgExpr
+      # Extend env
+      4 pick              # -> AccEnv Params Args ParamName ArgExpr AccEnv
+      env-extend          # -> AccEnv Params Args NewEnv
+      # Rearrange: need NewEnv RestParams RestArgs
+      3 roll drop         # -> Params Args NewEnv (remove old AccEnv)
+      rot scdr            # -> Args NewEnv RestParams
+      rot scdr            # -> NewEnv RestParams RestArgs
+      rot                 # -> RestParams RestArgs NewEnv
+      rot rot             # -> NewEnv RestParams RestArgs
+      macro-bind-loop
+    then then
+  then
 ;
 
 # ============================================

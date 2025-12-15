@@ -100,8 +100,10 @@ The current architecture is sound for adding comprehensive error handling. No fu
 - [x] Currying and partial application
   - Automatic currying for multi-parameter lambdas
   - Over-application passes extra args to returned closures
-- [ ] Variadic functions
-- [ ] Optional/rest parameters
+- [x] Variadic macros with rest parameters
+  - Dot notation: `(defmacro (name . args) body)` or `(defmacro (name req . rest) body)`
+  - Enables natural `(and a b c)` style macros instead of `(and-list (a b c))`
+- [ ] Variadic functions (lambdas)
 - [ ] Tail call optimization (important for idiomatic Lisp)
 
 ### Macros ✓
@@ -109,6 +111,7 @@ The current architecture is sound for adding comprehensive error handling. No fu
 - [x] Quasiquote (`` ` ``), unquote (`,`), splice (`,@`)
 - [x] Macro expansion phase (lazy expansion at call site)
 - [x] `gensym` for unique symbol generation
+- [x] Variadic macros with dot notation (`. rest`)
 
 ### Test Framework
 - [ ] Assertion-based test runner
