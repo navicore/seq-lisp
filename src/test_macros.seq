@@ -56,5 +56,22 @@ include "eval"
   "(let n 0 (gensym n))" eval-print  # g0
   "(let n 10 (gensym 'var n))" eval-print  # var10
 
+  "Testing error cases:" io.write-line
+
+  # Macro arity mismatch - too few args
+  "(begin (defmacro (foo a b) `(+ ,a ,b)) (foo 1))" eval-print  # Error: macro expects 2 argument(s), got 1
+
+  # Macro arity mismatch - too many args
+  "(begin (defmacro (bar x) x) (bar 1 2 3))" eval-print  # Error: macro expects 1 argument(s), got 3
+
+  # Unquote-splicing with non-list should error
+  "(let x 42 `(a ,@x b))" eval-print  # Error: unquote-splicing: value must be a list
+
+  # Error in unquote should propagate
+  "(let x 1 `(a ,(undefined-symbol) b))" eval-print  # Error: undefined symbol
+
+  # Error in macro body should propagate
+  "(begin (defmacro (bad-macro x) (undefined-fn x)) (bad-macro 1))" eval-print  # Error
+
   "Done testing macros." io.write-line
 ;

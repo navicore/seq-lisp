@@ -67,6 +67,7 @@ SeqLisp supports:
 - **Lists**: `cons`, `car`, `cdr`, `list`, `quote` (`'`), `append`, `reverse`, `length`, `nth`, `last`, `take`, `drop`
 - **Higher-order**: `map`, `filter`, `fold`
 - **Predicates**: `null?`, `number?`, `symbol?`, `list?`, `boolean?`
+- **Macros**: `defmacro`, quasiquote (`` ` ``), unquote (`,`), splice (`,@`), `gensym`
 - **Sequencing**: `begin`
 - **Output**: `print`
 
@@ -116,6 +117,31 @@ SeqLisp supports:
 ;; Fold: reduce list to single value
 (fold (lambda (acc x) (+ acc x)) 0 '(1 2 3 4 5))
 ;; => 15
+```
+
+### Macros
+
+```lisp
+;; Define a simple macro
+(defmacro (when cond body)
+  `(if ,cond ,body '()))
+
+(when #t 'yes)           ;; => yes
+(when #f 'yes)           ;; => ()
+
+;; Unless macro (opposite of when)
+(defmacro (unless cond body)
+  `(if ,cond '() ,body))
+
+(unless #f 42)           ;; => 42
+
+;; Short-circuit and/or
+(defmacro (and2 a b) `(if ,a ,b #f))
+(defmacro (or2 a b) `(if ,a #t ,b))
+
+;; Use gensym for hygiene (unique symbols)
+(gensym 0)               ;; => g0
+(gensym 'temp 1)         ;; => temp1
 ```
 
 ## Documentation
