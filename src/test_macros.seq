@@ -41,6 +41,23 @@ include "eval"
   # Macro with splicing - list concatenation
   "(begin (defmacro (prepend-a xs) `(list 'a ,@xs)) (prepend-a ('b 'c)))" eval-print  # Should print (a b c)
 
+  "Testing variadic macros:" io.write-line
+
+  # Pure rest param - all args collected
+  "(begin (defmacro (collect-all . args) `(quote ,args)) (collect-all a b c))" eval-print  # (a b c)
+  "(begin (defmacro (collect-all . args) `(quote ,args)) (collect-all))" eval-print  # ()
+
+  # Required + rest param
+  "(begin (defmacro (with-rest a . rest) `(list ',a (quote ,rest))) (with-rest x y z))" eval-print  # (x (y z))
+
+  # Variadic and
+  "(begin (defmacro (and . args) (if (null? args) '#t (if (null? (cdr args)) (car args) `(if ,(car args) (and ,@(cdr args)) #f)))) (and))" eval-print  # #t
+  "(begin (defmacro (and . args) (if (null? args) '#t (if (null? (cdr args)) (car args) `(if ,(car args) (and ,@(cdr args)) #f)))) (and #t #t #t))" eval-print  # #t
+  "(begin (defmacro (and . args) (if (null? args) '#t (if (null? (cdr args)) (car args) `(if ,(car args) (and ,@(cdr args)) #f)))) (and #t #f #t))" eval-print  # #f
+
+  # Variadic arity check - required + rest, too few args
+  "(begin (defmacro (need-one a . rest) `(quote ,a)) (need-one))" eval-print  # Error: macro expects at least 1 argument(s), got 0
+
   "Testing gensym:" io.write-line
 
   # Basic gensym with number

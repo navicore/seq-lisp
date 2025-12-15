@@ -20,20 +20,33 @@
 (print (unless #f 'executed))
 
 ;; ============================================
-;; Short-Circuit Boolean Macros
+;; Variadic Short-Circuit Boolean Macros
 ;; ============================================
 
-;; and2: returns #f at first false, otherwise second value
-(defmacro (and2 a b) `(if ,a ,b #f))
+;; Variadic and: returns #f at first false, otherwise last value
+;; Uses (. args) syntax to collect all arguments
+(defmacro (and . args)
+  (if (null? args)
+      '#t
+      (if (null? (cdr args))
+          (car args)
+          `(if ,(car args) (and ,@(cdr args)) #f))))
 
-;; or2: returns first value if true, otherwise second
-(defmacro (or2 a b) `(if ,a ,a ,b))
+;; Variadic or: returns first truthy value, otherwise #f
+(defmacro (or . args)
+  (if (null? args)
+      '#f
+      (if (null? (cdr args))
+          (car args)
+          (let tmp (gensym 0)
+            `(let ,tmp ,(car args)
+               (if ,tmp ,tmp (or ,@(cdr args))))))))
 
-;; Short-circuit: second arg not evaluated when unnecessary
-(print (and2 #t 'second))
-(print (and2 #f 'never-evaluated))
-(print (or2 #t 'never-evaluated))
-(print (or2 #f 'fallback))
+;; Short-circuit: args not evaluated when unnecessary
+(print (and #t #t #t))       ;; #t
+(print (and #t #f 'never))   ;; #f
+(print (or #f #f #t #f))     ;; #t
+(print (or 'first #f #f))    ;; first
 
 ;; ============================================
 ;; Increment/Decrement
