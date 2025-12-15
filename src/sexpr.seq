@@ -36,6 +36,7 @@ union Sexpr {
   SSym { name: String }
   SList { items: SexprList }
   SClosure { closure: LispClosure }
+  SMacro { macro: LispClosure }  # Same structure as closure, different semantics
 }
 
 # Linked list of S-expressions
@@ -59,6 +60,9 @@ union SexprList {
 
 : sclosure ( LispClosure -- Sexpr )
   Make-SClosure ;
+
+: smacro ( LispClosure -- Sexpr )
+  Make-SMacro ;
 
 : snil ( -- SexprList )
   Make-SNil ;
@@ -98,6 +102,9 @@ union SexprList {
 : sclosure? ( Sexpr -- Int )
   variant.tag 3 = ;
 
+: smacro? ( Sexpr -- Int )
+  variant.tag 4 = ;
+
 : snil? ( SexprList -- Int )
   variant.tag 0 = ;
 
@@ -115,6 +122,9 @@ union SexprList {
   0 variant.field-at ;
 
 : sclosure-val ( Sexpr -- LispClosure )
+  0 variant.field-at ;
+
+: smacro-val ( Sexpr -- LispClosure )
   0 variant.field-at ;
 
 : scar ( SexprList -- Sexpr )
@@ -157,6 +167,9 @@ union SexprList {
     SClosure { >closure } ->
       # Stack: ( closure )
       drop "#<closure>"
+    SMacro { >macro } ->
+      # Stack: ( macro )
+      drop "#<macro>"
   end
 ;
 

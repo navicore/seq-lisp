@@ -103,10 +103,11 @@ The current architecture is sound for adding comprehensive error handling. No fu
 - [ ] Optional/rest parameters
 - [ ] Tail call optimization (important for idiomatic Lisp)
 
-### Macros
-- [ ] `defmacro` for syntactic abstraction
-- [ ] Quasiquote (`` ` ``), unquote (`,`), splice (`,@`)
-- [ ] Macro expansion phase
+### Macros ✓
+- [x] `defmacro` for syntactic abstraction
+- [x] Quasiquote (`` ` ``), unquote (`,`), splice (`,@`)
+- [x] Macro expansion phase (lazy expansion at call site)
+- [x] `gensym` for unique symbol generation
 
 ### Test Framework
 - [ ] Assertion-based test runner
@@ -173,7 +174,7 @@ This is research territory - traditional Lisp is dynamically typed.
 
 The ultimate test: implement enough of SeqLisp to write SeqLisp in itself.
 
-### Self-Hosted Tools (requires macros)
+### Self-Hosted Tools (macros now available)
 - [ ] Linter written in SeqLisp
   - Analyze code as data (homoiconicity)
   - User-extensible lint rules

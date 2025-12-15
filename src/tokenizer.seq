@@ -109,12 +109,22 @@ union TokState {
             # Right paren
             drop handle-rparen tokenize-loop
           else
-            39 = if
+            dup 39 = if
               # Single quote - emit as its own token
-              handle-quote tokenize-loop
+              drop handle-quote tokenize-loop
             else
-              # Regular char
-              handle-char tokenize-loop
+              dup 96 = if
+                # Backtick (quasiquote) - emit as its own token
+                drop handle-backtick tokenize-loop
+              else
+                dup 44 = if
+                  # Comma (unquote) - check for ,@
+                  drop handle-comma tokenize-loop
+                else
+                  # Regular char
+                  drop handle-char tokenize-loop
+                then
+              then
             then
           then
         then
@@ -203,6 +213,82 @@ union TokState {
     3 pick state-tok
     swap tcons
     "'" swap tcons
+    "" swap
+    make-state nip
+  then
+;
+
+# Flush token, add "`", advance (quasiquote)
+: handle-backtick ( TokState -- TokState )
+  dup state-tok string.empty? if
+    # Just add "`" to list and advance
+    dup state-input
+    over state-pos 1 add
+    2 pick state-list
+    "`" swap tcons
+    "" swap
+    make-state nip
+  else
+    # Flush token, then add "`"
+    dup state-input
+    over state-pos 1 add
+    2 pick state-list
+    3 pick state-tok
+    swap tcons
+    "`" swap tcons
+    "" swap
+    make-state nip
+  then
+;
+
+# Handle comma - check for ,@ (unquote-splicing) vs , (unquote)
+: handle-comma ( TokState -- TokState )
+  # First flush any current token
+  dup state-tok string.empty? if
+    handle-comma-check
+  else
+    # Flush token first
+    dup state-input
+    over state-pos
+    2 pick state-list
+    3 pick state-tok
+    swap tcons
+    "" swap
+    make-state nip
+    handle-comma-check
+  then
+;
+
+# Check if next char is @ for ,@
+: handle-comma-check ( TokState -- TokState )
+  # Check if there's a next character
+  dup state-input string.length
+  over state-pos 1 add > if
+    # There's a next char - check if it's @
+    dup state-input over state-pos 1 add string.char-at
+    64 = if
+      # It's ,@ - emit ",@" and advance by 2
+      dup state-input
+      over state-pos 2 add
+      2 pick state-list
+      ",@" swap tcons
+      "" swap
+      make-state nip
+    else
+      # Just , - emit "," and advance by 1
+      dup state-input
+      over state-pos 1 add
+      2 pick state-list
+      "," swap tcons
+      "" swap
+      make-state nip
+    then
+  else
+    # No next char - just emit ","
+    dup state-input
+    over state-pos 1 add
+    2 pick state-list
+    "," swap tcons
     "" swap
     make-state nip
   then
