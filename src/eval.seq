@@ -386,7 +386,7 @@ union EvalResult {
 ;
 
 # ----------------------------------------
-# Group 5: Predicates and Utilities (null?, number?, symbol?, list?, boolean?, gensym)
+# Group 5: Predicates and Utilities (null?, number?, symbol?, list?, boolean?, equal?, gensym)
 # ----------------------------------------
 : dispatch-predicates ( SexprList Env String -- EvalResult )
   dup "null?" string.equal? if
@@ -399,11 +399,13 @@ union EvalResult {
     drop eval-list?-with-env
   else dup "boolean?" string.equal? if
     drop eval-boolean?-with-env
+  else dup "equal?" string.equal? if
+    drop eval-equal?-with-env
   else dup "gensym" string.equal? if
     drop eval-gensym-with-env
   else
     dispatch-control-flow
-  then then then then then then
+  then then then then then then then
 ;
 
 # ----------------------------------------
@@ -420,14 +422,16 @@ union EvalResult {
 ;
 
 # ----------------------------------------
-# Group 7: I/O (print)
+# Group 7: I/O (print, exit)
 # ----------------------------------------
 : dispatch-io ( SexprList Env String -- EvalResult )
   dup "print" string.equal? if
     drop eval-print-with-env
+  else dup "exit" string.equal? if
+    drop eval-exit-with-env
   else
     dispatch-user-defined
-  then
+  then then
 ;
 
 # ----------------------------------------
@@ -839,14 +843,48 @@ union EvalResult {
 
 : eval-print-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
-  # (print expr) - evaluate expr, print result, return result
+  # (print expr) - evaluate expr, print result, return '()
   swap scdr scar  # Get the expression to print
   swap eval-with-env  # Evaluate it -> EvalResult
   dup eval-err? if
     # Error - just return it
   else
-    dup eval-ok-value sexpr-to-string io.write-line  # Print it
-    # Return the EvalResult as-is
+    eval-ok-value sexpr-to-string io.write-line  # Print it
+    # Return empty list so REPL doesn't double-print
+    snil slist eval-ok
+  then
+;
+
+# ============================================
+# Exit (terminate process with exit code)
+#
+# Usage:
+#   (exit 0)  ; Exit with success
+#   (exit 1)  ; Exit with failure
+# ============================================
+
+: eval-exit-with-env ( SexprList Env -- EvalResult )
+  # Stack: List Env
+  # (exit n) - exit process with code n
+  over 1 "exit" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop  # -> List Env
+    swap scdr scar  # Get the exit code expression -> Env Arg
+    swap eval-with-env  # Evaluate it -> EvalResult
+    dup eval-err? if
+      # Error - propagate
+    else
+      eval-ok-value
+      dup snum? if
+        snum-val os.exit
+        # Never reaches here - os.exit terminates process
+        snil slist eval-ok
+      else
+        drop "exit: argument must be a number" eval-err
+      then
+    then
   then
 ;
 
@@ -870,6 +908,8 @@ union EvalResult {
 ;
 
 # Function shorthand: (define (name params...) body)
+# Creates a named closure so the function can call itself recursively
+# without O(n²) environment growth from env-concat
 : eval-define-function ( SexprList Env -- EvalResult )
   # Stack: Args Env (Args = ((name params...) body))
   # For (define (square n) (* n n)):
@@ -884,12 +924,13 @@ union EvalResult {
     over scar slist-val scar ssym-val  # -> Args Env Name
     rot rot  # -> Name Args Env
 
-    # Now build closure like lambda: need Params Body Env
+    # Now build named closure: need Params Body Env Name
     swap  # -> Name Env Args
     dup scar slist-val scdr slist  # -> Name Env Args Params (skip name, wrap as Sexpr)
     swap scdr scar  # -> Name Env Params Body
     rot  # -> Name Params Body Env
-    make-closure  # -> Name Closure
+    3 pick  # -> Name Params Body Env Name (copy for named closure)
+    make-named-closure  # -> Name Closure
     sclosure  # -> Name ClosureSexpr
     eval-define  # -> EvalDefine
   then
@@ -1994,6 +2035,92 @@ union EvalResult {
 ;
 
 # ============================================
+# Equal? (structural equality)
+#
+# Compares two S-expressions for structural equality.
+# Works on numbers, symbols, lists, and nested structures.
+#
+# Usage:
+#   (equal? 1 1)           ; -> #t
+#   (equal? 'a 'a)         ; -> #t
+#   (equal? '(1 2) '(1 2)) ; -> #t
+#   (equal? '(1 2) '(1 3)) ; -> #f
+# ============================================
+
+# Helper: compare two Sexpr values for structural equality
+: sexpr-equal? ( Sexpr Sexpr -- Int )
+  # Check if both have the same type tag
+  over variant.tag over variant.tag = if
+    # Same type - compare by type
+    over snum? if
+      # Both numbers - compare values
+      snum-val swap snum-val =
+    else over ssym? if
+      # Both symbols - compare names
+      ssym-val swap ssym-val string.equal?
+    else over slist? if
+      # Both lists - compare recursively
+      slist-val swap slist-val sexpr-list-equal?
+    else
+      # Closures/macros - compare by identity (always false for now)
+      drop drop 0
+    then then then
+  else
+    # Different types - not equal
+    drop drop 0
+  then
+;
+
+# Helper: compare two SexprList values
+: sexpr-list-equal? ( SexprList SexprList -- Int )
+  # Check if both empty
+  over snil? over snil? and if
+    drop drop 1  # Both empty = equal
+  else over snil? over snil? or if
+    drop drop 0  # One empty, one not = not equal
+  else
+    # Both non-empty - compare car and cdr
+    over scar over scar sexpr-equal? if
+      # Heads equal - compare tails
+      scdr swap scdr sexpr-list-equal?
+    else
+      drop drop 0  # Heads not equal
+    then
+  then then
+;
+
+: eval-equal?-with-env ( SexprList Env -- EvalResult )
+  # Stack: List Env
+  # (equal? a b) - returns #t if a and b are structurally equal
+  over 2 "equal?" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop  # -> List Env
+    # Evaluate first argument
+    over scdr scar  # -> List Env FirstArg
+    over eval-with-env  # -> List Env EvalResult1
+    dup eval-err? if
+      nip nip  # Error - propagate
+    else
+      eval-ok-value  # -> List Env Val1
+      # Evaluate second argument
+      2 pick scdr scdr scar  # -> List Env Val1 SecondArg
+      2 pick eval-with-env  # -> List Env Val1 EvalResult2
+      dup eval-err? if
+        nip nip nip  # Error - propagate
+      else
+        eval-ok-value  # -> List Env Val1 Val2
+        sexpr-equal?  # -> List Env Result
+        if "#t" else "#f" then
+        ssym eval-ok
+        nip nip  # Clean up List Env
+      then
+    then
+  then
+;
+
+# ============================================
 # Gensym (generate unique symbol)
 #
 # NOTE: This is a manual gensym - users must manage counters.
@@ -2429,7 +2556,16 @@ union EvalResult {
 : apply-full ( Sexpr SexprList Env -- EvalResult )
   # Stack: ClosureSexpr Args CallerEnv (pos 2,1,0)
   2 pick sclosure-val  # -> ClosureSexpr Args CallerEnv Closure (pos 3,2,1,0)
-  dup closure-env 2 pick env-concat  # -> ClosureSexpr Args CallerEnv Closure BaseEnv (pos 4,3,2,1,0)
+  # For named closures, add self-binding for recursion (O(1) instead of O(n) env-concat)
+  # For anonymous closures, just use captured env
+  dup closure-env  # -> ClosureSexpr Args CallerEnv Closure ClosureEnv
+  over named-closure? if
+    # Named: add self-binding so function can call itself
+    # env-extend signature: ( String Sexpr Env -- Env )
+    over closure-self-name  # -> ... Closure ClosureEnv SelfName
+    5 pick  # -> ... Closure ClosureEnv SelfName ClosureSexpr
+    rot env-extend  # -> ... Closure BaseEnv
+  then  # -> ClosureSexpr Args CallerEnv Closure BaseEnv (pos 4,3,2,1,0)
   over closure-params slist-val  # -> ClosureSexpr Args CallerEnv Closure BaseEnv Params (unwrap to SexprList, pos 5,4,3,2,1,0)
   4 pick  # -> ... Params Args (Args is at position 4)
   4 pick  # -> ... Params Args CallerEnv (CallerEnv is now at position 4)
@@ -2553,7 +2689,12 @@ union EvalResult {
   2 pick closure-params slist-val scar ssym-val  # -> Closure ArgVal CallerEnv ParamName
   rot  # -> Closure CallerEnv ParamName ArgVal
   3 pick closure-env  # -> Closure CallerEnv ParamName ArgVal ClosureEnv
-  3 pick env-concat  # -> Closure CallerEnv ParamName ArgVal MergedEnv
+  # For named closures, add self-binding for recursion (O(1) instead of O(n) env-concat)
+  4 pick named-closure? if
+    4 pick closure-self-name  # -> ... ClosureEnv SelfName
+    5 pick sclosure  # -> ... ClosureEnv SelfName ClosureSexpr
+    rot env-extend  # -> ... BaseEnv
+  then  # -> Closure CallerEnv ParamName ArgVal BaseEnv
   env-extend  # -> Closure CallerEnv ExtendedEnv
   # Evaluate body
   rot closure-body  # -> CallerEnv ExtendedEnv Body
@@ -2568,12 +2709,17 @@ union EvalResult {
   # Args is (Arg1 Arg2) where Arg1=acc, Arg2=elem for fold
 
   # Build extended environment: bind both params then eval body
-  # Strategy: start with closure's env merged with caller env,
+  # For named closures, add self-binding for recursion (O(1) instead of O(n) env-concat)
   # then extend with param1=arg1, then param2=arg2
 
-  # Get closure's captured env and merge with caller
+  # Get closure's captured env
   2 pick closure-env     # -> Closure Args CallerEnv ClosureEnv
-  over env-concat        # -> Closure Args CallerEnv BaseEnv
+  # For named closures, add self-binding
+  3 pick named-closure? if
+    3 pick closure-self-name  # -> ... ClosureEnv SelfName
+    4 pick sclosure  # -> ... ClosureEnv SelfName ClosureSexpr
+    rot env-extend  # -> ... BaseEnv
+  then  # -> Closure Args CallerEnv BaseEnv
 
   # Now bind param1 (first param gets first arg)
   # env-extend signature: ( String Sexpr Env -- Env )

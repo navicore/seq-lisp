@@ -26,8 +26,10 @@ union Env {
 }
 
 # Closure: captures params, body, and defining environment
+# NamedClos includes self_name for recursive functions (avoids O(n²) env growth)
 union LispClosure {
   Clos { params: Sexpr, body: Sexpr, captured_env: Env }
+  NamedClos { params: Sexpr, body: Sexpr, captured_env: Env, self_name: String }
 }
 
 # S-expressions: the core Lisp value type
@@ -86,6 +88,9 @@ union SexprList {
 : make-closure ( Sexpr Sexpr Env -- LispClosure )
   Make-Clos ;
 
+: make-named-closure ( Sexpr Sexpr Env String -- LispClosure )
+  Make-NamedClos ;
+
 # ============================================
 # Predicates
 # ============================================
@@ -107,6 +112,10 @@ union SexprList {
 
 : snil? ( SexprList -- Int )
   variant.tag 0 = ;
+
+# Closure type predicates
+: named-closure? ( LispClosure -- Int )
+  variant.tag 1 = ;
 
 # ============================================
 # Accessors
@@ -140,12 +149,16 @@ union SexprList {
 : binding-value ( Binding -- Sexpr )
   1 variant.field-at ;
 
-# Closure accessors
+# Closure accessors (work for both Clos and NamedClos)
 : closure-params ( LispClosure -- Sexpr )
   0 variant.field-at ;
 
 : closure-body ( LispClosure -- Sexpr )
   1 variant.field-at ;
+
+# Only valid for NamedClos - use named-closure? to check first
+: closure-self-name ( LispClosure -- String )
+  3 variant.field-at ;
 
 : closure-env ( LispClosure -- Env )
   2 variant.field-at ;

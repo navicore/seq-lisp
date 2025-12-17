@@ -1,6 +1,6 @@
 # Test evaluator
 
-include "eval"
+include "../../src/eval"
 
 : main ( -- )
   "Testing evaluator:" io.write-line

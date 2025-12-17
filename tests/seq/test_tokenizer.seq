@@ -1,6 +1,6 @@
 # Test tokenizer
 
-include "tokenizer"
+include "../../src/tokenizer"
 
 : main ( -- )
   "Testing tokenizer:" io.write-line

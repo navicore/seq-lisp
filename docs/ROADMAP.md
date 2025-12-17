@@ -37,7 +37,7 @@ A working interpreter with:
 ### Core Lisp Features
 - [x] `quote` and `'` syntax
 - [x] List operations: `cons`, `car`, `cdr`, `list`
-- [x] Predicates: `null?`, `number?`, `symbol?`, `list?`, `boolean?`
+- [x] Predicates: `null?`, `number?`, `symbol?`, `list?`, `boolean?`, `equal?`
 - [x] Boolean literals: `#t`, `#f`
 - [x] `begin` for sequencing
 - [x] `cond` as multi-way conditional
@@ -113,16 +113,20 @@ The current architecture is sound for adding comprehensive error handling. No fu
 - [x] `gensym` for unique symbol generation
 - [x] Variadic macros with dot notation (`. rest`)
 
-### Test Framework
-- [ ] Assertion-based test runner
-  - `assert-eq` for value comparison
-  - `assert-error` for expected errors
+### Test Framework ✓
+- [x] Assertion-based test runner (in `lib/test.lisp`)
+  - `assert-eq` for value comparison using structural equality
+  - `assert-true` / `assert-false` for boolean checks
   - Pass/fail counters with summary output
-  - Non-zero exit code on failure
-- [ ] Reorganize test suites by feature
-  - Separate files for stdlib (map, filter, fold, list utilities)
-  - Move demos from `test_eval.seq` to assertion-based tests
-- [ ] CI integration with clear pass/fail reporting
+  - Non-zero exit code on failure (exit 1 on any failure, exit 0 on all pass)
+  - `run-suite` macro for organizing tests
+- [x] New builtins to support testing:
+  - `equal?` - structural equality comparison
+  - `exit` - process exit with code for CI/CD
+- [ ] Future enhancements:
+  - `assert-error` for expected errors
+  - Reorganize test suites by feature
+  - CI integration with clear pass/fail reporting
 
 ### Tooling
 - [ ] LSP (Language Server Protocol) support
