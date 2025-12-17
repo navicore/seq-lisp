@@ -83,6 +83,82 @@
   (test 'boolean-false (assert-true (boolean? '#f)))))
 
 ;; ============================================
+;; Special Forms Tests
+;; ============================================
+
+(define special-form-tests (list
+  ;; if
+  (test 'if-true (assert-eq (if #t 'yes 'no) 'yes))
+  (test 'if-false (assert-eq (if #f 'yes 'no) 'no))
+  (test 'if-zero-falsy (assert-eq (if 0 'yes 'no) 'no))
+  (test 'if-number-truthy (assert-eq (if 42 'yes 'no) 'yes))
+  ;; let
+  (test 'let-simple (assert-eq (let x 10 x) 10))
+  (test 'let-expr (assert-eq (let x 5 (+ x 3)) 8))
+  (test 'let-nested (assert-eq (let a 1 (let b 2 (+ a b))) 3))
+  ;; quote
+  (test 'quote-symbol (assert-eq 'foo 'foo))
+  (test 'quote-list (assert-eq '(1 2 3) '(1 2 3)))
+  (test 'quote-nested (assert-eq '((a b) (c d)) '((a b) (c d))))
+  ;; begin
+  (test 'begin-single (assert-eq (begin 42) 42))
+  (test 'begin-multi (assert-eq (begin 1 2 3) 3))
+  ;; cond
+  (test 'cond-first (assert-eq (cond (#t 'a) (#t 'b)) 'a))
+  (test 'cond-second (assert-eq (cond (#f 'a) (#t 'b)) 'b))
+  (test 'cond-else (assert-eq (cond (#f 'a) (else 'b)) 'b))))
+
+;; ============================================
+;; Closure and Lambda Tests
+;; ============================================
+
+(define closure-tests (list
+  ;; basic lambda
+  (test 'lambda-identity (assert-eq ((lambda (x) x) 42) 42))
+  (test 'lambda-add (assert-eq ((lambda (x y) (+ x y)) 3 4) 7))
+  ;; closure capturing environment
+  (test 'closure-capture (assert-eq (let y 10 ((lambda (x) (+ x y)) 5)) 15))
+  (test 'closure-nested (assert-eq (let a 1 (let b 2 ((lambda (x) (+ x (+ a b))) 3))) 6))
+  ;; currying / partial application
+  (test 'curry-basic (assert-eq (((lambda (x y) (+ x y)) 3) 4) 7))
+  (test 'curry-three (assert-eq ((((lambda (x y z) (+ x (+ y z))) 1) 2) 3) 6))))
+
+;; ============================================
+;; Recursion Tests
+;; ============================================
+
+(define (factorial n)
+  (if (< n 2) 1 (* n (factorial (- n 1)))))
+
+(define (fibonacci n)
+  (if (< n 2) n (+ (fibonacci (- n 1)) (fibonacci (- n 2)))))
+
+(define recursion-tests (list
+  (test 'fact-0 (assert-eq (factorial 0) 1))
+  (test 'fact-1 (assert-eq (factorial 1) 1))
+  (test 'fact-5 (assert-eq (factorial 5) 120))
+  (test 'fact-10 (assert-eq (factorial 10) 3628800))
+  (test 'fib-0 (assert-eq (fibonacci 0) 0))
+  (test 'fib-1 (assert-eq (fibonacci 1) 1))
+  (test 'fib-10 (assert-eq (fibonacci 10) 55))))
+
+;; ============================================
+;; Equal? Edge Cases
+;; ============================================
+
+(define equal-edge-tests (list
+  ;; empty lists
+  (test 'equal-empty-lists (assert-true (equal? '() '())))
+  (test 'equal-nested-empty (assert-true (equal? '(()) '(()))))
+  ;; mismatched types return false (not error)
+  (test 'equal-num-sym (assert-false (equal? 1 'one)))
+  (test 'equal-num-list (assert-false (equal? 1 '(1))))
+  (test 'equal-sym-list (assert-false (equal? 'a '(a))))
+  ;; deeply nested
+  (test 'equal-deep (assert-true (equal? '((((a)))) '((((a)))))))
+  (test 'equal-deep-diff (assert-false (equal? '((((a)))) '((((b)))))))))
+
+;; ============================================
 ;; Combine and Run All Tests
 ;; ============================================
 
@@ -91,7 +167,11 @@
     (append comparison-tests
       (append list-tests
         (append hof-tests
-          (append equality-tests predicate-tests))))))
+          (append equality-tests
+            (append predicate-tests
+              (append special-form-tests
+                (append closure-tests
+                  (append recursion-tests equal-edge-tests))))))))))
 
 (print 'SeqLisp-Test-Suite)
 (print-each all-results)

@@ -71,18 +71,18 @@ lisp-test: build
     echo "Running SeqLisp Lisp tests..."
     # Combine framework + tests into temp file (workaround for stdin comment handling)
     tmp=$(mktemp)
+    trap "rm -f $tmp" EXIT
     cat lib/test.lisp tests/all.lisp > "$tmp"
     ./target/seqlisp "$tmp"
-    rm "$tmp"
 
 # Run a specific test file with framework
 lisp-run file: build
     #!/usr/bin/env bash
     set -euo pipefail
     tmp=$(mktemp)
+    trap "rm -f $tmp" EXIT
     cat lib/test.lisp {{file}} > "$tmp"
     ./target/seqlisp "$tmp"
-    rm "$tmp"
 
 # Full CI: test + build + lisp-test
 ci: test build lisp-test

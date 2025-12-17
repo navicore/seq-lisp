@@ -843,15 +843,14 @@ union EvalResult {
 
 : eval-print-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
-  # (print expr) - evaluate expr, print result, return '()
+  # (print expr) - evaluate expr, print result, return the value
   swap scdr scar  # Get the expression to print
   swap eval-with-env  # Evaluate it -> EvalResult
   dup eval-err? if
     # Error - just return it
   else
-    eval-ok-value sexpr-to-string io.write-line  # Print it
-    # Return empty list so REPL doesn't double-print
-    snil slist eval-ok
+    dup eval-ok-value sexpr-to-string io.write-line  # Print it
+    # Return the printed value (enables chaining like (+ 1 (print 2)))
   then
 ;
 
@@ -2048,45 +2047,66 @@ union EvalResult {
 # ============================================
 
 # Helper: compare two Sexpr values for structural equality
+# Uses depth limit to prevent stack overflow on deeply nested structures
 : sexpr-equal? ( Sexpr Sexpr -- Int )
-  # Check if both have the same type tag
-  over variant.tag over variant.tag = if
-    # Same type - compare by type
-    over snum? if
-      # Both numbers - compare values
-      snum-val swap snum-val =
-    else over ssym? if
-      # Both symbols - compare names
-      ssym-val swap ssym-val string.equal?
-    else over slist? if
-      # Both lists - compare recursively
-      slist-val swap slist-val sexpr-list-equal?
-    else
-      # Closures/macros - compare by identity (always false for now)
-      drop drop 0
-    then then then
+  1000 sexpr-equal-depth?
+;
+
+# Depth-limited equality check
+: sexpr-equal-depth? ( Sexpr Sexpr Int -- Int )
+  # Check depth limit
+  dup 0 <= if
+    drop drop drop 0  # Depth exceeded - return false (safe default)
   else
-    # Different types - not equal
-    drop drop 0
+    # Check if both have the same type tag
+    rot rot  # -> Depth A B
+    over variant.tag over variant.tag = if
+      # Same type - compare by type
+      over snum? if
+        # Both numbers - compare values
+        snum-val swap snum-val = nip  # Clean up depth
+      else over ssym? if
+        # Both symbols - compare names
+        ssym-val swap ssym-val string.equal? nip  # Clean up depth
+      else over slist? if
+        # Both lists - compare recursively with decremented depth
+        slist-val swap slist-val rot 1 subtract sexpr-list-equal-depth?
+      else
+        # Closures/macros - compare by identity (always false for now)
+        drop drop drop 0
+      then then then
+    else
+      # Different types - not equal
+      drop drop drop 0
+    then
   then
 ;
 
-# Helper: compare two SexprList values
-: sexpr-list-equal? ( SexprList SexprList -- Int )
-  # Check if both empty
-  over snil? over snil? and if
-    drop drop 1  # Both empty = equal
-  else over snil? over snil? or if
-    drop drop 0  # One empty, one not = not equal
+# Helper: compare two SexprList values with depth limit
+: sexpr-list-equal-depth? ( SexprList SexprList Int -- Int )
+  # Check depth limit first
+  dup 0 <= if
+    drop drop drop 0  # Depth exceeded - return false
   else
-    # Both non-empty - compare car and cdr
-    over scar over scar sexpr-equal? if
-      # Heads equal - compare tails
-      scdr swap scdr sexpr-list-equal?
+    rot rot  # -> Depth L1 L2
+    # Check if both empty
+    over snil? over snil? and if
+      drop drop drop 1  # Both empty = equal
+    else over snil? over snil? or if
+      drop drop drop 0  # One empty, one not = not equal
     else
-      drop drop 0  # Heads not equal
-    then
-  then then
+      # Both non-empty - compare car and cdr
+      # Stack: Depth L1 L2
+      over scar over scar  # -> Depth L1 L2 L1.car L2.car
+      4 pick 1 subtract    # -> Depth L1 L2 L1.car L2.car (Depth-1)
+      sexpr-equal-depth? if
+        # Heads equal - compare tails with decremented depth
+        scdr swap scdr rot 1 subtract sexpr-list-equal-depth?
+      else
+        drop drop drop 0  # Heads not equal
+      then
+    then then
+  then
 ;
 
 : eval-equal?-with-env ( SexprList Env -- EvalResult )
