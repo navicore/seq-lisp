@@ -33,12 +33,13 @@ seq-lisp/
 │   ├── parser.seq    # S-expression parser
 │   ├── sexpr.seq     # S-expression data types
 │   ├── eval.seq      # Evaluator with environments
-│   ├── repl.seq      # Interactive REPL
-│   └── test_*.seq    # Interpreter tests
+│   └── repl.seq      # Interactive REPL
+├── tests/
+│   ├── seq/          # Seq unit tests (test_*.seq)
+│   └── all.lisp      # Lisp test suite
+├── lib/
+│   └── test.lisp     # Lisp test framework
 ├── examples/         # Lisp programs
-│   ├── hello.lisp
-│   ├── factorial.lisp
-│   └── fibonacci.lisp
 ├── justfile          # Build commands
 └── README.md
 ```
@@ -48,11 +49,13 @@ seq-lisp/
 ```bash
 just build        # Build the REPL
 just run          # Run the REPL
-just test         # Run interpreter tests
-just test-verbose # Run tests with output
+just test         # Run Seq unit tests
+just test-verbose # Run Seq tests with output
+just lisp-test    # Run Lisp test suite (76 tests)
+just lisp-run f   # Run a Lisp file with test framework
 just examples     # Run all Lisp examples
 just clean        # Remove build artifacts
-just ci           # Run tests and build
+just ci           # Run all tests and build
 ```
 
 ## Lisp Features
@@ -66,10 +69,10 @@ SeqLisp supports:
 - **Conditionals**: `if`, `cond`
 - **Lists**: `cons`, `car`, `cdr`, `list`, `quote` (`'`), `append`, `reverse`, `length`, `nth`, `last`, `take`, `drop`
 - **Higher-order**: `map`, `filter`, `fold`
-- **Predicates**: `null?`, `number?`, `symbol?`, `list?`, `boolean?`
+- **Predicates**: `null?`, `number?`, `symbol?`, `list?`, `boolean?`, `equal?`
 - **Macros**: `defmacro`, quasiquote (`` ` ``), unquote (`,`), splice (`,@`), `gensym`
 - **Sequencing**: `begin`
-- **Output**: `print`
+- **I/O**: `print`, `exit`
 
 ### Example
 

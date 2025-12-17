@@ -1,6 +1,6 @@
 # Test parser
 
-include "parser"
+include "../../src/parser"
 
 : main ( -- )
   "Testing parser:" io.write-line

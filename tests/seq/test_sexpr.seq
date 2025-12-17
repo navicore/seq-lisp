@@ -1,6 +1,6 @@
 # Test s-expression types
 
-include "sexpr"
+include "../../src/sexpr"
 
 : main ( -- )
   # Test snum

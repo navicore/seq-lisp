@@ -20,28 +20,28 @@ repl: build
 run file: build
     ./target/seqlisp {{file}}
 
-# Run interpreter tests
+# Run Seq-level unit tests
 test:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "Running SeqLisp tests..."
-    mkdir -p target
-    for test in src/test_*.seq; do
+    echo "Running Seq unit tests..."
+    mkdir -p target/tests
+    for test in tests/seq/test_*.seq; do
         name=$(basename "$test" .seq)
         echo "  $name..."
-        seqc "$test" -o "target/$name" && "./target/$name" > /dev/null
+        seqc "$test" -o "target/tests/$name" && "./target/tests/$name" > /dev/null
     done
-    echo "All tests passed!"
+    echo "All Seq tests passed!"
 
-# Run tests with output
+# Run Seq tests with output
 test-verbose:
     #!/usr/bin/env bash
     set -euo pipefail
-    mkdir -p target
-    for test in src/test_*.seq; do
+    mkdir -p target/tests
+    for test in tests/seq/test_*.seq; do
         name=$(basename "$test" .seq)
         echo "=== $name ==="
-        seqc "$test" -o "target/$name" && "./target/$name"
+        seqc "$test" -o "target/tests/$name" && "./target/tests/$name"
         echo ""
     done
 
@@ -64,6 +64,26 @@ clean:
 fmt:
     @echo "No formatter yet - contributions welcome!"
 
-# Full CI: test + build
-ci: test build
+# Run Lisp test suite
+lisp-test: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Running SeqLisp Lisp tests..."
+    # Combine framework + tests into temp file (workaround for stdin comment handling)
+    tmp=$(mktemp)
+    trap "rm -f $tmp" EXIT
+    cat lib/test.lisp tests/all.lisp > "$tmp"
+    ./target/seqlisp "$tmp"
+
+# Run a specific test file with framework
+lisp-run file: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tmp=$(mktemp)
+    trap "rm -f $tmp" EXIT
+    cat lib/test.lisp {{file}} > "$tmp"
+    ./target/seqlisp "$tmp"
+
+# Full CI: test + build + lisp-test
+ci: test build lisp-test
     @echo "CI passed!"

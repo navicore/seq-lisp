@@ -1,6 +1,6 @@
 # Test macros
 
-include "eval"
+include "../../src/eval"
 
 : main ( -- )
   "Testing macros:" io.write-line

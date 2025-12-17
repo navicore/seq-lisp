@@ -3,7 +3,7 @@
 # Tests for arity validation, type errors, undefined symbols,
 # division by zero, and error propagation.
 
-include "eval"
+include "../../src/eval"
 
 # Helper to test error cases - prints the error message
 : test-error ( String -- )
