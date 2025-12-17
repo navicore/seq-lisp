@@ -2053,23 +2053,25 @@ union EvalResult {
 ;
 
 # Depth-limited equality check
+# Note: Depth limit of 1000 prevents stack overflow on deeply nested structures.
+# Returns false when depth exceeded (safe default for untrusted input).
 : sexpr-equal-depth? ( Sexpr Sexpr Int -- Int )
   # Check depth limit
   dup 0 <= if
     drop drop drop 0  # Depth exceeded - return false (safe default)
   else
-    # Check if both have the same type tag
-    rot rot  # -> Depth A B
+    # Stack: A B Depth -> Depth A B (after rot rot)
+    rot rot
     over variant.tag over variant.tag = if
       # Same type - compare by type
       over snum? if
-        # Both numbers - compare values
-        snum-val swap snum-val = nip  # Clean up depth
+        # Stack: Depth A B -> Depth ValB ValA -> Depth Bool -> Bool
+        snum-val swap snum-val = nip
       else over ssym? if
-        # Both symbols - compare names
-        ssym-val swap ssym-val string.equal? nip  # Clean up depth
+        # Stack: Depth A B -> Depth StrB StrA -> Depth Bool -> Bool
+        ssym-val swap ssym-val string.equal? nip
       else over slist? if
-        # Both lists - compare recursively with decremented depth
+        # Stack: Depth A B -> ListA ListB (Depth-1) -> Bool (recursive)
         slist-val swap slist-val rot 1 subtract sexpr-list-equal-depth?
       else
         # Closures/macros - compare by identity (always false for now)
