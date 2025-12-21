@@ -22,6 +22,28 @@
   (test 'div-negative (assert-eq (/ -12 3) -4))))
 
 ;; ============================================
+;; Numeric Functions Tests
+;; ============================================
+
+(define numeric-tests (list
+  ;; abs
+  (test 'abs-positive (assert-eq (abs 5) 5))
+  (test 'abs-negative (assert-eq (abs -5) 5))
+  (test 'abs-zero (assert-eq (abs 0) 0))
+  ;; min
+  (test 'min-two (assert-eq (min 3 7) 3))
+  (test 'min-many (assert-eq (min 5 2 8 1 9) 1))
+  (test 'min-negative (assert-eq (min -3 -7 -1) -7))
+  ;; max
+  (test 'max-two (assert-eq (max 3 7) 7))
+  (test 'max-many (assert-eq (max 5 2 8 1 9) 9))
+  (test 'max-negative (assert-eq (max -3 -7 -1) -1))
+  ;; modulo
+  (test 'mod-basic (assert-eq (modulo 17 5) 2))
+  (test 'mod-exact (assert-eq (modulo 10 5) 0))
+  (test 'mod-small (assert-eq (modulo 3 7) 3))))
+
+;; ============================================
 ;; Comparison Tests
 ;; ============================================
 
@@ -164,14 +186,15 @@
 
 (define all-results
   (append arithmetic-tests
-    (append comparison-tests
-      (append list-tests
-        (append hof-tests
-          (append equality-tests
-            (append predicate-tests
-              (append special-form-tests
-                (append closure-tests
-                  (append recursion-tests equal-edge-tests))))))))))
+    (append numeric-tests
+      (append comparison-tests
+        (append list-tests
+          (append hof-tests
+            (append equality-tests
+              (append predicate-tests
+                (append special-form-tests
+                  (append closure-tests
+                    (append recursion-tests equal-edge-tests)))))))))))
 
 (print 'SeqLisp-Test-Suite)
 (print-each all-results)

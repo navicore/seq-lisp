@@ -9,7 +9,7 @@ default:
 build:
     @echo "Building SeqLisp..."
     @mkdir -p target
-    seqc src/repl.seq -o target/seqlisp
+    seqc build src/repl.seq -o target/seqlisp
     @echo "Built: target/seqlisp"
 
 # Run the interactive REPL
@@ -29,7 +29,7 @@ test:
     for test in tests/seq/test_*.seq; do
         name=$(basename "$test" .seq)
         echo "  $name..."
-        seqc "$test" -o "target/tests/$name" && "./target/tests/$name" > /dev/null
+        seqc build "$test" -o "target/tests/$name" && "./target/tests/$name" > /dev/null
     done
     echo "All Seq tests passed!"
 
@@ -41,7 +41,7 @@ test-verbose:
     for test in tests/seq/test_*.seq; do
         name=$(basename "$test" .seq)
         echo "=== $name ==="
-        seqc "$test" -o "target/tests/$name" && "./target/tests/$name"
+        seqc build "$test" -o "target/tests/$name" && "./target/tests/$name"
         echo ""
     done
 
