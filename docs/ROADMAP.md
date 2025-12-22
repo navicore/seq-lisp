@@ -90,7 +90,7 @@ The current architecture is sound for adding comprehensive error handling. No fu
 - [x] List utilities: `length`, `nth`, `last`, `take`, `drop`
 - [x] `compose` - implemented as macro (see examples/macros.lisp)
 - [ ] Higher-order functions: `apply`
-- [ ] Numeric: `abs`, `min`, `max`, `modulo`
+- [x] Numeric: `abs`, `min`, `max`, `modulo`
 - [ ] String operations (when Seq strings are richer)
 
 ### Language Features

@@ -62,7 +62,7 @@ just ci           # Run all tests and build
 
 SeqLisp supports:
 
-- **Arithmetic**: `+`, `-`, `*`, `/`
+- **Arithmetic**: `+`, `-`, `*`, `/`, `abs`, `min`, `max`, `modulo`
 - **Comparisons**: `<`, `>`, `<=`, `>=`, `=`
 - **Booleans**: `#t`, `#f`
 - **Definitions**: `define`, `lambda`, `let`

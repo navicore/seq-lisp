@@ -290,7 +290,7 @@ union EvalResult {
 ;
 
 # ----------------------------------------
-# Group 1: Arithmetic (+, -, *, /)
+# Group 1: Arithmetic (+, -, *, /, abs, min, max, modulo)
 # ----------------------------------------
 : dispatch-arithmetic ( SexprList Env String -- EvalResult )
   dup "+" string.equal? if
@@ -301,9 +301,17 @@ union EvalResult {
     drop eval-mul-with-env
   else dup "/" string.equal? if
     drop eval-div-with-env
+  else dup "abs" string.equal? if
+    drop eval-abs-with-env
+  else dup "min" string.equal? if
+    drop eval-min-with-env
+  else dup "max" string.equal? if
+    drop eval-max-with-env
+  else dup "modulo" string.equal? if
+    drop eval-modulo-with-env
   else
     dispatch-comparison
-  then then then then
+  then then then then then then then then
 ;
 
 # ----------------------------------------
@@ -657,6 +665,197 @@ union EvalResult {
       else
         # Type error - not a number
         drop drop drop drop "/: argument must be a number" eval-err
+      then
+    then
+  then
+;
+
+# ============================================
+# Numeric Functions (abs, min, max, modulo)
+# ============================================
+
+: eval-abs-with-env ( SexprList Env -- EvalResult )
+  # (abs n) - returns absolute value of n
+  over 1 "abs" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop
+    swap scdr scar  # Get the argument
+    swap eval-with-env
+    dup eval-err? if
+      # Error - propagate
+    else
+      eval-ok-value
+      dup snum? if
+        snum-val dup 0 < if 0 swap subtract then snum eval-ok
+      else
+        drop "abs: argument must be a number" eval-err
+      then
+    then
+  then
+;
+
+: eval-min-with-env ( SexprList Env -- EvalResult )
+  # (min a b ...) - returns minimum of arguments
+  over 2 "min" check-min-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop
+    swap scdr  # Skip 'min' -> Env Args
+    dup scar 2 pick eval-with-env
+    dup eval-err? if
+      nip nip nip
+    else
+      eval-ok-value
+      dup snum? if
+        snum-val  # -> Env Args FirstVal
+        swap scdr rot rot swap  # -> RestArgs FirstVal Env
+        eval-fold-min-with-env
+      else
+        drop drop drop "min: argument must be a number" eval-err
+      then
+    then
+  then
+;
+
+: eval-fold-min-with-env ( SexprList Int Env -- EvalResult )
+  # Stack: List CurrentMin Env
+  2 pick snil? if
+    drop nip snum eval-ok
+  else
+    2 pick scar over eval-with-env
+    dup eval-err? if
+      nip nip nip
+    else
+      eval-ok-value
+      dup snum? if
+        snum-val  # -> List CurrentMin Env Val
+        rot over over > if
+          # Val < CurrentMin, use Val
+          nip
+        else
+          # CurrentMin <= Val, keep CurrentMin
+          drop
+        then
+        # -> List Env NewMin
+        swap rot scdr rot rot
+        eval-fold-min-with-env
+      else
+        drop drop drop drop "min: argument must be a number" eval-err
+      then
+    then
+  then
+;
+
+: eval-max-with-env ( SexprList Env -- EvalResult )
+  # (max a b ...) - returns maximum of arguments
+  over 2 "max" check-min-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop
+    swap scdr  # Skip 'max' -> Env Args
+    dup scar 2 pick eval-with-env
+    dup eval-err? if
+      nip nip nip
+    else
+      eval-ok-value
+      dup snum? if
+        snum-val  # -> Env Args FirstVal
+        swap scdr rot rot swap  # -> RestArgs FirstVal Env
+        eval-fold-max-with-env
+      else
+        drop drop drop "max: argument must be a number" eval-err
+      then
+    then
+  then
+;
+
+: eval-fold-max-with-env ( SexprList Int Env -- EvalResult )
+  # Stack: List CurrentMax Env
+  2 pick snil? if
+    drop nip snum eval-ok
+  else
+    2 pick scar over eval-with-env
+    dup eval-err? if
+      nip nip nip
+    else
+      eval-ok-value
+      dup snum? if
+        snum-val  # -> List CurrentMax Env Val
+        rot over over < if
+          # Val > CurrentMax, use Val
+          nip
+        else
+          # CurrentMax >= Val, keep CurrentMax
+          drop
+        then
+        # -> List Env NewMax
+        swap rot scdr rot rot
+        eval-fold-max-with-env
+      else
+        drop drop drop drop "max: argument must be a number" eval-err
+      then
+    then
+  then
+;
+
+: eval-modulo-with-env ( SexprList Env -- EvalResult )
+  # (modulo a b) - returns a mod b
+  over 2 "modulo" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop
+    swap scdr  # Skip 'modulo' -> Env Args
+    dup scar 2 pick eval-with-env  # Eval first arg
+    dup eval-err? if
+      nip nip nip
+    else
+      eval-ok-value
+      dup snum? if
+        snum-val  # -> Env Args A
+        swap scdr scar 2 pick eval-with-env  # Eval second arg
+        dup eval-err? if
+          nip nip nip
+        else
+          eval-ok-value
+          dup snum? if
+            snum-val  # -> Env A B
+            dup 0 = if
+              drop drop drop "modulo: division by zero" eval-err
+            else
+              # Proper modulo: result has same sign as divisor
+              # Save B for sign comparison, then compute R = A - (A/B)*B
+              # Stack: Env A B
+              dup rot rot   # -> Env B A B
+              over over divide multiply subtract  # -> Env B R
+              dup 0 = if
+                # R is 0, done
+                nip nip snum eval-ok
+              else
+                # Check if R and B have different signs
+                # Stack: Env B R
+                over 0 <      # -> Env B R (B<0)
+                over 0 <      # -> Env B R (B<0) (R<0)
+                = if
+                  # Same sign, just return R
+                  nip nip snum eval-ok
+                else
+                  # Different signs, add B to R
+                  # Stack: Env B R
+                  swap add nip snum eval-ok
+                then
+              then
+            then
+          else
+            drop drop drop "modulo: argument must be a number" eval-err
+          then
+        then
+      else
+        drop drop drop "modulo: argument must be a number" eval-err
       then
     then
   then
