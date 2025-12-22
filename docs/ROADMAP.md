@@ -120,14 +120,15 @@ The current architecture is sound for adding comprehensive error handling. No fu
 - [x] Assertion-based test runner (in `lib/test.lisp`)
   - `assert-eq` for value comparison using structural equality
   - `assert-true` / `assert-false` for boolean checks
+  - `assert-error` for expected error conditions
   - Pass/fail counters with summary output
   - Non-zero exit code on failure (exit 1 on any failure, exit 0 on all pass)
   - `run-suite` macro for organizing tests
 - [x] New builtins to support testing:
   - `equal?` - structural equality comparison
   - `exit` - process exit with code for CI/CD
+  - `try` - error handling (returns `(ok value)` or `(error message)`)
 - [ ] Future enhancements:
-  - `assert-error` for expected errors
   - Reorganize test suites by feature
   - CI integration with clear pass/fail reporting
 

@@ -37,6 +37,28 @@
 (define (result-actual result) (car (cdr (cdr (cdr result)))))
 
 ;; ============================================
+;; Try Result Helpers
+;; ============================================
+
+;; Check if a try result is successful: (ok value)
+(define (ok? result)
+  (if (list? result)
+      (equal? (car result) 'ok)
+      #f))
+
+;; Check if a try result is an error: (error message)
+(define (error? result)
+  (if (list? result)
+      (equal? (car result) 'error)
+      #f))
+
+;; Extract the value from (ok value)
+(define (ok-value result) (car (cdr result)))
+
+;; Extract the message from (error message)
+(define (error-message result) (car (cdr result)))
+
+;; ============================================
 ;; Assertion Macros
 ;; ============================================
 
@@ -58,6 +80,14 @@
   `(if (equal? ,expr '#f)
        '#t
        (list 'fail-info '#f ,expr)))
+
+;; assert-error: Check if expression produces an error
+;; Usage: (assert-error (car 42)) or (assert-error (/ 1 0))
+(defmacro (assert-error expr)
+  `(let result (try ,expr)
+     (if (error? result)
+         '#t
+         (list 'fail-info 'error result))))
 
 ;; ============================================
 ;; Test Wrapper

@@ -419,16 +419,18 @@ union EvalResult {
 ;
 
 # ----------------------------------------
-# Group 6: Control Flow (begin, cond)
+# Group 6: Control Flow (begin, cond, try)
 # ----------------------------------------
 : dispatch-control-flow ( SexprList Env String -- EvalResult )
   dup "begin" string.equal? if
     drop eval-begin-with-env
   else dup "cond" string.equal? if
     drop eval-cond-with-env
+  else dup "try" string.equal? if
+    drop eval-try-with-env
   else
     dispatch-io
-  then then
+  then then then
 ;
 
 # ----------------------------------------
@@ -2552,6 +2554,37 @@ union EvalResult {
       then
     then
   then
+;
+
+# ============================================
+# Try (error handling)
+# ============================================
+
+: eval-try-with-env ( SexprList Env -- EvalResult )
+  # Stack: List Env
+  # (try expr) - evaluate expr, return (ok value) or (error message)
+  swap scdr scar  # Get the expression -> Env Expr
+  swap eval-with-env  # Evaluate it -> EvalResult
+  dup eval-err? if
+    # Error: return (error "message")
+    eval-err-message  # -> ErrorMessage (String)
+    ssym  # Convert to symbol Sexpr -> ErrorMsgSexpr
+    "error" ssym swap  # -> 'error ErrorMsgSexpr
+    2 make-slist slist eval-ok  # -> (error message)
+  else
+    # Success: return (ok value)
+    eval-ok-value  # -> Value
+    "ok" ssym swap  # -> 'ok Value
+    2 make-slist slist eval-ok  # -> (ok value)
+  then
+;
+
+# Helper to make a 2-element list
+: make-slist ( Sexpr Sexpr Int -- SexprList )
+  # Stack: Item1 Item2 Count
+  # Build list (item1 item2) - item1 at front
+  drop  # ignore count, we know it's 2
+  snil scons scons  # Item1 (Item2 . nil) -> (Item1 Item2)
 ;
 
 # ============================================
