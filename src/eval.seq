@@ -388,9 +388,11 @@ union EvalResult {
     drop eval-filter-with-env
   else dup "fold" string.equal? if
     drop eval-fold-with-env
+  else dup "apply" string.equal? if
+    drop eval-apply-with-env
   else
     dispatch-predicates
-  then then then then then then then then then then then then then then
+  then then then then then then then then then then then then then then then
 ;
 
 # ----------------------------------------
@@ -2118,6 +2120,94 @@ union EvalResult {
       # Need: Env Closure NewAcc RestInput
       rot drop  # Remove old Acc -> Env Closure NewAcc RestInput
       fold-loop
+    then
+  then
+;
+
+# ============================================
+# Apply (apply fn args-list)
+# ============================================
+
+# Wrap a single Sexpr in a quote expression: arg -> (quote arg)
+: wrap-in-quote ( Sexpr -- Sexpr )
+  snil scons                      # -> (arg) as SexprList
+  "quote" ssym swap scons         # -> (quote arg) as SexprList
+  slist                           # -> SList (quote arg) as Sexpr
+;
+
+# Quote all elements in a list to prevent re-evaluation
+: quote-all-args ( SexprList -- SexprList )
+  dup snil? if
+    # Empty list, done
+  else
+    dup scar wrap-in-quote        # -> List QuotedArg
+    swap scdr                     # -> QuotedArg Rest
+    quote-all-args                # -> QuotedArg QuotedRest
+    scons                         # -> (QuotedArg . QuotedRest)
+  then
+;
+
+: eval-apply-with-env ( SexprList Env -- EvalResult )
+  # (apply fn args-list) - apply fn to elements of args-list
+  # Stack: L0 Env0
+  over 2 "apply" check-arity  # -> L0 Env0 L0 EvalResult
+  dup eval-err? if
+    nip nip nip  # -> EvalResult (error)
+  else
+    drop drop  # -> L0 Env0
+    # Stack: L0 Env0
+    swap scdr                          # -> Env0 L1 where L1=(fn-expr args-list-expr)
+    dup scar                           # -> Env0 L1 FnExpr
+    over scdr scar                     # -> Env0 L1 FnExpr ArgsListExpr
+
+    # Evaluate args-list-expr in Env0
+    # Stack: Env0 L1 FnExpr ArgsListExpr
+    3 pick eval-with-env               # -> Env0 L1 FnExpr EvalResult
+    dup eval-err? if
+      nip nip nip nip                  # -> EvalResult (error)
+    else
+      eval-ok-value                    # -> Env0 L1 FnExpr ArgsList(Sexpr)
+      dup slist? if
+        slist-val                      # -> Env0 L1 FnExpr ArgsL(SexprList)
+        # Check if FnExpr is a symbol
+        over ssym? if
+          # Symbol case: FnExpr is a symbol like +, *, list, etc.
+          # These are builtins not stored in the environment, so we can't
+          # look them up. Instead, we construct a call expression like
+          # (+ (quote 1) (quote 2) (quote 3)) and evaluate it.
+          # We must quote each arg because the args are already-evaluated
+          # values, but builtin evaluation will re-evaluate them.
+          # Stack: Env0 L1 FnExpr(Sexpr) ArgsL(SexprList)
+          quote-all-args               # -> Env0 L1 FnExpr QuotedArgsL
+          scons                        # -> Env0 L1 CallList(SexprList)
+          slist                        # -> Env0 L1 CallExpr(Sexpr)
+          nip                          # -> Env0 CallExpr
+          swap eval-with-env           # -> EvalResult
+        else
+          # Non-symbol case: evaluate FnExpr first
+          # Stack: Env0 L1 FnExpr(Sexpr) ArgsL(SexprList)
+          rot                          # -> Env0 FnExpr ArgsL L1
+          drop                         # -> Env0 FnExpr ArgsL
+          swap                         # -> Env0 ArgsL FnExpr
+          2 pick eval-with-env         # -> Env0 ArgsL EvalResult
+          dup eval-err? if
+            nip nip nip                # -> EvalResult (error)
+          else
+            eval-ok-value              # -> Env0 ArgsL FnValue(Sexpr)
+            dup sclosure? if
+              # apply-closure expects: ClosureSexpr SexprList Env
+              # Stack: Env0 ArgsL Closure
+              rot rot                  # -> Closure Env0 ArgsL
+              swap                     # -> Closure ArgsL Env0
+              apply-closure
+            else
+              drop drop drop "apply: first argument must be a function" eval-err
+            then
+          then
+        then
+      else
+        drop drop drop drop "apply: second argument must be a list" eval-err
+      then
     then
   then
 ;

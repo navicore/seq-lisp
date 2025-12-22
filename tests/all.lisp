@@ -83,6 +83,31 @@
   (test 'fold-sum (assert-eq (fold (lambda (a b) (+ a b)) 0 '(1 2 3 4)) 10))))
 
 ;; ============================================
+;; Apply Tests
+;; ============================================
+
+(define (add2 a b) (+ a b))
+
+(define apply-tests (list
+  ;; apply with builtin functions
+  (test 'apply-add (assert-eq (apply + '(1 2 3 4)) 10))
+  (test 'apply-mul (assert-eq (apply * '(2 3 4)) 24))
+  (test 'apply-list (assert-eq (apply list '(a b c)) '(a b c)))
+  (test 'apply-min (assert-eq (apply min '(5 2 8 1 9)) 1))
+  (test 'apply-max (assert-eq (apply max '(5 2 8 1 9)) 9))
+  ;; apply with empty list
+  (test 'apply-add-empty (assert-eq (apply + '()) 0))
+  (test 'apply-mul-empty (assert-eq (apply * '()) 1))
+  ;; apply with lambda
+  (test 'apply-lambda (assert-eq (apply (lambda (x y) (+ x y)) '(3 4)) 7))
+  ;; apply with defined function
+  (test 'apply-defined (assert-eq (apply add2 '(5 7)) 12))
+  ;; nested apply (composition)
+  (test 'apply-nested (assert-eq (apply + (apply list '(1 2 3))) 6))
+  ;; partial application via apply (currying)
+  (test 'apply-partial (assert-eq ((apply (lambda (x y z) (+ x (+ y z))) '(1 2)) 3) 6))))
+
+;; ============================================
 ;; Equality Tests
 ;; ============================================
 
@@ -193,11 +218,12 @@
       (append comparison-tests
         (append list-tests
           (append hof-tests
-            (append equality-tests
-              (append predicate-tests
-                (append special-form-tests
-                  (append closure-tests
-                    (append recursion-tests equal-edge-tests)))))))))))
+            (append apply-tests
+              (append equality-tests
+                (append predicate-tests
+                  (append special-form-tests
+                    (append closure-tests
+                      (append recursion-tests equal-edge-tests))))))))))))
 
 (print 'SeqLisp-Test-Suite)
 (print-each all-results)

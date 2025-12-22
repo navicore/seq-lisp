@@ -51,7 +51,7 @@ just build        # Build the REPL
 just run          # Run the REPL
 just test         # Run Seq unit tests
 just test-verbose # Run Seq tests with output
-just lisp-test    # Run Lisp test suite (76 tests)
+just lisp-test    # Run Lisp test suite (102 tests)
 just lisp-run f   # Run a Lisp file with test framework
 just examples     # Run all Lisp examples
 just clean        # Remove build artifacts
@@ -68,7 +68,7 @@ SeqLisp supports:
 - **Definitions**: `define`, `lambda`, `let`
 - **Conditionals**: `if`, `cond`
 - **Lists**: `cons`, `car`, `cdr`, `list`, `quote` (`'`), `append`, `reverse`, `length`, `nth`, `last`, `take`, `drop`
-- **Higher-order**: `map`, `filter`, `fold`
+- **Higher-order**: `map`, `filter`, `fold`, `apply`
 - **Predicates**: `null?`, `number?`, `symbol?`, `list?`, `boolean?`, `equal?`
 - **Macros**: `defmacro`, quasiquote (`` ` ``), unquote (`,`), splice (`,@`), `gensym`
 - **Sequencing**: `begin`
