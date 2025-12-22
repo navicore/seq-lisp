@@ -69,10 +69,29 @@ lisp-test: build
     #!/usr/bin/env bash
     set -euo pipefail
     echo "Running SeqLisp Lisp tests..."
-    # Combine framework + tests into temp file (workaround for stdin comment handling)
+    # Combine framework + all test files + runner into temp file
     tmp=$(mktemp)
     trap "rm -f $tmp" EXIT
-    cat lib/test.lisp tests/all.lisp > "$tmp"
+    cat lib/test.lisp \
+        tests/lisp/core/arithmetic.lisp \
+        tests/lisp/core/comparison.lisp \
+        tests/lisp/core/predicates.lisp \
+        tests/lisp/core/lists.lisp \
+        tests/lisp/functions/closures.lisp \
+        tests/lisp/functions/higher_order.lisp \
+        tests/lisp/functions/recursion.lisp \
+        tests/lisp/functions/tco.lisp \
+        tests/lisp/special_forms/conditionals.lisp \
+        tests/lisp/special_forms/sequencing.lisp \
+        tests/lisp/special_forms/quoting.lisp \
+        tests/lisp/special_forms/error_handling.lisp \
+        tests/lisp/macros/defmacro.lisp \
+        tests/lisp/macros/quasiquote.lisp \
+        tests/lisp/macros/gensym.lisp \
+        tests/lisp/edge_cases/parser.lisp \
+        tests/lisp/edge_cases/io.lisp \
+        tests/lisp/all.lisp \
+        > "$tmp"
     ./target/seqlisp "$tmp"
 
 # Run a specific test file with framework
