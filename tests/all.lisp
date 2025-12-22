@@ -232,6 +232,28 @@
   (test 'tco-let-10000 (assert-eq (let-loop 10000) 'done))))
 
 ;; ============================================
+;; Error Handling Tests (try, assert-error)
+;; ============================================
+
+(define error-tests (list
+  ;; try returns (ok value) on success
+  (test 'try-ok (assert-eq (try (+ 1 2)) '(ok 3)))
+  (test 'try-ok-list (assert-eq (try (list 'a 'b)) '(ok (a b))))
+  ;; try returns (error message) on failure
+  (test 'try-error-type (assert-true (error? (try (car 42)))))
+  (test 'try-error-div (assert-true (error? (try (/ 1 0)))))
+  (test 'try-error-undef (assert-true (error? (try undefined-symbol))))
+  ;; ok? and error? predicates
+  (test 'ok-pred (assert-true (ok? '(ok 5))))
+  (test 'error-pred (assert-true (error? '(error msg))))
+  (test 'ok-not-error (assert-false (error? '(ok 5))))
+  (test 'error-not-ok (assert-false (ok? '(error msg))))
+  ;; assert-error catches errors
+  (test 'assert-error-type (assert-error (car 42)))
+  (test 'assert-error-div (assert-error (/ 1 0)))
+  (test 'assert-error-undef (assert-error no-such-function))))
+
+;; ============================================
 ;; Equal? Edge Cases
 ;; ============================================
 
@@ -263,7 +285,8 @@
                   (append special-form-tests
                     (append closure-tests
                       (append recursion-tests
-                        (append tco-tests equal-edge-tests)))))))))))))
+                        (append tco-tests
+                          (append error-tests equal-edge-tests))))))))))))))
 
 (print 'SeqLisp-Test-Suite)
 (print-each all-results)
