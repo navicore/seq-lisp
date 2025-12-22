@@ -171,7 +171,13 @@
   (test 'closure-nested (assert-eq (let a 1 (let b 2 ((lambda (x) (+ x (+ a b))) 3))) 6))
   ;; currying / partial application
   (test 'curry-basic (assert-eq (((lambda (x y) (+ x y)) 3) 4) 7))
-  (test 'curry-three (assert-eq ((((lambda (x y z) (+ x (+ y z))) 1) 2) 3) 6))))
+  (test 'curry-three (assert-eq ((((lambda (x y z) (+ x (+ y z))) 1) 2) 3) 6))
+  ;; variadic lambdas (rest params)
+  (test 'variadic-rest-only (assert-eq ((lambda (. rest) rest) 1 2 3) '(1 2 3)))
+  (test 'variadic-rest-empty (assert-eq ((lambda (. rest) rest)) '()))
+  (test 'variadic-with-required (assert-eq ((lambda (x . rest) (list x rest)) 1 2 3) '(1 (2 3))))
+  (test 'variadic-required-only (assert-eq ((lambda (x y . rest) rest) 1 2) '()))
+  (test 'variadic-two-plus-rest (assert-eq ((lambda (a b . rest) (list a b rest)) 1 2 3 4 5) '(1 2 (3 4 5))))))
 
 ;; ============================================
 ;; Recursion Tests
