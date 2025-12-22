@@ -827,8 +827,28 @@ union EvalResult {
             dup 0 = if
               drop drop drop "modulo: division by zero" eval-err
             else
-              # A mod B = A - (A / B) * B
-              over over divide multiply subtract snum eval-ok nip
+              # Proper modulo: result has same sign as divisor
+              # Save B for sign comparison, then compute R = A - (A/B)*B
+              # Stack: Env A B
+              dup rot rot   # -> Env B A B
+              over over divide multiply subtract  # -> Env B R
+              dup 0 = if
+                # R is 0, done
+                nip nip snum eval-ok
+              else
+                # Check if R and B have different signs
+                # Stack: Env B R
+                over 0 <      # -> Env B R (B<0)
+                over 0 <      # -> Env B R (B<0) (R<0)
+                = if
+                  # Same sign, just return R
+                  nip nip snum eval-ok
+                else
+                  # Different signs, add B to R
+                  # Stack: Env B R
+                  swap add nip snum eval-ok
+                then
+              then
             then
           else
             drop drop drop "modulo: argument must be a number" eval-err

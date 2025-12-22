@@ -38,10 +38,13 @@
   (test 'max-two (assert-eq (max 3 7) 7))
   (test 'max-many (assert-eq (max 5 2 8 1 9) 9))
   (test 'max-negative (assert-eq (max -3 -7 -1) -1))
-  ;; modulo
+  ;; modulo (result has same sign as divisor)
   (test 'mod-basic (assert-eq (modulo 17 5) 2))
   (test 'mod-exact (assert-eq (modulo 10 5) 0))
-  (test 'mod-small (assert-eq (modulo 3 7) 3))))
+  (test 'mod-small (assert-eq (modulo 3 7) 3))
+  (test 'mod-neg-dividend (assert-eq (modulo -17 5) 3))
+  (test 'mod-neg-divisor (assert-eq (modulo 17 -5) -3))
+  (test 'mod-both-neg (assert-eq (modulo -17 -5) -2))))
 
 ;; ============================================
 ;; Comparison Tests
