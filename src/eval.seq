@@ -2171,9 +2171,13 @@ union EvalResult {
         slist-val                      # -> Env0 L1 FnExpr ArgsL(SexprList)
         # Check if FnExpr is a symbol
         over ssym? if
-          # Symbol case: construct call (fn . args) and evaluate
+          # Symbol case: FnExpr is a symbol like +, *, list, etc.
+          # These are builtins not stored in the environment, so we can't
+          # look them up. Instead, we construct a call expression like
+          # (+ (quote 1) (quote 2) (quote 3)) and evaluate it.
+          # We must quote each arg because the args are already-evaluated
+          # values, but builtin evaluation will re-evaluate them.
           # Stack: Env0 L1 FnExpr(Sexpr) ArgsL(SexprList)
-          # Quote each arg to prevent re-evaluation
           quote-all-args               # -> Env0 L1 FnExpr QuotedArgsL
           scons                        # -> Env0 L1 CallList(SexprList)
           slist                        # -> Env0 L1 CallExpr(Sexpr)

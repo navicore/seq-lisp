@@ -101,7 +101,11 @@
   ;; apply with lambda
   (test 'apply-lambda (assert-eq (apply (lambda (x y) (+ x y)) '(3 4)) 7))
   ;; apply with defined function
-  (test 'apply-defined (assert-eq (apply add2 '(5 7)) 12))))
+  (test 'apply-defined (assert-eq (apply add2 '(5 7)) 12))
+  ;; nested apply (composition)
+  (test 'apply-nested (assert-eq (apply + (apply list '(1 2 3))) 6))
+  ;; partial application via apply (currying)
+  (test 'apply-partial (assert-eq ((apply (lambda (x y z) (+ x (+ y z))) '(1 2)) 3) 6))))
 
 ;; ============================================
 ;; Equality Tests
