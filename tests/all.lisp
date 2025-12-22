@@ -199,6 +199,39 @@
   (test 'fib-10 (assert-eq (fibonacci 10) 55))))
 
 ;; ============================================
+;; Tail Call Optimization Tests
+;; ============================================
+
+;; Tail-recursive sum: (sum-tail n acc) -> acc + 1 + 2 + ... + n
+(define (sum-tail n acc)
+  (if (<= n 0)
+      acc
+      (sum-tail (- n 1) (+ acc n))))
+
+;; Tail-recursive countdown: just recurses, no accumulation
+(define (countdown n)
+  (if (<= n 0)
+      'done
+      (countdown (- n 1))))
+
+;; Tail-recursive with let in tail position
+(define (let-loop n)
+  (if (<= n 0)
+      'done
+      (let next (- n 1)
+        (let-loop next))))
+
+;; TCO tests: these would stack overflow without proper tail call optimization
+;; Depth 10000 is enough to crash without TCO but safe with it
+(define tco-tests (list
+  ;; Deep tail-recursive sum (tests if branches)
+  (test 'tco-sum-10000 (assert-eq (sum-tail 10000 0) 50005000))
+  ;; Deep countdown (tests if branches)
+  (test 'tco-countdown-10000 (assert-eq (countdown 10000) 'done))
+  ;; Deep let-based loop (tests let body)
+  (test 'tco-let-10000 (assert-eq (let-loop 10000) 'done))))
+
+;; ============================================
 ;; Equal? Edge Cases
 ;; ============================================
 
@@ -229,7 +262,8 @@
                 (append predicate-tests
                   (append special-form-tests
                     (append closure-tests
-                      (append recursion-tests equal-edge-tests))))))))))))
+                      (append recursion-tests
+                        (append tco-tests equal-edge-tests)))))))))))))
 
 (print 'SeqLisp-Test-Suite)
 (print-each all-results)

@@ -104,7 +104,10 @@ The current architecture is sound for adding comprehensive error handling. No fu
   - Dot notation: `(defmacro (name . args) body)` or `(defmacro (name req . rest) body)`
   - Enables natural `(and a b c)` style macros instead of `(and-list (a b c))`
 - [x] Variadic functions (lambdas with `. rest` syntax)
-- [ ] Tail call optimization (important for idiomatic Lisp)
+- [x] Tail call optimization (TCO)
+  - Leverages Seq's native TCO by ensuring tail calls are in true tail position
+  - Enables deep recursion (tested to 10000+ depth) without stack overflow
+  - Works for `if`/`cond` branches, `begin` last expression, `let` body, and function bodies
 
 ### Macros ✓
 - [x] `defmacro` for syntactic abstraction
