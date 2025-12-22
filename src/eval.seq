@@ -2719,8 +2719,9 @@ union EvalResult {
     env-extend  # -> Env RestArgs NewEnv
     swap scdr scar  # Get body expr -> Env NewEnv BodyExpr
     swap  # -> Env BodyExpr NewEnv
-    eval-with-env  # Evaluate body in new env -> Env EvalResult
-    nip  # -> EvalResult
+    # TCO: Clean up stack BEFORE tail call (not after)
+    rot drop  # -> BodyExpr NewEnv
+    eval-with-env  # TRUE TAIL CALL - Seq's TCO handles the rest
   then
   then
 ;
@@ -2902,8 +2903,10 @@ union EvalResult {
   else
     drop  # drop success marker
     # Stack: ClosureSexpr Args CallerEnv Closure ExtEnv
-    swap closure-body swap eval-with-env
-    nip nip nip
+    swap closure-body swap  # -> ClosureSexpr Args CallerEnv Body ExtEnv
+    # TCO: Clean up stack BEFORE tail call (not after)
+    rot drop rot drop rot drop  # -> Body ExtEnv
+    eval-with-env  # TRUE TAIL CALL - Seq's TCO handles the rest
   then
 ;
 
@@ -2957,8 +2960,10 @@ union EvalResult {
   else
     drop  # drop success marker
     # Stack: ClosureSexpr Args CallerEnv Closure ExtEnv
-    swap closure-body swap eval-with-env
-    nip nip nip
+    swap closure-body swap  # -> ClosureSexpr Args CallerEnv Body ExtEnv
+    # TCO: Clean up stack BEFORE tail call (not after)
+    rot drop rot drop rot drop  # -> Body ExtEnv
+    eval-with-env  # TRUE TAIL CALL - Seq's TCO handles the rest
   then
 ;
 
@@ -3088,9 +3093,11 @@ union EvalResult {
     eval-ok-value  # -> ClosureSexpr Args CallerEnv RestArgs ResultValue
     dup sclosure? if
       # It's a closure - apply rest args to it
-      swap rot       # -> ... ResultClosure RestArgs CallerEnv
-      apply-closure  # -> ClosureSexpr Args EvalResult
-      nip nip        # -> EvalResult
+      swap rot       # -> ClosureSexpr Args ResultClosure RestArgs CallerEnv
+      # TCO: Clean up stack BEFORE tail call (not after)
+      4 roll drop    # -> Args ResultClosure RestArgs CallerEnv (ClosureSexpr dropped)
+      3 roll drop    # -> ResultClosure RestArgs CallerEnv (Args dropped)
+      apply-closure  # TRUE TAIL CALL - Seq's TCO handles the rest
     else
       # Not a closure - can't apply more arguments
       drop drop drop drop drop "over-application: result is not a function" eval-err
