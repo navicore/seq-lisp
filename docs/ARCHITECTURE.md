@@ -188,21 +188,38 @@ All `eval-*-with-env` functions return `EvalResult`, enabling:
 | Undefined | `(foo)` | `undefined symbol: foo` |
 | Division | `(/ 1 0)` | `division by zero` |
 
-### Recursion Depth Limits
+### Tail Call Optimization (TCO)
 
-SeqLisp uses native Seq recursion for evaluation, which means deeply nested expressions or deeply recursive functions will eventually exhaust the Seq runtime stack. This is a security consideration for untrusted input.
+SeqLisp leverages Seq's native TCO by ensuring that tail calls in Lisp map to tail calls in Seq. The key insight: clean up the stack *before* the tail call, not after.
 
-**Practical limits:**
-- Typical Lisp expressions (10-20 levels of nesting) work fine
-- Recursive functions like factorial/fibonacci work to reasonable depths (~1000 iterations)
-- Pathological inputs (e.g., 10,000+ nested parens) may crash
+**Tail positions (optimized):**
+- Function body evaluation in `apply-full` and `apply-full-variadic`
+- Both branches of `if` expressions
+- Last expression in `begin` blocks
+- Body of `let` expressions
+- Clause bodies in `cond`
+- Chained application in `apply-chain`
 
-**Mitigation strategies (future work):**
-- Add explicit depth counter to `eval-with-env`
-- Return `EvalErr` when depth exceeds configurable limit
-- Implement tail-call optimization to reduce stack pressure
+**What this means:**
+- Tail-recursive functions run in O(1) stack space
+- Tested to 10,000+ recursion depth without stack overflow
+- Enables idiomatic Lisp patterns like tail-recursive loops
 
-For now, users should avoid processing untrusted input with potentially unbounded nesting.
+**Non-tail recursion:**
+- Standard (non-tail) recursive functions still use stack proportional to depth
+- Functions like naive factorial/fibonacci that aren't tail-recursive will still overflow at ~1000 depth
+- Deeply nested expressions (10,000+ parens) may still exhaust the parser stack
+
+**Example - tail-recursive vs non-tail:**
+```lisp
+;; Non-tail recursive (uses O(n) stack)
+(define (factorial n)
+  (if (<= n 1) 1 (* n (factorial (- n 1)))))
+
+;; Tail-recursive (uses O(1) stack via TCO)
+(define (factorial-tail n acc)
+  (if (<= n 1) acc (factorial-tail (- n 1) (* acc n))))
+```
 
 ### Future Improvements
 
