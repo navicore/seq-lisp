@@ -2758,29 +2758,44 @@ union EvalResult {
 # - Fewer args than params: return partially applied closure
 # - Exact args: evaluate body
 # - More args than params: apply first batch, chain-apply rest
+# - Variadic closures: rest param collects extra args
 : apply-closure ( Sexpr SexprList Env -- EvalResult )
   # Stack: ClosureSexpr Args CallerEnv
-  # Count args and params
-  2 pick sclosure-val closure-params slist-val list-length  # -> ... ParamCount
-  2 pick list-length  # -> ... ParamCount ArgCount
-
-  # Compare: ArgCount vs ParamCount
-  # Stack is ParamCount ArgCount (ArgCount on top)
-  # In Seq, `a b <` checks a < b
-  over over = if
-    # Exact match: full application
-    drop drop apply-full
-  else
-    # Not equal - check if ArgCount < ParamCount for partial application
-    # Stack: ParamCount ArgCount
-    # We want to check ArgCount < ParamCount
-    # `dup 2 pick <` gives us ArgCount < ParamCount
-    dup 2 pick < if
-      # ArgCount < ParamCount: partial application
-      drop drop apply-partial
+  # Check if this is a variadic closure (has rest param)
+  2 pick sclosure-val closure-params slist-val  # -> ... Params
+  dup has-rest-param? if
+    # Variadic closure: compare ArgCount vs RequiredCount
+    dup count-required-params  # -> ... Params RequiredCount
+    3 pick list-length         # -> ... Params RequiredCount ArgCount
+    # Stack: Params RequiredCount ArgCount - test if ArgCount >= RequiredCount
+    # In Seq, `a b <=` tests a <= b, where a=RequiredCount, b=ArgCount
+    # RequiredCount <= ArgCount is what we want
+    <= if
+      # RequiredCount <= ArgCount: full variadic application
+      drop apply-full-variadic
     else
-      # ArgCount > ParamCount: apply then chain
-      drop drop apply-chain
+      # RequiredCount > ArgCount: partial application
+      drop apply-partial
+    then
+  else
+    # Non-variadic closure: original logic
+    drop  # drop Params
+    # Count args and params
+    2 pick sclosure-val closure-params slist-val list-length  # -> ... ParamCount
+    2 pick list-length  # -> ... ParamCount ArgCount
+
+    # Compare: ArgCount vs ParamCount
+    over over = if
+      # Exact match: full application
+      drop drop apply-full
+    else
+      dup 2 pick < if
+        # ArgCount < ParamCount: partial application
+        drop drop apply-partial
+      else
+        # ArgCount > ParamCount: apply then chain
+        drop drop apply-chain
+      then
     then
   then
 ;
@@ -2918,6 +2933,133 @@ union EvalResult {
       bind-rearrange
       full-bind-loop
     then
+  then
+;
+
+# Full application for variadic closures (with rest params)
+: apply-full-variadic ( Sexpr SexprList Env -- EvalResult )
+  # Stack: ClosureSexpr Args CallerEnv (pos 2,1,0)
+  2 pick sclosure-val  # -> ClosureSexpr Args CallerEnv Closure (pos 3,2,1,0)
+  # For named closures, add self-binding for recursion
+  dup closure-env  # -> ClosureSexpr Args CallerEnv Closure ClosureEnv
+  over named-closure? if
+    over closure-self-name  # -> ... Closure ClosureEnv SelfName
+    5 pick  # -> ... Closure ClosureEnv SelfName ClosureSexpr
+    rot env-extend  # -> ... Closure BaseEnv
+  then  # -> ClosureSexpr Args CallerEnv Closure BaseEnv (pos 4,3,2,1,0)
+  over closure-params slist-val  # -> ... Closure BaseEnv Params (pos 5,4,3,2,1,0)
+  4 pick  # -> ... Params Args
+  4 pick  # -> ... Params Args CallerEnv
+  variadic-bind-loop  # -> ... Closure ExtEnv EvalResult
+
+  dup eval-err? if
+    nip nip nip nip nip
+  else
+    drop  # drop success marker
+    # Stack: ClosureSexpr Args CallerEnv Closure ExtEnv
+    swap closure-body swap eval-with-env
+    nip nip nip
+  then
+;
+
+# Helper: bind args to params for variadic closures (handles . rest)
+: variadic-bind-loop ( Env SexprList SexprList Env -- Env EvalResult )
+  # Stack: AccEnv Params Args EvalEnv
+  # Check if first param is the dot
+  2 pick scar is-dot-symbol? if
+    # Rest param: evaluate all remaining args and bind as list
+    # Stack: AccEnv Params Args EvalEnv
+    # Get rest param name (param after the dot)
+    2 pick scdr scar ssym-val  # -> ... EvalEnv RestParamName
+    # Evaluate all remaining args and collect as list
+    2 pick                     # -> ... RestParamName Args
+    3 pick                     # -> ... RestParamName Args EvalEnv
+    eval-collect-rest          # -> ... RestParamName EvalResult
+    dup eval-err? if
+      # Error during evaluation
+      nip nip nip nip nip  # -> EvalResult... need to fix stack
+      swap drop swap drop swap drop  # -> AccEnv EvalResult
+    else
+      eval-ok-value              # -> AccEnv Params Args EvalEnv RestParamName RestList
+      # Bind rest param name to the collected list
+      5 roll                     # -> Params Args EvalEnv RestParamName RestList AccEnv
+      env-extend                 # -> Params Args EvalEnv ExtEnv
+      nip nip nip                # -> ExtEnv
+      snil slist eval-ok         # success marker
+    then
+  else
+    # Regular param or base case
+    2 pick snil? if
+      # No more params - return accumulated env
+      drop drop drop  # -> AccEnv
+      snil slist eval-ok  # success marker
+    else
+      # Eval first arg
+      over scar over eval-with-env  # -> AccEnv Params Args EvalEnv EvalResult
+      dup eval-err? if
+        nip nip nip  # -> AccEnv EvalResult
+      else
+        eval-ok-value  # -> AccEnv Params Args EvalEnv ArgVal
+        4 roll  # -> Params Args EvalEnv ArgVal AccEnv
+        4 pick scar ssym-val  # -> Params Args EvalEnv ArgVal AccEnv ParamName
+        rot rot env-extend  # -> Params Args EvalEnv NewEnv
+        bind-rearrange
+        variadic-bind-loop
+      then
+    then
+  then
+;
+
+# Helper: evaluate all args and collect as a list
+: eval-collect-rest ( SexprList Env -- EvalResult )
+  # Stack: Args EvalEnv
+  # Returns EvalOk with a list of evaluated args, or EvalErr
+  swap snil swap  # -> EvalEnv AccList Args
+  eval-collect-rest-loop
+;
+
+: eval-collect-rest-loop ( Env SexprList SexprList -- EvalResult )
+  # Stack: EvalEnv AccList Args
+  dup snil? if
+    # No more args - reverse AccList and return
+    drop           # -> EvalEnv AccList
+    nip            # -> AccList
+    reverse-sexprlist slist eval-ok
+  else
+    # Eval first arg
+    dup scar       # -> EvalEnv AccList Args FirstArg
+    3 pick         # -> EvalEnv AccList Args FirstArg EvalEnv
+    eval-with-env  # -> EvalEnv AccList Args EvalResult
+    dup eval-err? if
+      nip nip nip  # -> EvalResult
+    else
+      eval-ok-value  # -> EvalEnv AccList Args EvalValue
+      # Prepend EvalValue to AccList: need to get AccList
+      2 pick         # -> EvalEnv AccList Args EvalValue AccList
+      scons          # -> EvalEnv AccList Args NewAccList
+      # Rearrange to: EvalEnv NewAccList RestArgs
+      rot drop       # -> EvalEnv Args NewAccList
+      swap scdr      # -> EvalEnv NewAccList RestArgs
+      eval-collect-rest-loop
+    then
+  then
+;
+
+# Helper: reverse an SexprList
+: reverse-sexprlist ( SexprList -- SexprList )
+  snil swap reverse-sexprlist-loop
+;
+
+: reverse-sexprlist-loop ( SexprList SexprList -- SexprList )
+  # Stack: Acc Input
+  dup snil? if
+    drop  # -> Acc
+  else
+    dup scar     # -> Acc Input Head
+    rot          # -> Input Head Acc
+    scons        # -> Input NewAcc
+    swap scdr    # -> NewAcc RestInput
+    reverse-sexprlist-loop
   then
 ;
 

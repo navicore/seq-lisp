@@ -51,7 +51,7 @@ just build        # Build the REPL
 just run          # Run the REPL
 just test         # Run Seq unit tests
 just test-verbose # Run Seq tests with output
-just lisp-test    # Run Lisp test suite (102 tests)
+just lisp-test    # Run Lisp test suite (107 tests)
 just lisp-run f   # Run a Lisp file with test framework
 just examples     # Run all Lisp examples
 just clean        # Remove build artifacts
@@ -65,7 +65,7 @@ SeqLisp supports:
 - **Arithmetic**: `+`, `-`, `*`, `/`, `abs`, `min`, `max`, `modulo`
 - **Comparisons**: `<`, `>`, `<=`, `>=`, `=`
 - **Booleans**: `#t`, `#f`
-- **Definitions**: `define`, `lambda`, `let`
+- **Definitions**: `define`, `lambda` (with variadic support), `let`
 - **Conditionals**: `if`, `cond`
 - **Lists**: `cons`, `car`, `cdr`, `list`, `quote` (`'`), `append`, `reverse`, `length`, `nth`, `last`, `take`, `drop`
 - **Higher-order**: `map`, `filter`, `fold`, `apply`

@@ -103,7 +103,7 @@ The current architecture is sound for adding comprehensive error handling. No fu
 - [x] Variadic macros with rest parameters
   - Dot notation: `(defmacro (name . args) body)` or `(defmacro (name req . rest) body)`
   - Enables natural `(and a b c)` style macros instead of `(and-list (a b c))`
-- [ ] Variadic functions (lambdas)
+- [x] Variadic functions (lambdas with `. rest` syntax)
 - [ ] Tail call optimization (important for idiomatic Lisp)
 
 ### Macros ✓
