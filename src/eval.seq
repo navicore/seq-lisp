@@ -2528,7 +2528,8 @@ union EvalResult {
     drop drop snil slist eval-ok
   else
     over scdr snil? if
-      # Last expression - evaluate and return
+      # Last expression - evaluate and return (TAIL CALL)
+      # TCO Note: Stack naturally has (Expr Env) - no cleanup needed
       swap scar swap eval-with-env
     else
       # More expressions - evaluate this one
@@ -2541,9 +2542,11 @@ union EvalResult {
           dup eval-define-name swap eval-define-value
           # Stack: Exprs Env Name Value
           rot env-extend  # -> Exprs NewEnv
+          # Recurse on remaining exprs (TAIL CALL)
           swap scdr swap eval-begin-exprs
         else
           drop  # Discard EvalOk result
+          # Recurse on remaining exprs (TAIL CALL)
           swap scdr swap eval-begin-exprs
         then
       then
@@ -2565,6 +2568,9 @@ union EvalResult {
 : eval-cond-clauses ( SexprList Env -- EvalResult )
   # Stack: Clauses Env
   # Process clauses until one matches
+  # TCO Note: All exit paths are TAIL CALLS - either to eval-cond-body
+  # (for matched clauses) or recursive eval-cond-clauses (for unmatched).
+  # Stack is naturally cleaned to (Exprs Env) or (Clauses Env) before each call.
   over snil? if
     # No more clauses - return empty list
     drop drop snil slist eval-ok
@@ -2575,7 +2581,7 @@ union EvalResult {
     # Check for 'else' keyword
     dup ssym? if
       dup ssym-val "else" string.equal? if
-        # else clause - evaluate the expression(s)
+        # else clause - evaluate the expression(s) (TAIL CALL)
         drop scdr  # Clauses Env BodyExprs
         rot drop  # Env BodyExprs
         swap eval-cond-body
@@ -2586,13 +2592,12 @@ union EvalResult {
           nip nip nip  # Error - propagate
         else
           eval-ok-value cond-test-true? if
-            # Test passed - evaluate clause body
+            # Test passed - evaluate clause body (TAIL CALL)
             scdr  # Clauses Env BodyExprs
             rot drop  # Env BodyExprs
             swap eval-cond-body
           else
-            # Test failed - try next clause
-            # Stack: Clauses Env ClauseList
+            # Test failed - try next clause (TAIL CALL)
             drop  # Clauses Env
             swap scdr swap  # RestClauses Env
             eval-cond-clauses
@@ -2606,13 +2611,12 @@ union EvalResult {
         nip nip nip  # Error - propagate
       else
         eval-ok-value cond-test-true? if
-          # Test passed - evaluate clause body
+          # Test passed - evaluate clause body (TAIL CALL)
           scdr  # Clauses Env BodyExprs
           rot drop  # Env BodyExprs
           swap eval-cond-body
         else
-          # Test failed - try next clause
-          # Stack: Clauses Env ClauseList
+          # Test failed - try next clause (TAIL CALL)
           drop  # Clauses Env
           swap scdr swap  # RestClauses Env
           eval-cond-clauses
@@ -2664,26 +2668,30 @@ union EvalResult {
     else
       eval-ok-value  # -> Env Args CondResult
       # Check if condition is false (numeric 0 or #f)
+      # TCO Note: All branches below are TRUE TAIL CALLS.
+      # Unlike apply-full, no explicit cleanup is needed because the stack
+      # naturally has only (Expr Env) when we call eval-with-env.
+      # The branch operations consume Args and produce the branch Expr.
       dup snum? if
         snum-val 0 = if  # -> Env Args
-          # False (0) - eval else branch
+          # False (0) - eval else branch (TAIL CALL)
           scdr scdr scar swap eval-with-env
         else
-          # True (non-zero) - eval then branch
+          # True (non-zero) - eval then branch (TAIL CALL)
           scdr scar swap eval-with-env
         then
       else
         # Check for #f symbol
         dup ssym? if
           ssym-val "#f" string.equal? if  # -> Env Args
-            # False (#f) - eval else branch
+            # False (#f) - eval else branch (TAIL CALL)
             scdr scdr scar swap eval-with-env
           else
-            # Other symbol - treat as true
+            # Other symbol - treat as true (TAIL CALL)
             scdr scar swap eval-with-env
           then
         else
-          # Non-numeric, non-symbol (list) - treat as true
+          # Non-numeric, non-symbol (list) - treat as true (TAIL CALL)
           drop  # -> Env Args
           scdr scar swap eval-with-env
         then

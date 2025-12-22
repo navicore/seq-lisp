@@ -51,7 +51,7 @@ just build        # Build the REPL
 just run          # Run the REPL
 just test         # Run Seq unit tests
 just test-verbose # Run Seq tests with output
-just lisp-test    # Run Lisp test suite (109 tests)
+just lisp-test    # Run Lisp test suite (110 tests)
 just lisp-run f   # Run a Lisp file with test framework
 just examples     # Run all Lisp examples
 just clean        # Remove build artifacts
