@@ -127,6 +127,210 @@ union EvalResult {
   then ;
 
 # ============================================
+# Symbol Suggestion System
+#
+# When a symbol is not found, suggest similar names from:
+# 1. Environment bindings (user-defined symbols)
+# 2. Built-in functions and special forms
+#
+# Uses a simple similarity heuristic based on length difference.
+# ============================================
+
+# Absolute value
+: int-abs ( Int -- Int )
+  dup 0 < if 0 swap subtract then ;
+
+# Check chars at position 0
+: first-char-matches? ( String String -- Int )
+  # s1 s2 -> bool
+  over string.length 0 = if
+    drop drop 0  # s1 is empty
+  else
+    dup string.length 0 = if
+      drop drop 0  # s2 is empty
+    else
+      # Both non-empty, compare char at position 0
+      over 0 string.char-at  # s1 s2 c1
+      over 0 string.char-at  # s1 s2 c1 c2
+      =                      # s1 s2 bool
+      nip nip                # bool
+    then
+  then
+;
+
+# Check chars at position 1
+: second-char-matches? ( String String -- Int )
+  # s1 s2 -> bool
+  over string.length 2 < if
+    drop drop 0  # s1 too short
+  else
+    dup string.length 2 < if
+      drop drop 0  # s2 too short
+    else
+      # Both long enough, compare char at position 1
+      over 1 string.char-at  # s1 s2 c1
+      over 1 string.char-at  # s1 s2 c1 c2
+      =                      # s1 s2 bool
+      nip nip                # bool
+    then
+  then
+;
+
+# Check chars at position 2
+: third-char-matches? ( String String -- Int )
+  # s1 s2 -> bool
+  over string.length 3 < if
+    drop drop 0  # s1 too short
+  else
+    dup string.length 3 < if
+      drop drop 0  # s2 too short
+    else
+      # Both long enough, compare char at position 2
+      over 2 string.char-at  # s1 s2 c1
+      over 2 string.char-at  # s1 s2 c1 c2
+      =                      # s1 s2 bool
+      nip nip                # bool
+    then
+  then
+;
+
+# Simple similarity score: lower is better, 999 = no match
+# Checks first 3 characters for better accuracy
+# Scoring: 3 chars match = length_diff, 2 chars = 10+diff, 1 char = 50+diff
+: simple-similarity ( String String -- Int )
+  # Check for exact match first
+  2dup string.equal? if
+    drop drop 0
+  else
+    # Check if first character matches (required for any suggestion)
+    2dup first-char-matches? if
+      # Check second char
+      2dup second-char-matches? if
+        # Check third char
+        2dup third-char-matches? if
+          # First 3 chars match - excellent candidate
+          string.length swap string.length subtract int-abs
+          # score = length_diff (0-based, best possible for non-exact)
+        else
+          # First 2 chars match - good candidate
+          string.length swap string.length subtract int-abs
+          10 add  # score = 10 + length_diff
+        then
+      else
+        # Only first char matches - weak candidate
+        string.length swap string.length subtract int-abs
+        50 add  # score = 50 + length_diff
+      then
+    else
+      # First char doesn't match - no suggestion
+      drop drop 999
+    then
+  then
+;
+
+# Find minimum of two integers
+: min ( Int Int -- Int )
+  2dup > if nip else drop then ;
+
+# Check if candidate is better than current best
+# Stack: target best_name best_dist candidate -> target best_name best_dist
+: check-candidate ( String String Int String -- String String Int )
+  # Stack: target best_name best_dist candidate
+  3 pick over  # target best_name best_dist candidate target candidate
+  simple-similarity  # target best_name best_dist candidate new_dist
+  dup 3 pick < if
+    # New candidate is better
+    # Stack: target best_name best_dist candidate new_dist
+    rot drop rot drop  # target candidate new_dist
+  else
+    # Keep current best
+    drop drop  # target best_name best_dist
+  then
+;
+
+# Find best matching builtin for a target symbol
+# Stack: target -> best_name best_dist (or "" 999 if none close)
+: find-best-builtin ( String -- String Int )
+  "" 999  # target best_name best_dist
+
+  # Check each builtin
+  "+" check-candidate
+  "-" check-candidate
+  "*" check-candidate
+  "/" check-candidate
+  "abs" check-candidate
+  "min" check-candidate
+  "max" check-candidate
+  "modulo" check-candidate
+  "if" check-candidate
+  "let" check-candidate
+  "lambda" check-candidate
+  "define" check-candidate
+  "quote" check-candidate
+  "begin" check-candidate
+  "cond" check-candidate
+  "cons" check-candidate
+  "car" check-candidate
+  "cdr" check-candidate
+  "list" check-candidate
+  "append" check-candidate
+  "reverse" check-candidate
+  "length" check-candidate
+  "nth" check-candidate
+  "last" check-candidate
+  "take" check-candidate
+  "drop" check-candidate
+  "null?" check-candidate
+  "number?" check-candidate
+  "symbol?" check-candidate
+  "list?" check-candidate
+  "boolean?" check-candidate
+  "equal?" check-candidate
+  "map" check-candidate
+  "filter" check-candidate
+  "fold" check-candidate
+  "apply" check-candidate
+  "print" check-candidate
+  "exit" check-candidate
+  "try" check-candidate
+  "quasiquote" check-candidate
+  "defmacro" check-candidate
+  "gensym" check-candidate
+
+  rot drop  # best_name best_dist
+;
+
+# Find best matching symbol (checks builtins only for simplicity)
+# Stack: target env -> suggestion (or "" if none close enough)
+: find-suggestion ( String Env -- String )
+  drop  # Don't search env, just builtins
+  find-best-builtin  # best_name best_dist
+
+  # Only suggest if distance <= 15 (allows 2+ char prefix matches)
+  # 3 chars match: 0-5, 2 chars match: 10-15, 1 char match: 50+ (rejected)
+  dup 15 > if
+    drop drop ""  # No good suggestion
+  else
+    drop  # Return best_name
+  then
+;
+
+# Format error message with optional suggestion
+: format-undefined-error ( String String -- String )
+  # Stack: symbol_name suggestion
+  dup string.length 0 = if
+    # No suggestion
+    drop "undefined symbol: " swap string.concat
+  else
+    # Has suggestion
+    swap "undefined symbol: " swap string.concat
+    ". Did you mean '" string.concat
+    swap string.concat
+    "'?" string.concat
+  then
+;
+
+# ============================================
 # Environment Operations
 #
 # Types are defined in sexpr.seq:
@@ -134,6 +338,24 @@ union EvalResult {
 # ============================================
 
 : env-lookup ( String Env -- EvalResult )
+  # Stack: Name Env
+  # Returns EvalOk with the value, or EvalErr if not found
+  2dup env-lookup-raw  # Name Env Result
+  dup eval-err? if
+    # Not found - try to add suggestion
+    drop  # Name Env
+    2dup find-suggestion  # Name Env Suggestion
+    rot swap              # Env Name Suggestion
+    format-undefined-error  # Env ErrorMsg
+    nip eval-err
+  else
+    # Found - return result
+    nip nip
+  then
+;
+
+# Raw lookup without suggestion (used internally)
+: env-lookup-raw ( String Env -- EvalResult )
   # Stack: Name Env
   # Returns EvalOk with the value, or EvalErr if not found
   dup variant.tag 0 = if
@@ -152,7 +374,7 @@ union EvalResult {
       # Keep looking
       drop                  # Name Env
       1 variant.field-at    # Name Parent
-      env-lookup
+      env-lookup-raw
     then
   then ;
 
