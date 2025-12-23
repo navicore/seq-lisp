@@ -51,11 +51,12 @@ just build        # Build the REPL
 just run          # Run the REPL
 just test         # Run Seq unit tests
 just test-verbose # Run Seq tests with output
-just lisp-test    # Run Lisp test suite (122 tests)
+just lisp-test    # Run Lisp test suite (295 tests)
 just lisp-run f   # Run a Lisp file with test framework
 just examples     # Run all Lisp examples
 just clean        # Remove build artifacts
 just ci           # Run all tests and build
+just safe-eval e  # Safely evaluate expression (with timeout)
 ```
 
 ## Lisp Features
@@ -72,7 +73,7 @@ SeqLisp supports:
 - **Predicates**: `null?`, `number?`, `symbol?`, `list?`, `boolean?`, `equal?`
 - **Macros**: `defmacro`, quasiquote (`` ` ``), unquote (`,`), splice (`,@`), `gensym`
 - **Sequencing**: `begin`
-- **Error Handling**: `try` (returns `(ok value)` or `(error message)`)
+- **Error Handling**: `try` (returns `(ok value)` or `(error message)`), symbol suggestions for typos
 - **I/O**: `print`, `exit`
 
 ### Example

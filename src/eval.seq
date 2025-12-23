@@ -254,6 +254,7 @@ union EvalResult {
   "" 999  # target best_name best_dist
 
   # Check each builtin
+  # Arithmetic
   "+" check-candidate
   "-" check-candidate
   "*" check-candidate
@@ -262,7 +263,15 @@ union EvalResult {
   "min" check-candidate
   "max" check-candidate
   "modulo" check-candidate
+  # Comparison
+  "<" check-candidate
+  ">" check-candidate
+  "<=" check-candidate
+  ">=" check-candidate
+  "=" check-candidate
+  # Special forms
   "if" check-candidate
+  "else" check-candidate
   "let" check-candidate
   "lambda" check-candidate
   "define" check-candidate
@@ -338,18 +347,29 @@ union EvalResult {
 # ============================================
 
 : env-lookup ( String Env -- EvalResult )
-  # Stack: Name Env
-  # Returns EvalOk with the value, or EvalErr if not found
-  2dup env-lookup-raw  # Name Env Result
+  # Returns EvalOk with the value, or EvalErr with suggestion if not found
+  #
+  # Stack trace for error path:
+  #   Name Env                        -- input
+  #   Name Env Name Env               -- after 2dup
+  #   Name Env Result                 -- after env-lookup-raw
+  #   Name Env                        -- after drop (removing error result)
+  #   Name Env Name Env               -- after 2dup
+  #   Name Env Suggestion             -- after find-suggestion
+  #   Env Name Suggestion             -- after rot swap
+  #   Env ErrorMsg                    -- after format-undefined-error
+  #   EvalResult                      -- after nip eval-err
+  #
+  2dup env-lookup-raw
   dup eval-err? if
     # Not found - try to add suggestion
-    drop  # Name Env
-    2dup find-suggestion  # Name Env Suggestion
-    rot swap              # Env Name Suggestion
-    format-undefined-error  # Env ErrorMsg
+    drop
+    2dup find-suggestion
+    rot swap
+    format-undefined-error
     nip eval-err
   else
-    # Found - return result
+    # Found - return the successful result
     nip nip
   then
 ;

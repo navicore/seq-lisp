@@ -90,6 +90,7 @@ lisp-test: build
         tests/lisp/macros/gensym.lisp \
         tests/lisp/edge_cases/parser.lisp \
         tests/lisp/edge_cases/io.lisp \
+        tests/lisp/edge_cases/suggestions.lisp \
         tests/lisp/all.lisp \
         > "$tmp"
     ./target/seqlisp "$tmp"
