@@ -31,7 +31,8 @@
   (append quasiquote-tests
   (append gensym-tests
   (append parser-edge-tests
-          io-tests)))))))))))))))))
+  (append io-tests
+          suggestion-tests))))))))))))))))))
 
 ;; ============================================
 ;; Run Tests and Report

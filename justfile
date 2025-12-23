@@ -90,6 +90,7 @@ lisp-test: build
         tests/lisp/macros/gensym.lisp \
         tests/lisp/edge_cases/parser.lisp \
         tests/lisp/edge_cases/io.lisp \
+        tests/lisp/edge_cases/suggestions.lisp \
         tests/lisp/all.lisp \
         > "$tmp"
     ./target/seqlisp "$tmp"
@@ -106,3 +107,15 @@ lisp-run file: build
 # Full CI: test + build + lisp-test
 ci: test build lisp-test
     @echo "CI passed!"
+
+# Safe eval - for testing expressions with bounded output (prevents infinite loops)
+safe-eval expr: build
+    #!/usr/bin/env bash
+    tmp_out=$(mktemp)
+    trap "rm -f $tmp_out" EXIT
+    timeout 3 ./target/seqlisp /dev/stdin <<< '{{expr}}' > "$tmp_out" 2>&1 || true
+    head -20 "$tmp_out"
+    lines=$(wc -l < "$tmp_out")
+    if [ "$lines" -gt 20 ]; then
+        echo "... (truncated, $lines total lines)"
+    fi
