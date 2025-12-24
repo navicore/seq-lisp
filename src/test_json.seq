@@ -1,5 +1,0 @@
-include "parser"
-include "json"
-
-: main ( -- )
-  ;
