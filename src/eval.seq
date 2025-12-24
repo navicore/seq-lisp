@@ -1609,7 +1609,8 @@ union EvalResult {
   then
 ;
 
-# (substring str start end) - returns substring from start to end
+# (substring str start length) - returns substring starting at 'start' with 'length' characters
+# Out of bounds: returns empty string or as many characters as available (graceful clamping)
 : eval-substring-with-env ( SexprList Env -- EvalResult )
   over 3 "substring" check-arity
   dup eval-err? if

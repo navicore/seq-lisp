@@ -8,6 +8,8 @@
   (if (< (string-length str) (string-length prefix)) #f
     (equal? (substring str 0 (string-length prefix)) prefix)))
 
+; Note: \r check is for when tokenizer supports \r escape (see issue #38)
+; Currently io.read-line+ normalizes CRLF to LF, so \n check suffices
 (define (string-blank? str)
   (if (equal? str "") #t
     (if (equal? str "\n") #t
@@ -28,11 +30,16 @@
     (if (equal? line #f) -1
       (if (string-blank? line) content-length
         (if (string-starts-with? line "Content-Length:")
-          (lsp-read-headers-loop (json-parse (substring line 16 (- (string-length line) 1))))
+          ; Extract Content-Length value: skip "Content-Length: " (16 chars), take remaining minus newline
+          (lsp-read-headers-loop (json-parse (substring line 16 (- (string-length line) 17))))
           (lsp-read-headers-loop content-length))))))
 
 (define (lsp-read-headers) (lsp-read-headers-loop 0))
 
+; Read message body of given length
+; Note: This reads one line and extracts 'length' characters.
+; Works for compact single-line JSON (typical LSP messages).
+; Multi-line or pretty-printed JSON would require buffered reading.
 (define (lsp-read-body length)
   (let line (read-line)
     (if (equal? line #f) ""
