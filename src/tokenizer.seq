@@ -121,8 +121,13 @@ union TokState {
                   # Comma (unquote) - check for ,@
                   drop handle-comma tokenize-loop
                 else
-                  # Regular char
-                  drop handle-char tokenize-loop
+                  dup 34 = if
+                    # Double quote - string literal
+                    drop handle-string tokenize-loop
+                  else
+                    # Regular char
+                    drop handle-char tokenize-loop
+                  then
                 then
               then
             then
@@ -292,6 +297,160 @@ union TokState {
     "" swap
     make-state nip
   then
+;
+
+# Handle string literal - accumulate until closing quote
+# Handles escape sequences: backslash-quote and backslash-backslash
+: handle-string ( TokState -- TokState )
+  # First flush any current token
+  dup state-tok string.empty? if
+    # Start string with opening quote char
+    34 char->string
+    swap string-scan-loop
+  else
+    # Flush token first, then start string
+    dup state-input
+    over state-pos
+    2 pick state-list
+    3 pick state-tok
+    swap tcons
+    "" swap
+    make-state nip
+    34 char->string
+    swap string-scan-loop
+  then
+;
+
+# Scan string contents until closing quote
+# Stack: accumulated_str TokState -- TokState
+: string-scan-loop ( String TokState -- TokState )
+  # Stack: accum TokState (TokState on top)
+  # Check if at end of input
+  dup state-input string.length
+  over state-pos 1 add <= if
+    # End of input before closing quote - emit what we have
+    # and add closing quote for well-formed token
+    # Stack: accum TokState
+    dup state-input               # accum TokState input
+    over state-pos 1 add          # accum TokState input pos+1
+    2 pick state-list             # accum TokState input pos+1 list
+    4 pick 34 char->string string.concat  # accum TokState input pos+1 list (accum+quote)
+    swap tcons                    # accum TokState input pos+1 tokens
+    "" swap                       # accum TokState input pos+1 "" tokens
+    make-state                    # accum TokState NewState
+    nip nip                       # NewState
+  else
+    # Get next char
+    dup state-input over state-pos 1 add string.char-at
+    # Stack: accum TokState charcode
+
+    dup 34 = if
+      # Found closing quote - emit complete string
+      drop
+      # Advance past opening and closing quotes
+      # Stack: accum TokState
+      dup state-input               # accum TokState input
+      over state-pos 2 add          # accum TokState input pos+2
+      2 pick state-list             # accum TokState input pos+2 list
+      4 pick 34 char->string string.concat  # accum TokState input pos+2 list (accum+quote)
+      swap tcons                    # accum TokState input pos+2 tokens
+      "" swap                       # accum TokState input pos+2 "" tokens
+      make-state                    # accum TokState NewState
+      nip nip                       # NewState
+    else
+      dup 92 = if
+        # Backslash - check for escape sequence
+        drop
+        # Check if there's another char after backslash
+        dup state-input string.length
+        over state-pos 2 add > if
+          # Get escaped char
+          dup state-input over state-pos 2 add string.char-at
+          # Stack: accum TokState escaped_char
+
+          dup 34 = if
+            # Escaped quote - add quote to string
+            drop
+            # Stack: accum TokState
+            swap 34 char->string string.concat swap  # (accum+quote) TokState
+            # Advance by 2 (backslash and quote)
+            dup state-input
+            over state-pos 2 add
+            2 pick state-tok
+            3 pick state-list
+            make-state nip
+            string-scan-loop
+          else
+            dup 92 = if
+              # Escaped backslash - add backslash to string
+              drop
+              # Stack: accum TokState
+              swap 92 char->string string.concat swap  # (accum+backslash) TokState
+              # Advance by 2
+              dup state-input
+              over state-pos 2 add
+              2 pick state-tok
+              3 pick state-list
+              make-state nip
+              string-scan-loop
+            else
+              dup 110 = if
+                # Escaped n - add newline to string
+                drop
+                # Stack: accum TokState
+                swap 10 char->string string.concat swap  # (accum+newline) TokState
+                # Advance by 2
+                dup state-input
+                over state-pos 2 add
+                2 pick state-tok
+                3 pick state-list
+                make-state nip
+                string-scan-loop
+              else
+                # Unknown escape - just add backslash and the char
+                # Stack: accum TokState escaped_char
+                char->string                        # accum TokState charstr
+                rot                                 # TokState charstr accum
+                92 char->string string.concat       # TokState charstr (accum+backslash)
+                swap string.concat                  # TokState (accum+backslash+charstr)
+                swap                                # (accum+backslash+charstr) TokState
+                # Advance by 2
+                dup state-input
+                over state-pos 2 add
+                2 pick state-tok
+                3 pick state-list
+                make-state nip
+                string-scan-loop
+              then
+            then
+          then
+        else
+          # No char after backslash - add backslash and continue
+          # Stack: accum TokState
+          swap 92 char->string string.concat swap
+          advance-pos-keep-accum string-scan-loop
+        then
+      else
+        # Regular char - add to string
+        # Stack: accum TokState charcode
+        char->string                    # accum TokState charstr
+        rot                             # TokState charstr accum
+        swap string.concat              # TokState (accum+charstr)
+        swap                            # (accum+charstr) TokState
+        advance-pos-keep-accum string-scan-loop
+      then
+    then
+  then
+;
+
+# Advance position while keeping accumulated string
+# Stack: accum TokState -- accum TokState'
+: advance-pos-keep-accum ( String TokState -- String TokState )
+  dup state-input
+  over state-pos 1 add
+  2 pick state-tok
+  3 pick state-list
+  make-state nip
 ;
 
 # Skip comment (everything from ; to end of line)

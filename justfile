@@ -77,6 +77,9 @@ lisp-test: build
         tests/lisp/core/comparison.lisp \
         tests/lisp/core/predicates.lisp \
         tests/lisp/core/lists.lisp \
+        tests/lisp/core/strings.lisp \
+        tests/lisp/core/floats.lisp \
+        tests/lisp/core/json.lisp \
         tests/lisp/functions/closures.lisp \
         tests/lisp/functions/higher_order.lisp \
         tests/lisp/functions/recursion.lisp \

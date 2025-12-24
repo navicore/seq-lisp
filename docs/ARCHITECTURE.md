@@ -41,7 +41,7 @@ SeqLisp is a Lisp interpreter written in [Seq](https://github.com/navicore/patch
 │                      Tokenizer                           │
 │                    (tokenizer.seq)                       │
 │  - Character stream → token list                         │
-│  - Handles: parens, numbers, symbols                     │
+│  - Handles: parens, numbers, symbols, strings            │
 └─────────────────────────┬───────────────────────────────┘
                           │
                           ▼
@@ -60,12 +60,17 @@ SeqLisp is a Lisp interpreter written in [Seq](https://github.com/navicore/patch
 
 S-expressions are represented as Seq variants (tagged unions):
 
-| Type    | Tag | Description                    |
-|---------|-----|--------------------------------|
-| `snum`  | 1   | Integer literal                |
-| `ssym`  | 2   | Symbol (identifier)            |
-| `slist` | 3   | Cons cell (car, cdr pair)      |
-| `snil`  | 4   | Empty list / nil               |
+| Type       | Tag | Description                    |
+|------------|-----|--------------------------------|
+| `SNum`     | 0   | Integer literal                |
+| `SSym`     | 1   | Symbol (identifier)            |
+| `SList`    | 2   | List (wraps SexprList)         |
+| `SClosure` | 3   | Closure (lambda + environment) |
+| `SMacro`   | 4   | Macro (like closure)           |
+| `SString`  | 5   | String literal                 |
+| `SFloat`   | 6   | Floating-point number          |
+
+Note: `SexprList` is a separate linked-list type (`SNil` or `SCons`) used internally.
 
 ### Environments
 
@@ -156,11 +161,18 @@ src/
 ├── parser.seq      # Builds S-expression trees
 ├── sexpr.seq       # S-expression data types
 ├── eval.seq        # Evaluator + environments
-├── repl.seq        # Interactive loop
-└── test_*.seq      # Component tests
-```
+├── json.seq        # JSON parser (json-parse, json-encode)
+└── repl.seq        # Interactive loop
 
-Tests live alongside source because Seq's include system resolves paths relative to the including file.
+tests/
+├── seq/            # Seq-level unit tests
+└── lisp/           # Lisp-level integration tests
+    ├── core/       # Core language (arithmetic, types, json)
+    ├── functions/  # Closures, higher-order, recursion
+    ├── special_forms/  # if, let, begin, quote
+    ├── macros/     # defmacro, quasiquote, gensym
+    └── edge_cases/ # Parser edge cases, error suggestions
+```
 
 ## Error Handling
 
@@ -186,7 +198,7 @@ All `eval-*-with-env` functions return `EvalResult`, enabling:
 | Arity | `(car 1 2)` | `car expects 1 argument(s)` |
 | Type | `(car 42)` | `car: argument must be a list` |
 | Undefined | `(foo)` | `undefined symbol: foo` |
-| Division | `(/ 1 0)` | `division by zero` |
+| Division | `(/ 1 0)` | `/: division by zero` |
 
 ### Tail Call Optimization (TCO)
 

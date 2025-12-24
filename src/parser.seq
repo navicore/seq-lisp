@@ -52,8 +52,47 @@ union ParseResult {
 : is-digit ( Int -- Int )
   dup 48 >= swap 57 <= and ;
 
-: is-number-token ( String -- Int )
-  # Check if first char is a digit or minus followed by digit
+# Check if token is a string literal (starts with double quote)
+: is-string-token ( String -- Int )
+  dup string.length 0 = if
+    drop 0
+  else
+    0 string.char-at 34 =  # char 34 is double quote
+  then
+;
+
+# Check if char is a decimal point
+: is-dot ( Int -- Int )
+  46 = ;  # char 46 is '.'
+
+# Check if token contains a decimal point (for float detection)
+: has-decimal-point ( String -- Int )
+  0 has-decimal-loop ;
+
+: has-decimal-loop ( String Int -- Int )
+  # Stack: str pos
+  over string.length over <= if
+    drop drop 0  # Reached end, no decimal found
+  else
+    2dup string.char-at is-dot if
+      drop drop 1  # Found decimal
+    else
+      1 add has-decimal-loop  # Check next char
+    then
+  then
+;
+
+# Check if token is a float (number with decimal point)
+: is-float-token ( String -- Int )
+  dup is-number-start? if
+    has-decimal-point
+  else
+    drop 0
+  then
+;
+
+# Check if token starts like a number (digit or minus-digit)
+: is-number-start? ( String -- Int )
   dup string.length 0 = if
     drop 0
   else
@@ -68,6 +107,16 @@ union ParseResult {
     else
       is-digit nip
     then
+  then
+;
+
+: is-number-token ( String -- Int )
+  # Check if first char is a digit or minus followed by digit
+  # and does NOT contain a decimal point (integers only)
+  dup is-number-start? if
+    has-decimal-point 0 =  # True if no decimal point
+  else
+    drop 0
   then
 ;
 
@@ -109,11 +158,26 @@ union ParseResult {
                 # Unquote: ,expr -> (unquote expr)
                 drop tcdr parse-unquote
               else
-                # Atom (number or symbol)
-                dup is-number-token if
-                  string->int drop snum swap tcdr make-parse-result
+                # Atom (string, float, number, or symbol)
+                dup is-string-token if
+                  # String literal - strip quotes and create SString
+                  # Stack: tokens str
+                  dup string.length 2 subtract  # tokens str content-len
+                  swap                          # tokens content-len str
+                  1                             # tokens content-len str 1
+                  rot                           # tokens str 1 content-len
+                  string.substring              # tokens content
+                  sstring swap tcdr make-parse-result
                 else
-                  ssym swap tcdr make-parse-result
+                  dup is-float-token if
+                    string->float drop sfloat swap tcdr make-parse-result
+                  else
+                    dup is-number-token if
+                      string->int drop snum swap tcdr make-parse-result
+                    else
+                      ssym swap tcdr make-parse-result
+                    then
+                  then
                 then
               then
             then

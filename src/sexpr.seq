@@ -3,6 +3,7 @@
 # Algebraic Data Types for S-expressions:
 #
 #   Sexpr = SNum Int | SSym String | SList SexprList | SClosure Closure
+#         | SMacro Closure | SString String | SFloat Float
 #   SexprList = SNil | SCons Sexpr SexprList
 #   Closure = { params: Sexpr, body: Sexpr, env: Env }
 #   Env = EnvEmpty | EnvExtend Binding Env
@@ -33,12 +34,15 @@ union LispClosure {
 }
 
 # S-expressions: the core Lisp value type
+# Tags: 0=SNum, 1=SSym, 2=SList, 3=SClosure, 4=SMacro, 5=SString, 6=SFloat
 union Sexpr {
   SNum { value: Int }
   SSym { name: String }
   SList { items: SexprList }
   SClosure { closure: LispClosure }
   SMacro { macro: LispClosure }  # Same structure as closure, different semantics
+  SString { value: String }      # String literals (distinct from symbols)
+  SFloat { value: Float }        # Floating point numbers
 }
 
 # Linked list of S-expressions
@@ -65,6 +69,12 @@ union SexprList {
 
 : smacro ( LispClosure -- Sexpr )
   Make-SMacro ;
+
+: sstring ( String -- Sexpr )
+  Make-SString ;
+
+: sfloat ( Float -- Sexpr )
+  Make-SFloat ;
 
 : snil ( -- SexprList )
   Make-SNil ;
@@ -110,6 +120,12 @@ union SexprList {
 : smacro? ( Sexpr -- Int )
   variant.tag 4 = ;
 
+: sstring? ( Sexpr -- Int )
+  variant.tag 5 = ;
+
+: sfloat? ( Sexpr -- Int )
+  variant.tag 6 = ;
+
 : snil? ( SexprList -- Int )
   variant.tag 0 = ;
 
@@ -134,6 +150,12 @@ union SexprList {
   0 variant.field-at ;
 
 : smacro-val ( Sexpr -- LispClosure )
+  0 variant.field-at ;
+
+: sstring-val ( Sexpr -- String )
+  0 variant.field-at ;
+
+: sfloat-val ( Sexpr -- Float )
   0 variant.field-at ;
 
 : scar ( SexprList -- Sexpr )
@@ -167,6 +189,10 @@ union SexprList {
 # Pretty Printing
 # ============================================
 
+# Helper to get a double-quote character
+: quote-char ( -- String )
+  34 char->string ;
+
 : sexpr-to-string ( Sexpr -- String )
   match
     SNum { >value } ->
@@ -183,6 +209,12 @@ union SexprList {
     SMacro { >macro } ->
       # Stack: ( macro )
       drop "#<macro>"
+    SString { >value } ->
+      # Stack: ( value ) - wrap in quotes
+      quote-char swap string.concat quote-char string.concat
+    SFloat { >value } ->
+      # Stack: ( value )
+      float->string
   end
 ;
 
