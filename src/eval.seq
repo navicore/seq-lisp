@@ -12,6 +12,7 @@
 # - print: output
 
 include "parser"
+include "json"
 
 # Generate a unique symbol name from prefix and number
 : make-gensym-name ( String Int -- String )
@@ -291,6 +292,9 @@ union EvalResult {
   "drop" check-candidate
   "null?" check-candidate
   "number?" check-candidate
+  "integer?" check-candidate
+  "float?" check-candidate
+  "string?" check-candidate
   "symbol?" check-candidate
   "list?" check-candidate
   "boolean?" check-candidate
@@ -453,8 +457,8 @@ union EvalResult {
         # SList - function application
         eval-list-with-env
       else
-        # Unknown - return as-is
-        drop drop eval-ok
+        # Other types (SString, SFloat, SClosure, SMacro) - self-evaluating
+        drop eval-ok
       then
     then
   then
@@ -645,6 +649,12 @@ union EvalResult {
     drop eval-null?-with-env
   else dup "number?" string.equal? if
     drop eval-number?-with-env
+  else dup "integer?" string.equal? if
+    drop eval-integer?-with-env
+  else dup "float?" string.equal? if
+    drop eval-float?-with-env
+  else dup "string?" string.equal? if
+    drop eval-string?-with-env
   else dup "symbol?" string.equal? if
     drop eval-symbol?-with-env
   else dup "list?" string.equal? if
@@ -657,7 +667,7 @@ union EvalResult {
     drop eval-gensym-with-env
   else
     dispatch-control-flow
-  then then then then then then then
+  then then then then then then then then then then
 ;
 
 # ----------------------------------------
@@ -681,8 +691,23 @@ union EvalResult {
 : dispatch-io ( SexprList Env String -- EvalResult )
   dup "print" string.equal? if
     drop eval-print-with-env
+  else dup "display" string.equal? if
+    drop eval-display-with-env
   else dup "exit" string.equal? if
     drop eval-exit-with-env
+  else
+    dispatch-json
+  then then then
+;
+
+# ----------------------------------------
+# Group 7b: JSON operations
+# ----------------------------------------
+: dispatch-json ( SexprList Env String -- EvalResult )
+  dup "json-parse" string.equal? if
+    drop eval-json-parse-with-env
+  else dup "json-encode" string.equal? if
+    drop eval-json-encode-with-env
   else
     dispatch-user-defined
   then then
@@ -723,26 +748,42 @@ union EvalResult {
 ;
 
 # ============================================
+# Numeric Type Helpers
+# ============================================
+
+# Check if Sexpr is a number (int or float)
+: is-numeric? ( Sexpr -- Int )
+  dup snum? swap sfloat? or ;
+
+# Convert numeric Sexpr to Float (assumes is-numeric? is true)
+: sexpr->float ( Sexpr -- Float )
+  dup snum? if
+    snum-val int->float
+  else
+    sfloat-val
+  then ;
+
+# ============================================
 # Arithmetic Operations
 # ============================================
 
 : eval-add-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
   swap scdr swap  # Skip the + -> RestList Env
-  0 swap eval-fold-add-with-env
+  0 swap eval-fold-add-int-with-env
 ;
 
-: eval-fold-add-with-env ( SexprList Int Env -- EvalResult )
+# Fold add with Int accumulator - switches to float if needed
+: eval-fold-add-int-with-env ( SexprList Int Env -- EvalResult )
   # Stack: List Acc Env
   2 pick snil? if
-    # List is empty, return Acc as Sexpr wrapped in EvalOk
+    # List is empty, return Acc as SNum
     drop nip snum eval-ok
   else
     # Get first element and eval it
     2 pick scar over eval-with-env
     # Stack: List Acc Env EvalResult
     dup eval-err? if
-      # Error - propagate it up, clean stack
       nip nip nip
     else
       eval-ok-value
@@ -754,9 +795,47 @@ union EvalResult {
         # Stack: List Env NewAcc
         swap rot scdr rot rot
         # Stack: RestList NewAcc Env
-        eval-fold-add-with-env
+        eval-fold-add-int-with-env
       else
-        # Type error - not a number
+        dup sfloat? if
+          sfloat-val
+          # Stack: List Acc Env FloatVal
+          # Convert Acc to float and switch to float fold
+          rot int->float f.add
+          # Stack: List Env FloatAcc
+          swap rot scdr rot rot
+          eval-fold-add-float-with-env
+        else
+          drop drop drop drop "+: argument must be a number" eval-err
+        then
+      then
+    then
+  then
+;
+
+# Fold add with Float accumulator
+: eval-fold-add-float-with-env ( SexprList Float Env -- EvalResult )
+  # Stack: List Acc Env
+  2 pick snil? if
+    # List is empty, return Acc as SFloat
+    drop nip sfloat eval-ok
+  else
+    # Get first element and eval it
+    2 pick scar over eval-with-env
+    # Stack: List Acc Env EvalResult
+    dup eval-err? if
+      nip nip nip
+    else
+      eval-ok-value
+      # Stack: List Acc Env Value
+      dup is-numeric? if
+        sexpr->float
+        # Stack: List Acc Env FloatVal
+        rot f.add
+        # Stack: List Env NewAcc
+        swap rot scdr rot rot
+        eval-fold-add-float-with-env
+      else
         drop drop drop drop "+: argument must be a number" eval-err
       then
     then
@@ -783,23 +862,31 @@ union EvalResult {
         else
           # Binary minus: first - rest
           # Stack: Env FirstVal RestList -> need RestList FirstVal Env
-          rot rot swap eval-fold-sub-with-env
+          rot rot swap eval-fold-sub-int-with-env
         then
       else
-        # Type error - not a number
-        drop drop drop "-: argument must be a number" eval-err
+        dup sfloat? if
+          sfloat-val
+          swap scdr
+          dup snil? if
+            # Unary minus: negate float
+            drop nip 0.0 swap f.subtract sfloat eval-ok
+          else
+            rot rot swap eval-fold-sub-float-with-env
+          then
+        else
+          drop drop drop "-: argument must be a number" eval-err
+        then
       then
     then
   then
 ;
 
-: eval-fold-sub-with-env ( SexprList Int Env -- EvalResult )
+: eval-fold-sub-int-with-env ( SexprList Int Env -- EvalResult )
   # Stack: List Acc Env
   2 pick snil? if
-    # List is empty, return Acc
     drop nip snum eval-ok
   else
-    # Get first element and eval it
     2 pick scar over eval-with-env
     dup eval-err? if
       nip nip nip
@@ -807,14 +894,38 @@ union EvalResult {
       eval-ok-value
       dup snum? if
         snum-val
-        # Stack: List Acc Env FirstVal
         rot swap subtract
-        # Stack: List Env NewAcc
         swap rot scdr rot rot
-        # Stack: RestList NewAcc Env
-        eval-fold-sub-with-env
+        eval-fold-sub-int-with-env
       else
-        # Type error - not a number
+        dup sfloat? if
+          sfloat-val
+          rot int->float swap f.subtract
+          swap rot scdr rot rot
+          eval-fold-sub-float-with-env
+        else
+          drop drop drop drop "-: argument must be a number" eval-err
+        then
+      then
+    then
+  then
+;
+
+: eval-fold-sub-float-with-env ( SexprList Float Env -- EvalResult )
+  2 pick snil? if
+    drop nip sfloat eval-ok
+  else
+    2 pick scar over eval-with-env
+    dup eval-err? if
+      nip nip nip
+    else
+      eval-ok-value
+      dup is-numeric? if
+        sexpr->float
+        rot swap f.subtract
+        swap rot scdr rot rot
+        eval-fold-sub-float-with-env
+      else
         drop drop drop drop "-: argument must be a number" eval-err
       then
     then
@@ -824,16 +935,13 @@ union EvalResult {
 : eval-mul-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
   swap scdr swap  # Skip the * -> RestList Env
-  1 swap eval-fold-mul-with-env
+  1 swap eval-fold-mul-int-with-env
 ;
 
-: eval-fold-mul-with-env ( SexprList Int Env -- EvalResult )
-  # Stack: List Acc Env
+: eval-fold-mul-int-with-env ( SexprList Int Env -- EvalResult )
   2 pick snil? if
-    # List is empty, return Acc
     drop nip snum eval-ok
   else
-    # Get first element and eval it
     2 pick scar over eval-with-env
     dup eval-err? if
       nip nip nip
@@ -841,14 +949,38 @@ union EvalResult {
       eval-ok-value
       dup snum? if
         snum-val
-        # Stack: List Acc Env FirstVal
         rot multiply
-        # Stack: List Env NewAcc
         swap rot scdr rot rot
-        # Stack: RestList NewAcc Env
-        eval-fold-mul-with-env
+        eval-fold-mul-int-with-env
       else
-        # Type error - not a number
+        dup sfloat? if
+          sfloat-val
+          rot int->float f.multiply
+          swap rot scdr rot rot
+          eval-fold-mul-float-with-env
+        else
+          drop drop drop drop "*: argument must be a number" eval-err
+        then
+      then
+    then
+  then
+;
+
+: eval-fold-mul-float-with-env ( SexprList Float Env -- EvalResult )
+  2 pick snil? if
+    drop nip sfloat eval-ok
+  else
+    2 pick scar over eval-with-env
+    dup eval-err? if
+      nip nip nip
+    else
+      eval-ok-value
+      dup is-numeric? if
+        sexpr->float
+        rot f.multiply
+        swap rot scdr rot rot
+        eval-fold-mul-float-with-env
+      else
         drop drop drop drop "*: argument must be a number" eval-err
       then
     then
@@ -872,24 +1004,29 @@ union EvalResult {
         dup snil? if
           drop nip snum eval-ok
         else
-          # Stack: Env FirstVal RestList -> need RestList FirstVal Env
-          rot rot swap eval-fold-div-with-env
+          rot rot swap eval-fold-div-int-with-env
         then
       else
-        # Type error - not a number
-        drop drop drop "/: argument must be a number" eval-err
+        dup sfloat? if
+          sfloat-val
+          swap scdr
+          dup snil? if
+            drop nip sfloat eval-ok
+          else
+            rot rot swap eval-fold-div-float-with-env
+          then
+        else
+          drop drop drop "/: argument must be a number" eval-err
+        then
       then
     then
   then
 ;
 
-: eval-fold-div-with-env ( SexprList Int Env -- EvalResult )
-  # Stack: List Acc Env
+: eval-fold-div-int-with-env ( SexprList Int Env -- EvalResult )
   2 pick snil? if
-    # List is empty, return Acc
     drop nip snum eval-ok
   else
-    # Get first element and eval it
     2 pick scar over eval-with-env
     dup eval-err? if
       nip nip nip
@@ -897,19 +1034,50 @@ union EvalResult {
       eval-ok-value
       dup snum? if
         snum-val
-        # Stack: List Acc Env FirstVal
         dup 0 = if
-          # Division by zero - return error
           drop drop drop drop "/: division by zero" eval-err
         else
           rot swap divide
-          # Stack: List Env NewAcc
           swap rot scdr rot rot
-          # Stack: RestList NewAcc Env
-          eval-fold-div-with-env
+          eval-fold-div-int-with-env
         then
       else
-        # Type error - not a number
+        dup sfloat? if
+          sfloat-val
+          dup 0.0 f.= if
+            drop drop drop drop "/: division by zero" eval-err
+          else
+            rot int->float swap f.divide
+            swap rot scdr rot rot
+            eval-fold-div-float-with-env
+          then
+        else
+          drop drop drop drop "/: argument must be a number" eval-err
+        then
+      then
+    then
+  then
+;
+
+: eval-fold-div-float-with-env ( SexprList Float Env -- EvalResult )
+  2 pick snil? if
+    drop nip sfloat eval-ok
+  else
+    2 pick scar over eval-with-env
+    dup eval-err? if
+      nip nip nip
+    else
+      eval-ok-value
+      dup is-numeric? if
+        sexpr->float
+        dup 0.0 f.= if
+          drop drop drop drop "/: division by zero" eval-err
+        else
+          rot swap f.divide
+          swap rot scdr rot rot
+          eval-fold-div-float-with-env
+        then
+      else
         drop drop drop drop "/: argument must be a number" eval-err
       then
     then
@@ -936,7 +1104,11 @@ union EvalResult {
       dup snum? if
         snum-val dup 0 < if 0 swap subtract then snum eval-ok
       else
-        drop "abs: argument must be a number" eval-err
+        dup sfloat? if
+          sfloat-val dup 0.0 f.< if 0.0 swap f.subtract then sfloat eval-ok
+        else
+          drop "abs: argument must be a number" eval-err
+        then
       then
     then
   then
@@ -958,16 +1130,21 @@ union EvalResult {
       dup snum? if
         snum-val  # -> Env Args FirstVal
         swap scdr rot rot swap  # -> RestArgs FirstVal Env
-        eval-fold-min-with-env
+        eval-fold-min-int-with-env
       else
-        drop drop drop "min: argument must be a number" eval-err
+        dup sfloat? if
+          sfloat-val
+          swap scdr rot rot swap
+          eval-fold-min-float-with-env
+        else
+          drop drop drop "min: argument must be a number" eval-err
+        then
       then
     then
   then
 ;
 
-: eval-fold-min-with-env ( SexprList Int Env -- EvalResult )
-  # Stack: List CurrentMin Env
+: eval-fold-min-int-with-env ( SexprList Int Env -- EvalResult )
   2 pick snil? if
     drop nip snum eval-ok
   else
@@ -977,17 +1154,38 @@ union EvalResult {
     else
       eval-ok-value
       dup snum? if
-        snum-val  # -> List CurrentMin Env Val
-        rot over over > if
-          # Val < CurrentMin, use Val
-          nip
-        else
-          # CurrentMin <= Val, keep CurrentMin
-          drop
-        then
-        # -> List Env NewMin
+        snum-val
+        rot over over > if nip else drop then
         swap rot scdr rot rot
-        eval-fold-min-with-env
+        eval-fold-min-int-with-env
+      else
+        dup sfloat? if
+          sfloat-val
+          rot int->float over over f.> if nip else drop then
+          swap rot scdr rot rot
+          eval-fold-min-float-with-env
+        else
+          drop drop drop drop "min: argument must be a number" eval-err
+        then
+      then
+    then
+  then
+;
+
+: eval-fold-min-float-with-env ( SexprList Float Env -- EvalResult )
+  2 pick snil? if
+    drop nip sfloat eval-ok
+  else
+    2 pick scar over eval-with-env
+    dup eval-err? if
+      nip nip nip
+    else
+      eval-ok-value
+      dup is-numeric? if
+        sexpr->float
+        rot over over f.> if nip else drop then
+        swap rot scdr rot rot
+        eval-fold-min-float-with-env
       else
         drop drop drop drop "min: argument must be a number" eval-err
       then
@@ -1011,16 +1209,21 @@ union EvalResult {
       dup snum? if
         snum-val  # -> Env Args FirstVal
         swap scdr rot rot swap  # -> RestArgs FirstVal Env
-        eval-fold-max-with-env
+        eval-fold-max-int-with-env
       else
-        drop drop drop "max: argument must be a number" eval-err
+        dup sfloat? if
+          sfloat-val
+          swap scdr rot rot swap
+          eval-fold-max-float-with-env
+        else
+          drop drop drop "max: argument must be a number" eval-err
+        then
       then
     then
   then
 ;
 
-: eval-fold-max-with-env ( SexprList Int Env -- EvalResult )
-  # Stack: List CurrentMax Env
+: eval-fold-max-int-with-env ( SexprList Int Env -- EvalResult )
   2 pick snil? if
     drop nip snum eval-ok
   else
@@ -1030,17 +1233,38 @@ union EvalResult {
     else
       eval-ok-value
       dup snum? if
-        snum-val  # -> List CurrentMax Env Val
-        rot over over < if
-          # Val > CurrentMax, use Val
-          nip
-        else
-          # CurrentMax >= Val, keep CurrentMax
-          drop
-        then
-        # -> List Env NewMax
+        snum-val
+        rot over over < if nip else drop then
         swap rot scdr rot rot
-        eval-fold-max-with-env
+        eval-fold-max-int-with-env
+      else
+        dup sfloat? if
+          sfloat-val
+          rot int->float over over f.< if nip else drop then
+          swap rot scdr rot rot
+          eval-fold-max-float-with-env
+        else
+          drop drop drop drop "max: argument must be a number" eval-err
+        then
+      then
+    then
+  then
+;
+
+: eval-fold-max-float-with-env ( SexprList Float Env -- EvalResult )
+  2 pick snil? if
+    drop nip sfloat eval-ok
+  else
+    2 pick scar over eval-with-env
+    dup eval-err? if
+      nip nip nip
+    else
+      eval-ok-value
+      dup is-numeric? if
+        sexpr->float
+        rot over over f.< if nip else drop then
+        swap rot scdr rot rot
+        eval-fold-max-float-with-env
       else
         drop drop drop drop "max: argument must be a number" eval-err
       then
@@ -1112,29 +1336,28 @@ union EvalResult {
 # ============================================
 
 : eval-lt-with-env ( SexprList Env -- EvalResult )
-  # Stack: List Env
   # (< a b) returns #t if a < b, else #f
-  over 2 "<" check-arity  # -> List Env List EvalResult
+  over 2 "<" check-arity
   dup eval-err? if
     nip nip nip
   else
-    drop drop  # -> List Env
-    swap scdr  # Skip the < -> Env Args
-    dup scar 2 pick eval-with-env  # Eval first arg -> Env Args EvalResult
+    drop drop
+    swap scdr
+    dup scar 2 pick eval-with-env
     dup eval-err? if
-      nip nip nip  # Error - propagate
+      nip nip nip
     else
-      eval-ok-value  # -> Env Args FirstVal
-      dup snum? if
-        snum-val  # -> Env Args First
-        swap scdr scar 2 pick eval-with-env  # Eval second arg -> Env First EvalResult
+      eval-ok-value
+      dup is-numeric? if
+        sexpr->float
+        swap scdr scar 2 pick eval-with-env
         dup eval-err? if
-          nip nip nip  # Error - propagate
+          nip nip nip
         else
-          eval-ok-value  # -> Env First SecondVal
-          dup snum? if
-            snum-val  # -> Env First Second
-            < if "#t" else "#f" then ssym eval-ok nip
+          eval-ok-value
+          dup is-numeric? if
+            sexpr->float
+            f.< if "#t" else "#f" then ssym eval-ok nip
           else
             drop drop drop "<: arguments must be numbers" eval-err
           then
@@ -1148,27 +1371,27 @@ union EvalResult {
 
 : eval-gt-with-env ( SexprList Env -- EvalResult )
   # (> a b) returns #t if a > b, else #f
-  over 2 ">" check-arity  # -> List Env List EvalResult
+  over 2 ">" check-arity
   dup eval-err? if
-    nip nip nip  # -> EvalResult
+    nip nip nip
   else
-    drop drop  # -> List Env
-    swap scdr  # -> Env Args
-    dup scar 2 pick eval-with-env  # -> Env Args EvalResult
+    drop drop
+    swap scdr
+    dup scar 2 pick eval-with-env
     dup eval-err? if
-      nip nip nip  # -> EvalResult
+      nip nip nip
     else
-      eval-ok-value  # -> Env Args FirstVal
-      dup snum? if
-        snum-val  # -> Env Args First
-        swap scdr scar 2 pick eval-with-env  # -> Env First EvalResult
+      eval-ok-value
+      dup is-numeric? if
+        sexpr->float
+        swap scdr scar 2 pick eval-with-env
         dup eval-err? if
-          nip nip nip  # -> EvalResult
+          nip nip nip
         else
-          eval-ok-value  # -> Env First SecondVal
-          dup snum? if
-            snum-val  # -> Env First Second
-            > if "#t" else "#f" then ssym eval-ok nip  # -> EvalResult
+          eval-ok-value
+          dup is-numeric? if
+            sexpr->float
+            f.> if "#t" else "#f" then ssym eval-ok nip
           else
             drop drop drop ">: arguments must be numbers" eval-err
           then
@@ -1181,28 +1404,28 @@ union EvalResult {
 ;
 
 : eval-lte-with-env ( SexprList Env -- EvalResult )
-  # (<= a b) returns #t if a <= b, else #f
-  over 2 "<=" check-arity  # -> List Env List EvalResult
+  # (<= a b) returns #t if a <= b (NOT a > b), else #f
+  over 2 "<=" check-arity
   dup eval-err? if
-    nip nip nip  # -> EvalResult
+    nip nip nip
   else
-    drop drop  # -> List Env
-    swap scdr  # -> Env Args
-    dup scar 2 pick eval-with-env  # -> Env Args EvalResult
+    drop drop
+    swap scdr
+    dup scar 2 pick eval-with-env
     dup eval-err? if
-      nip nip nip  # -> EvalResult
+      nip nip nip
     else
-      eval-ok-value  # -> Env Args FirstVal
-      dup snum? if
-        snum-val  # -> Env Args First
-        swap scdr scar 2 pick eval-with-env  # -> Env First EvalResult
+      eval-ok-value
+      dup is-numeric? if
+        sexpr->float
+        swap scdr scar 2 pick eval-with-env
         dup eval-err? if
-          nip nip nip  # -> EvalResult
+          nip nip nip
         else
-          eval-ok-value  # -> Env First SecondVal
-          dup snum? if
-            snum-val  # -> Env First Second
-            <= if "#t" else "#f" then ssym eval-ok nip  # -> EvalResult
+          eval-ok-value
+          dup is-numeric? if
+            sexpr->float
+            f.> if "#f" else "#t" then ssym eval-ok nip
           else
             drop drop drop "<=: arguments must be numbers" eval-err
           then
@@ -1215,28 +1438,28 @@ union EvalResult {
 ;
 
 : eval-gte-with-env ( SexprList Env -- EvalResult )
-  # (>= a b) returns #t if a >= b, else #f
-  over 2 ">=" check-arity  # -> List Env List EvalResult
+  # (>= a b) returns #t if a >= b (NOT a < b), else #f
+  over 2 ">=" check-arity
   dup eval-err? if
-    nip nip nip  # -> EvalResult
+    nip nip nip
   else
-    drop drop  # -> List Env
-    swap scdr  # -> Env Args
-    dup scar 2 pick eval-with-env  # -> Env Args EvalResult
+    drop drop
+    swap scdr
+    dup scar 2 pick eval-with-env
     dup eval-err? if
-      nip nip nip  # -> EvalResult
+      nip nip nip
     else
-      eval-ok-value  # -> Env Args FirstVal
-      dup snum? if
-        snum-val  # -> Env Args First
-        swap scdr scar 2 pick eval-with-env  # -> Env First EvalResult
+      eval-ok-value
+      dup is-numeric? if
+        sexpr->float
+        swap scdr scar 2 pick eval-with-env
         dup eval-err? if
-          nip nip nip  # -> EvalResult
+          nip nip nip
         else
-          eval-ok-value  # -> Env First SecondVal
-          dup snum? if
-            snum-val  # -> Env First Second
-            >= if "#t" else "#f" then ssym eval-ok nip  # -> EvalResult
+          eval-ok-value
+          dup is-numeric? if
+            sexpr->float
+            f.< if "#f" else "#t" then ssym eval-ok nip
           else
             drop drop drop ">=: arguments must be numbers" eval-err
           then
@@ -1250,27 +1473,27 @@ union EvalResult {
 
 : eval-eq-with-env ( SexprList Env -- EvalResult )
   # (= a b) returns #t if a equals b, else #f
-  over 2 "=" check-arity  # -> List Env List EvalResult
+  over 2 "=" check-arity
   dup eval-err? if
-    nip nip nip  # -> EvalResult
+    nip nip nip
   else
-    drop drop  # -> List Env
-    swap scdr  # -> Env Args
-    dup scar 2 pick eval-with-env  # -> Env Args EvalResult
+    drop drop
+    swap scdr
+    dup scar 2 pick eval-with-env
     dup eval-err? if
-      nip nip nip  # -> EvalResult
+      nip nip nip
     else
-      eval-ok-value  # -> Env Args FirstVal
-      dup snum? if
-        snum-val  # -> Env Args First
-        swap scdr scar 2 pick eval-with-env  # -> Env First EvalResult
+      eval-ok-value
+      dup is-numeric? if
+        sexpr->float
+        swap scdr scar 2 pick eval-with-env
         dup eval-err? if
-          nip nip nip  # -> EvalResult
+          nip nip nip
         else
-          eval-ok-value  # -> Env First SecondVal
-          dup snum? if
-            snum-val  # -> Env First Second
-            = if "#t" else "#f" then ssym eval-ok nip  # -> EvalResult
+          eval-ok-value
+          dup is-numeric? if
+            sexpr->float
+            f.= if "#t" else "#f" then ssym eval-ok nip
           else
             drop drop drop "=: arguments must be numbers" eval-err
           then
@@ -1296,6 +1519,26 @@ union EvalResult {
   else
     dup eval-ok-value sexpr-to-string io.write-line  # Print it
     # Return the printed value (enables chaining like (+ 1 (print 2)))
+  then
+;
+
+# Display: like print but outputs strings without quotes (for raw output)
+: sexpr-to-display-string ( Sexpr -- String )
+  dup sstring? if
+    sstring-val  # Raw string without quotes
+  else
+    sexpr-to-string  # Other types use normal conversion
+  then
+;
+
+: eval-display-with-env ( SexprList Env -- EvalResult )
+  # (display expr) - like print but outputs strings raw (no quotes)
+  swap scdr scar
+  swap eval-with-env
+  dup eval-err? if
+    # Error - return it
+  else
+    dup eval-ok-value sexpr-to-display-string io.write-line
   then
 ;
 
@@ -1329,6 +1572,223 @@ union EvalResult {
         drop "exit: argument must be a number" eval-err
       then
     then
+  then
+;
+
+# ============================================
+# JSON Parsing
+# ============================================
+
+: eval-json-parse-with-env ( SexprList Env -- EvalResult )
+  # (json-parse str) - parse JSON string into S-expression
+  over 1 "json-parse" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop  # -> List Env
+    swap scdr scar  # Get the string argument -> Env Arg
+    swap eval-with-env  # Evaluate it -> EvalResult
+    dup eval-err? if
+      # Error - propagate
+    else
+      eval-ok-value
+      dup sstring? if
+        sstring-val json-parse-string-to-sexpr
+        dup json-ok? if
+          json-ok-value eval-ok
+        else
+          json-err-msg eval-err
+        then
+      else
+        drop "json-parse: argument must be a string" eval-err
+      then
+    then
+  then
+;
+
+# ============================================
+# JSON Encoding
+# ============================================
+
+: eval-json-encode-with-env ( SexprList Env -- EvalResult )
+  # (json-encode sexpr) - encode S-expression as JSON string
+  over 1 "json-encode" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop  # -> List Env
+    swap scdr scar  # Get the argument -> Env Arg
+    swap eval-with-env  # Evaluate it -> EvalResult
+    dup eval-err? if
+      # Error - propagate
+    else
+      eval-ok-value
+      sexpr-to-json sstring eval-ok
+    then
+  then
+;
+
+# Convert Sexpr to JSON string
+: sexpr-to-json ( Sexpr -- String )
+  dup snum? if
+    snum-val int->string
+  else dup sfloat? if
+    sfloat-val float->string
+  else dup sstring? if
+    sstring-val json-encode-string
+  else dup ssym? if
+    ssym-val
+    dup "#t" string.equal? if
+      drop "true"
+    else dup "#f" string.equal? if
+      drop "false"
+    else dup "null" string.equal? if
+      drop "null"
+    else
+      # Regular symbol - encode as string
+      json-encode-string
+    then then then
+  else dup slist? if
+    slist-val
+    dup snil? if
+      drop "[]"
+    else
+      # Check if it looks like an object (list of (key value) pairs)
+      dup json-is-object-list? if
+        json-encode-object
+      else
+        json-encode-array
+      then
+    then
+  else
+    drop "null"  # Default for closures, macros, etc.
+  then then then then then
+;
+
+# Check if a list looks like an object (all elements are 2-element lists)
+: json-is-object-list? ( SexprList -- Int )
+  dup snil? if
+    drop 1  # Empty list could be object
+  else
+    dup scar
+    dup slist? if
+      slist-val
+      dup snil? if
+        drop drop 0  # Empty pair - not valid
+      else
+        scdr
+        dup snil? if
+          drop drop 0  # Single element - not valid
+        else
+          scdr snil? if
+            # Exactly 2 elements - check rest
+            scdr json-is-object-list?
+          else
+            drop 0  # More than 2 elements - not valid
+          then
+        then
+      then
+    else
+      drop drop 0  # Not a list - not valid pair
+    then
+  then
+;
+
+# Encode an array (list that's not object-like)
+: json-encode-array ( SexprList -- String )
+  "[" swap json-encode-array-items "]" string.concat string.concat ;
+
+: json-encode-array-items ( SexprList -- String )
+  dup snil? if
+    drop ""
+  else
+    dup scar sexpr-to-json
+    swap scdr
+    dup snil? if
+      drop
+    else
+      "," swap json-encode-array-items string.concat string.concat
+    then
+  then
+;
+
+# Encode an object (list of (key value) pairs)
+: json-encode-object ( SexprList -- String )
+  "{" swap json-encode-object-items "}" string.concat string.concat ;
+
+: json-encode-object-items ( SexprList -- String )
+  dup snil? if
+    drop ""
+  else
+    dup scar slist-val  # Get the pair
+    dup scar  # Get key
+    dup ssym? if ssym-val else sstring-val then
+    json-encode-string
+    ":" string.concat
+    swap scdr scar sexpr-to-json  # Get value and encode
+    string.concat
+    swap scdr
+    dup snil? if
+      drop
+    else
+      "," swap json-encode-object-items string.concat string.concat
+    then
+  then
+;
+
+# Encode a string with proper escaping
+: json-encode-string ( String -- String )
+  34 char->string  # Opening quote
+  swap json-encode-string-chars
+  34 char->string string.concat  # Closing quote
+  string.concat
+;
+
+: json-encode-string-chars ( String -- String )
+  0 "" json-encode-string-loop ;
+
+: json-encode-string-loop ( String Int String -- String )
+  # Stack: input pos acc
+  2 pick string.length 2 pick <= if
+    nip nip  # Return accumulated string (drop input and pos)
+  else
+    2 pick 2 pick string.char-at  # Get char at input[pos]
+    dup 34 = if  # Quote - escape with backslash
+      drop  # input pos acc (char dropped)
+      92 char->string 34 char->string string.concat  # build escape
+      string.concat  # input pos (acc + escape)
+      swap 1 add swap  # Increment pos
+      json-encode-string-loop
+    else dup 92 = if  # Backslash - double it
+      drop
+      92 char->string 92 char->string string.concat
+      string.concat
+      swap 1 add swap
+      json-encode-string-loop
+    else dup 10 = if  # Newline - backslash n
+      drop
+      92 char->string 110 char->string string.concat
+      string.concat
+      swap 1 add swap
+      json-encode-string-loop
+    else dup 9 = if  # Tab - backslash t
+      drop
+      92 char->string 116 char->string string.concat
+      string.concat
+      swap 1 add swap
+      json-encode-string-loop
+    else dup 13 = if  # Carriage return - backslash r
+      drop
+      92 char->string 114 char->string string.concat
+      string.concat
+      swap 1 add swap
+      json-encode-string-loop
+    else
+      # Regular char - append to acc
+      char->string string.concat  # input pos (acc + charStr)
+      swap 1 add swap  # Increment pos
+      json-encode-string-loop
+    then then then then then
   then
 ;
 
@@ -2486,7 +2946,7 @@ union EvalResult {
 
 : eval-number?-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
-  # (number? expr) - returns #t if expr is a number, #f otherwise
+  # (number? expr) - returns #t if expr is a number (int or float), #f otherwise
   over 1 "number?" check-arity  # -> List Env List EvalResult
   dup eval-err? if
     nip nip nip
@@ -2498,7 +2958,64 @@ union EvalResult {
       # Error - propagate as-is
     else
       eval-ok-value
+      dup snum? swap sfloat? or if "#t" else "#f" then ssym eval-ok
+    then
+  then
+;
+
+: eval-integer?-with-env ( SexprList Env -- EvalResult )
+  # Stack: List Env
+  # (integer? expr) - returns #t if expr is an integer, #f otherwise
+  over 1 "integer?" check-arity  # -> List Env List EvalResult
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop  # -> List Env
+    swap scdr scar  # Skip 'integer?', get arg -> Env Arg
+    swap eval-with-env  # Eval arg -> EvalResult
+    dup eval-err? if
+      # Error - propagate as-is
+    else
+      eval-ok-value
       snum? if "#t" else "#f" then ssym eval-ok
+    then
+  then
+;
+
+: eval-float?-with-env ( SexprList Env -- EvalResult )
+  # Stack: List Env
+  # (float? expr) - returns #t if expr is a float, #f otherwise
+  over 1 "float?" check-arity  # -> List Env List EvalResult
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop  # -> List Env
+    swap scdr scar  # Skip 'float?', get arg -> Env Arg
+    swap eval-with-env  # Eval arg -> EvalResult
+    dup eval-err? if
+      # Error - propagate as-is
+    else
+      eval-ok-value
+      sfloat? if "#t" else "#f" then ssym eval-ok
+    then
+  then
+;
+
+: eval-string?-with-env ( SexprList Env -- EvalResult )
+  # Stack: List Env
+  # (string? expr) - returns #t if expr is a string, #f otherwise
+  over 1 "string?" check-arity  # -> List Env List EvalResult
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop  # -> List Env
+    swap scdr scar  # Skip 'string?', get arg -> Env Arg
+    swap eval-with-env  # Eval arg -> EvalResult
+    dup eval-err? if
+      # Error - propagate as-is
+    else
+      eval-ok-value
+      sstring? if "#t" else "#f" then ssym eval-ok
     then
   then
 ;
@@ -2606,10 +3123,16 @@ union EvalResult {
       else over slist? if
         # Stack: Depth A B -> ListA ListB (Depth-1) -> Bool (recursive)
         slist-val swap slist-val rot 1 subtract sexpr-list-equal-depth?
+      else over sstring? if
+        # String comparison
+        sstring-val swap sstring-val string.equal? nip
+      else over sfloat? if
+        # Float comparison
+        sfloat-val swap sfloat-val f.= nip
       else
         # Closures/macros - compare by identity (always false for now)
         drop drop drop 0
-      then then then
+      then then then then then
     else
       # Different types - not equal
       drop drop drop 0

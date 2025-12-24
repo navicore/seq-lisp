@@ -19,6 +19,9 @@
   (append comparison-tests
   (append predicate-tests
   (append list-tests
+  (append string-tests
+  (append float-tests
+  (append json-tests
   (append closure-tests
   (append higher-order-tests
   (append recursion-tests
@@ -32,7 +35,7 @@
   (append gensym-tests
   (append parser-edge-tests
   (append io-tests
-          suggestion-tests))))))))))))))))))
+          suggestion-tests)))))))))))))))))))))
 
 ;; ============================================
 ;; Run Tests and Report
