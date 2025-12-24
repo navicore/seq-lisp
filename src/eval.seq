@@ -1572,14 +1572,19 @@ union EvalResult {
 
 : eval-read-line-with-env ( SexprList Env -- EvalResult )
   # (read-line) - no arguments, reads one line from stdin
-  drop drop  # Ignore args and env
-  io.read-line+
-  0 = if
-    # EOF - return #f
-    drop "#f" ssym eval-ok
+  over 0 "read-line" check-arity
+  dup eval-err? if
+    nip nip nip
   else
-    # Got a line - return as string
-    sstring eval-ok
+    drop drop drop drop
+    io.read-line+
+    0 = if
+      # EOF - return #f
+      drop "#f" ssym eval-ok
+    else
+      # Got a line - return as string
+      sstring eval-ok
+    then
   then
 ;
 
@@ -1620,34 +1625,34 @@ union EvalResult {
     # Stack: List Env
     # Evaluate all 3 args first, then check types
     over scdr dup scar swap scdr dup scar swap scdr scar
-    # Stack: List Env StrExpr StartExpr EndExpr
-    # positions: 0=EndExpr, 1=StartExpr, 2=StrExpr, 3=Env, 4=List
-    3 pick  # -> List Env StrExpr StartExpr EndExpr Env
-    eval-with-env  # -> List Env StrExpr StartExpr EndResult
+    # Stack: List Env StrExpr StartExpr LengthExpr
+    # positions: 0=LengthExpr, 1=StartExpr, 2=StrExpr, 3=Env, 4=List
+    3 pick  # -> List Env StrExpr StartExpr LengthExpr Env
+    eval-with-env  # -> List Env StrExpr StartExpr LengthResult
     dup eval-err? if
       nip nip nip nip
     else
-      eval-ok-value  # -> List Env StrExpr StartExpr EndVal
+      eval-ok-value  # -> List Env StrExpr StartExpr LengthVal
       dup snum? if
-        snum-val  # -> List Env StrExpr StartExpr EndInt
-        # positions: 0=EndInt, 1=StartExpr, 2=StrExpr, 3=Env, 4=List
-        swap 3 pick eval-with-env  # -> List Env StrExpr EndInt StartResult
+        snum-val  # -> List Env StrExpr StartExpr LengthInt
+        # positions: 0=LengthInt, 1=StartExpr, 2=StrExpr, 3=Env, 4=List
+        swap 3 pick eval-with-env  # -> List Env StrExpr LengthInt StartResult
         dup eval-err? if
           nip nip nip nip
         else
-          eval-ok-value  # -> List Env StrExpr EndInt StartVal
+          eval-ok-value  # -> List Env StrExpr LengthInt StartVal
           dup snum? if
-            snum-val  # -> List Env StrExpr EndInt StartInt
-            # positions: 0=StartInt, 1=EndInt, 2=StrExpr, 3=Env, 4=List
-            rot 3 pick eval-with-env  # -> List Env EndInt StartInt StrResult
+            snum-val  # -> List Env StrExpr LengthInt StartInt
+            # positions: 0=StartInt, 1=LengthInt, 2=StrExpr, 3=Env, 4=List
+            rot 3 pick eval-with-env  # -> List Env LengthInt StartInt StrResult
             dup eval-err? if
               nip nip nip nip
             else
-              eval-ok-value  # -> List Env EndInt StartInt StrVal
+              eval-ok-value  # -> List Env LengthInt StartInt StrVal
               dup sstring? if
-                sstring-val  # -> List Env EndInt StartInt StrString
-                rot rot  # -> List Env StrString EndInt StartInt
-                swap  # -> List Env StrString StartInt EndInt
+                sstring-val  # -> List Env LengthInt StartInt StrString
+                rot rot  # -> List Env StrString LengthInt StartInt
+                swap  # -> List Env StrString StartInt LengthInt
                 string.substring sstring  # -> List Env ResultStr
                 nip nip eval-ok
               else
@@ -1659,7 +1664,7 @@ union EvalResult {
           then
         then
       else
-        drop drop drop drop drop "substring: end must be a number" eval-err
+        drop drop drop drop drop "substring: length must be a number" eval-err
       then
     then
   then

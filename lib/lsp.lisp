@@ -37,15 +37,21 @@
 (define (lsp-read-headers) (lsp-read-headers-loop 0))
 
 ; Read message body of given length
-; Note: This reads one line and extracts 'length' characters.
-; Works for compact single-line JSON (typical LSP messages).
-; Multi-line or pretty-printed JSON would require buffered reading.
+; Accumulates lines until we have enough characters
+(define (lsp-read-body-loop remaining acc)
+  (if (<= remaining 0)
+      acc
+      (let line (read-line)
+        (if (equal? line #f)
+            acc
+            (let line-len (string-length line)
+              (if (>= line-len remaining)
+                  (string-append acc (substring line 0 remaining))
+                  (lsp-read-body-loop (- remaining line-len)
+                                      (string-append acc line))))))))
+
 (define (lsp-read-body length)
-  (let line (read-line)
-    (if (equal? line #f) ""
-      (if (>= (string-length line) length)
-        (substring line 0 length)
-        line))))
+  (lsp-read-body-loop length ""))
 
 (define (lsp-send response)
   (let json-str (json-encode response)
@@ -76,14 +82,41 @@
         ((equal? method "exit") (exit 0))
         (else '())))))
 
+; Send JSON-RPC error response
+(define (lsp-send-error id code message)
+  (lsp-send
+    (list (list "jsonrpc" "2.0")
+          (list "id" id)
+          (list "error"
+            (list (list "code" code)
+                  (list "message" message))))))
+
+; Check if try result is an error: (error message)
+(define (try-error? val)
+  (if (list? val)
+      (if (null? val) #f
+          (equal? (car val) 'error))
+      #f))
+
+; Extract value from (ok value)
+(define (try-value val)
+  (car (cdr val)))
+
 (define (lsp-loop)
   (let cl (lsp-read-headers)
     (if (<= cl 0)
         '()
         (let body (lsp-read-body cl)
-          (let msg (json-parse body)
-            (begin
-              (lsp-dispatch msg)
-              (lsp-loop)))))))
+          (let parse-result (try (json-parse body))
+            (if (try-error? parse-result)
+                ; Parse error - send error response and continue
+                (begin
+                  (lsp-send-error '() -32700 "Parse error")
+                  (lsp-loop))
+                ; Success - extract value and dispatch
+                (let msg (try-value parse-result)
+                  (begin
+                    (lsp-dispatch msg)
+                    (lsp-loop)))))))))
 
 (lsp-loop)
