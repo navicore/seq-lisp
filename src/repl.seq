@@ -308,6 +308,11 @@ include ffi:libedit
     then
 ;
 
+# Check if argument is LSP flag
+: is-lsp-flag ( String -- Int )
+    "--lsp" string.equal?
+;
+
 # Print version information
 : print-version ( -- )
     "seqlisp " seqlisp-version string.concat io.write-line
@@ -320,6 +325,7 @@ include ffi:libedit
     "Usage:" io.write-line
     "  seqlisp              Interactive REPL" io.write-line
     "  seqlisp <file>       Run a Lisp file" io.write-line
+    "  seqlisp --lsp        Run as Language Server" io.write-line
     "  seqlisp --version    Show version" io.write-line
     "  seqlisp --help       Show this help" io.write-line
     "" io.write-line
@@ -342,6 +348,16 @@ include ffi:libedit
     then
 ;
 
+# Run LSP server (load lib/lsp.lisp)
+: run-lsp ( -- )
+    "lib/lsp.lisp" file.slurp-safe if
+        tokenize parse-all
+        env-empty eval-all-quiet drop
+    else
+        drop "Error: Cannot find lib/lsp.lisp" io.write-line
+    then
+;
+
 : main ( -- )
     args.count 1 > if
         1 args.at
@@ -351,7 +367,11 @@ include ffi:libedit
             dup is-help-flag if
                 drop print-help
             else
-                run-file-safe
+                dup is-lsp-flag if
+                    drop run-lsp
+                else
+                    run-file-safe
+                then
             then
         then
     else
