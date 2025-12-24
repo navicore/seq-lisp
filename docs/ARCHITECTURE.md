@@ -198,7 +198,7 @@ All `eval-*-with-env` functions return `EvalResult`, enabling:
 | Arity | `(car 1 2)` | `car expects 1 argument(s)` |
 | Type | `(car 42)` | `car: argument must be a list` |
 | Undefined | `(foo)` | `undefined symbol: foo` |
-| Division | `(/ 1 0)` | `division by zero` |
+| Division | `(/ 1 0)` | `/: division by zero` |
 
 ### Tail Call Optimization (TCO)
 
