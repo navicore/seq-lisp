@@ -304,6 +304,10 @@ union EvalResult {
   "fold" check-candidate
   "apply" check-candidate
   "print" check-candidate
+  "read-line" check-candidate
+  "string-length" check-candidate
+  "substring" check-candidate
+  "string-append" check-candidate
   "exit" check-candidate
   "try" check-candidate
   "quasiquote" check-candidate
@@ -681,23 +685,40 @@ union EvalResult {
   else dup "try" string.equal? if
     drop eval-try-with-env
   else
+    dispatch-string-ops
+  then then then
+;
+
+# ----------------------------------------
+# Group 6b: String Operations
+# ----------------------------------------
+: dispatch-string-ops ( SexprList Env String -- EvalResult )
+  dup "string-length" string.equal? if
+    drop eval-string-length-with-env
+  else dup "substring" string.equal? if
+    drop eval-substring-with-env
+  else dup "string-append" string.equal? if
+    drop eval-string-append-with-env
+  else
     dispatch-io
   then then then
 ;
 
 # ----------------------------------------
-# Group 7: I/O (print, exit)
+# Group 7: I/O (print, read-line, exit)
 # ----------------------------------------
 : dispatch-io ( SexprList Env String -- EvalResult )
   dup "print" string.equal? if
     drop eval-print-with-env
   else dup "display" string.equal? if
     drop eval-display-with-env
+  else dup "read-line" string.equal? if
+    drop eval-read-line-with-env
   else dup "exit" string.equal? if
     drop eval-exit-with-env
   else
     dispatch-json
-  then then then
+  then then then then
 ;
 
 # ----------------------------------------
@@ -1539,6 +1560,147 @@ union EvalResult {
     # Error - return it
   else
     dup eval-ok-value sexpr-to-display-string io.write-line
+  then
+;
+
+# ============================================
+# Read-Line (read a line from stdin)
+#
+# Usage:
+#   (read-line)  ; Returns string with newline, or #f on EOF
+# ============================================
+
+: eval-read-line-with-env ( SexprList Env -- EvalResult )
+  # (read-line) - no arguments, reads one line from stdin
+  over 0 "read-line" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop drop drop
+    io.read-line+
+    0 = if
+      # EOF - return #f
+      drop "#f" ssym eval-ok
+    else
+      # Got a line - return as string
+      sstring eval-ok
+    then
+  then
+;
+
+# ============================================
+# String Operations
+# ============================================
+
+# (string-length str) - returns length of string
+: eval-string-length-with-env ( SexprList Env -- EvalResult )
+  over 1 "string-length" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop
+    swap scdr scar  # Get string arg
+    swap eval-with-env
+    dup eval-err? if
+      # Error - propagate
+    else
+      eval-ok-value
+      dup sstring? if
+        sstring-val string.length snum eval-ok
+      else
+        drop "string-length: argument must be a string" eval-err
+      then
+    then
+  then
+;
+
+# (substring str start length) - returns substring starting at 'start' with 'length' characters
+# Out of bounds: returns empty string or as many characters as available (graceful clamping)
+: eval-substring-with-env ( SexprList Env -- EvalResult )
+  over 3 "substring" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop
+    # Stack: List Env
+    # Evaluate all 3 args first, then check types
+    over scdr dup scar swap scdr dup scar swap scdr scar
+    # Stack: List Env StrExpr StartExpr LengthExpr
+    # positions: 0=LengthExpr, 1=StartExpr, 2=StrExpr, 3=Env, 4=List
+    3 pick  # -> List Env StrExpr StartExpr LengthExpr Env
+    eval-with-env  # -> List Env StrExpr StartExpr LengthResult
+    dup eval-err? if
+      nip nip nip nip
+    else
+      eval-ok-value  # -> List Env StrExpr StartExpr LengthVal
+      dup snum? if
+        snum-val  # -> List Env StrExpr StartExpr LengthInt
+        # positions: 0=LengthInt, 1=StartExpr, 2=StrExpr, 3=Env, 4=List
+        swap 3 pick eval-with-env  # -> List Env StrExpr LengthInt StartResult
+        dup eval-err? if
+          nip nip nip nip
+        else
+          eval-ok-value  # -> List Env StrExpr LengthInt StartVal
+          dup snum? if
+            snum-val  # -> List Env StrExpr LengthInt StartInt
+            # positions: 0=StartInt, 1=LengthInt, 2=StrExpr, 3=Env, 4=List
+            rot 3 pick eval-with-env  # -> List Env LengthInt StartInt StrResult
+            dup eval-err? if
+              nip nip nip nip
+            else
+              eval-ok-value  # -> List Env LengthInt StartInt StrVal
+              dup sstring? if
+                sstring-val  # -> List Env LengthInt StartInt StrString
+                rot rot  # -> List Env StrString LengthInt StartInt
+                swap  # -> List Env StrString StartInt LengthInt
+                string.substring sstring  # -> List Env ResultStr
+                nip nip eval-ok
+              else
+                drop drop drop drop drop "substring: first argument must be a string" eval-err
+              then
+            then
+          else
+            drop drop drop drop drop "substring: start must be a number" eval-err
+          then
+        then
+      else
+        drop drop drop drop drop "substring: length must be a number" eval-err
+      then
+    then
+  then
+;
+
+# (string-append str1 str2 ...) - concatenate strings
+: eval-string-append-with-env ( SexprList Env -- EvalResult )
+  # Stack: List Env
+  over scdr  # Skip function name, get args -> List Env Args
+  rot drop   # -> Env Args
+  "" eval-string-append-loop
+;
+
+: eval-string-append-loop ( Env SexprList String -- EvalResult )
+  # Stack: Env Args Acc
+  over snil? if
+    # Done - return accumulated string
+    nip nip sstring eval-ok
+  else
+    # Evaluate next arg
+    over scar  # -> Env Args Acc ArgExpr
+    3 pick eval-with-env  # -> Env Args Acc Result
+    dup eval-err? if
+      # Error - propagate
+      nip nip nip
+    else
+      eval-ok-value  # -> Env Args Acc Val
+      dup sstring? if
+        sstring-val  # -> Env Args Acc StrVal
+        string.concat  # -> Env Args NewAcc
+        swap scdr swap  # -> Env RestArgs NewAcc
+        eval-string-append-loop
+      else
+        drop drop drop drop "string-append: all arguments must be strings" eval-err
+      then
+    then
   then
 ;
 
