@@ -59,6 +59,15 @@
       (let header (string-append "Content-Length: " (json-encode content-length) "\r\n\r\n")
         (display (string-append header json-str))))))
 
+; Send JSON-RPC error response
+(define (lsp-send-error id code message)
+  (lsp-send
+    (list (list "jsonrpc" "2.0")
+          (list "id" id)
+          (list "error"
+            (list (list "code" code)
+                  (list "message" message))))))
+
 (define (lsp-dispatch msg)
   (let method (assoc-val 'method msg)
     (let id (assoc-val 'id msg)
@@ -80,16 +89,11 @@
                  (list "id" id)
                  (list "result" '()))))
         ((equal? method "exit") (exit 0))
-        (else '())))))
-
-; Send JSON-RPC error response
-(define (lsp-send-error id code message)
-  (lsp-send
-    (list (list "jsonrpc" "2.0")
-          (list "id" id)
-          (list "error"
-            (list (list "code" code)
-                  (list "message" message))))))
+        (else
+          ; For unknown methods: notifications (no id) are ignored, requests get error
+          (if (null? id)
+              '()
+              (lsp-send-error id -32601 "Method not found")))))))
 
 ; Check if try result is an error: (error message)
 (define (try-error? val)
