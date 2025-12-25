@@ -8,6 +8,12 @@
 ; Features:
 ;   - Real-time diagnostics with line/column positions
 ;   - Uses eval-with-errors for validation
+;
+; Limitations:
+;   - Parser errors (unclosed parens, etc.) are not currently detected
+;     as the parser attempts recovery rather than failing.
+;   - Only the first expression in a document is validated.
+;   - Evaluation runs without timeout or resource limits.
 
 (define (string-starts-with? str prefix)
   (if (< (string-length str) (string-length prefix)) #f
@@ -143,25 +149,42 @@
           (equal? (car result) 'error))
       #f))
 
+; Safe nth accessor - returns default if index out of bounds
+(define (safe-nth n lst default)
+  (if (null? lst)
+      default
+      (if (= n 0)
+          (car lst)
+          (safe-nth (- n 1) (cdr lst) default))))
+
 ; Extract error message from (error message line col end-line end-col)
+; Returns "Unknown error" if malformed
 (define (eval-error-message result)
-  (car (cdr result)))
+  (safe-nth 1 result "Unknown error"))
 
 ; Extract start line from error result (convert to 0-based)
+; Returns 0 if malformed
 (define (eval-error-line result)
-  (- (car (cdr (cdr result))) 1))
+  (let val (safe-nth 2 result 1)
+    (if (number? val) (- val 1) 0)))
 
 ; Extract start column from error result (convert to 0-based)
+; Returns 0 if malformed
 (define (eval-error-col result)
-  (- (car (cdr (cdr (cdr result)))) 1))
+  (let val (safe-nth 3 result 1)
+    (if (number? val) (- val 1) 0)))
 
 ; Extract end line from error result (convert to 0-based)
+; Returns 0 if malformed
 (define (eval-error-end-line result)
-  (- (car (cdr (cdr (cdr (cdr result))))) 1))
+  (let val (safe-nth 4 result 1)
+    (if (number? val) (- val 1) 0)))
 
 ; Extract end column from error result (convert to 0-based)
+; Returns 0 if malformed
 (define (eval-error-end-col result)
-  (- (car (cdr (cdr (cdr (cdr (cdr result)))))) 1))
+  (let val (safe-nth 5 result 1)
+    (if (number? val) (- val 1) 0)))
 
 ; Validate document text and return list of diagnostics
 ; Uses eval-with-errors to parse and evaluate, returns diagnostics on error

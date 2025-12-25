@@ -80,6 +80,7 @@ lisp-test: build
         tests/lisp/core/strings.lisp \
         tests/lisp/core/floats.lisp \
         tests/lisp/core/json.lisp \
+        tests/lisp/core/lsp_builtins.lisp \
         tests/lisp/functions/closures.lisp \
         tests/lisp/functions/higher_order.lisp \
         tests/lisp/functions/recursion.lisp \

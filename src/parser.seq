@@ -36,12 +36,13 @@ union ParseResult {
   # Stack: span1 span2
   over span? over span? and if
     # Both have spans - combine them
-    over span-start-line   # span1 span2 start-line
-    2 pick span-start-col  # span1 span2 start-line start-col
-    2 pick span-end-line   # span1 span2 start-line start-col end-line
-    3 pick span-end-col    # span1 span2 start-line start-col end-line end-col
-    make-span              # span1 span2 combined-span
-    nip nip                # combined-span
+    # Extract values carefully to avoid stack index errors
+    dup span-end-col           # span1 span2 end-col
+    over span-end-line         # span1 span2 end-col end-line
+    3 pick span-start-col      # span1 span2 end-col end-line start-col
+    4 pick span-start-line     # span1 span2 end-col end-line start-col start-line
+    swap rot rot swap          # span1 span2 start-line start-col end-line end-col
+    make-span nip nip          # combined-span
   else
     # At least one has no span - prefer one that does, or return no-span
     dup span? if
