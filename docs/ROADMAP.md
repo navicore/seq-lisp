@@ -88,7 +88,7 @@ The current architecture is sound for adding comprehensive error handling. No fu
 - [x] List utilities: `append`, `reverse`
 - [x] List utilities: `map`, `filter`, `fold`
 - [x] List utilities: `length`, `nth`, `last`, `take`, `drop`
-- [x] `compose` - implemented as macro (see examples/macros.lisp)
+- [x] `compose` - implemented as macro (see examples/macros.slisp)
 - [x] Higher-order functions: `apply`
 - [x] Numeric: `abs`, `min`, `max`, `modulo`
 - [ ] String operations (when Seq strings are richer)
@@ -117,7 +117,7 @@ The current architecture is sound for adding comprehensive error handling. No fu
 - [x] Variadic macros with dot notation (`. rest`)
 
 ### Test Framework ✓
-- [x] Assertion-based test runner (in `lib/test.lisp`)
+- [x] Assertion-based test runner (in `lib/test.slisp`)
   - `assert-eq` for value comparison using structural equality
   - `assert-true` / `assert-false` for boolean checks
   - `assert-error` for expected error conditions

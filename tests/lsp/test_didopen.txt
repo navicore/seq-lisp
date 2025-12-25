@@ -4,9 +4,9 @@ Content-Length: 58
 Content-Length: 40
 
 {"jsonrpc":"2.0","method":"initialized"}
-Content-Length: 126
+Content-Length: 127
 
-{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///test.lisp","text":"(define x 42)"}}}
+{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///test.slisp","text":"(define x 42)"}}}
 Content-Length: 44
 
 {"jsonrpc":"2.0","id":2,"method":"shutdown"}

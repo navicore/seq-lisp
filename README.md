@@ -10,18 +10,34 @@ A Lisp interpreter written in [Seq](https://github.com/navicore/patch-seq), a st
 - `seqc` - The Seq compiler (install from [patch-seq](https://github.com/navicore/patch-seq))
 - `just` - Command runner (optional, but recommended)
 
+## Installation
+
+```bash
+# Clone and build
+git clone https://github.com/navicore/seq-lisp
+cd seq-lisp
+just build
+
+# Install to ~/.local/bin (includes LSP server)
+just install
+
+# Or install to custom prefix
+PREFIX=/usr/local just install
+```
+
+This installs:
+- `seqlisp` - The interpreter/REPL
+- `seqlisp-lsp` - Language server for editor integration
+- Library files to `$PREFIX/share/seqlisp/`
+
 ## Quick Start
 
 ```bash
-# Build the REPL
-just build
-
 # Run the REPL
-just run
+just repl
 
-# Or without just:
-seqc src/repl.seq -o seqlisp
-./seqlisp
+# Or after installing:
+seqlisp
 ```
 
 ## Project Structure
@@ -36,9 +52,9 @@ seq-lisp/
 │   └── repl.seq      # Interactive REPL
 ├── tests/
 │   ├── seq/          # Seq unit tests (test_*.seq)
-│   └── all.lisp      # Lisp test suite
+│   └── all.slisp      # Lisp test suite
 ├── lib/
-│   └── test.lisp     # Lisp test framework
+│   └── test.slisp     # Lisp test framework
 ├── examples/         # Lisp programs
 ├── justfile          # Build commands
 └── README.md
@@ -48,15 +64,15 @@ seq-lisp/
 
 ```bash
 just build        # Build the REPL
-just run          # Run the REPL
+just install      # Install seqlisp and seqlisp-lsp to ~/.local
+just uninstall    # Remove installed files
+just repl         # Run the REPL
 just test         # Run Seq unit tests
-just test-verbose # Run Seq tests with output
-just lisp-test    # Run Lisp test suite (295 tests)
-just lisp-run f   # Run a Lisp file with test framework
+just lisp-test    # Run Lisp test suite
+just lsp-test     # Run LSP integration tests
 just examples     # Run all Lisp examples
 just clean        # Remove build artifacts
 just ci           # Run all tests and build
-just safe-eval e  # Safely evaluate expression (with timeout)
 ```
 
 ## Lisp Features
@@ -148,6 +164,23 @@ SeqLisp supports:
 (gensym 0)               ;; => g0
 (gensym 'temp 1)         ;; => temp1
 ```
+
+## Editor Integration
+
+### Neovim
+
+Install [seq-lisp.nvim](https://github.com/navicore/seq-lisp.nvim) for syntax highlighting and LSP diagnostics:
+
+```lua
+-- lazy.nvim
+{
+  "navicore/seq-lisp.nvim",
+  ft = "seqlisp",
+  opts = {},
+}
+```
+
+The plugin expects `seqlisp-lsp` to be in your PATH (installed via `just install`).
 
 ## Documentation
 
