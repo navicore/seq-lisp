@@ -43,14 +43,15 @@ union LispClosure {
 
 # S-expressions: the core Lisp value type
 # Tags: 0=SNum, 1=SSym, 2=SList, 3=SClosure, 4=SMacro, 5=SString, 6=SFloat
+# Each variant carries a SourceSpan for error reporting
 union Sexpr {
-  SNum { value: Int }
-  SSym { name: String }
-  SList { items: SexprList }
-  SClosure { closure: LispClosure }
-  SMacro { macro: LispClosure }  # Same structure as closure, different semantics
-  SString { value: String }      # String literals (distinct from symbols)
-  SFloat { value: Float }        # Floating point numbers
+  SNum { value: Int, span: SourceSpan }
+  SSym { name: String, span: SourceSpan }
+  SList { items: SexprList, span: SourceSpan }
+  SClosure { closure: LispClosure, span: SourceSpan }
+  SMacro { macro: LispClosure, span: SourceSpan }
+  SString { value: String, span: SourceSpan }
+  SFloat { value: Float, span: SourceSpan }
 }
 
 # Linked list of S-expressions
@@ -63,26 +64,49 @@ union SexprList {
 # Convenience Constructors (lowercase aliases)
 # ============================================
 
-: snum ( Int -- Sexpr )
+# Constructors with explicit span
+: snum-at ( Int SourceSpan -- Sexpr )
   Make-SNum ;
 
-: ssym ( String -- Sexpr )
+: ssym-at ( String SourceSpan -- Sexpr )
   Make-SSym ;
 
-: slist ( SexprList -- Sexpr )
+: slist-at ( SexprList SourceSpan -- Sexpr )
   Make-SList ;
 
-: sclosure ( LispClosure -- Sexpr )
+: sclosure-at ( LispClosure SourceSpan -- Sexpr )
   Make-SClosure ;
 
-: smacro ( LispClosure -- Sexpr )
+: smacro-at ( LispClosure SourceSpan -- Sexpr )
   Make-SMacro ;
 
-: sstring ( String -- Sexpr )
+: sstring-at ( String SourceSpan -- Sexpr )
   Make-SString ;
 
-: sfloat ( Float -- Sexpr )
+: sfloat-at ( Float SourceSpan -- Sexpr )
   Make-SFloat ;
+
+# Backward-compatible constructors (use no-span)
+: snum ( Int -- Sexpr )
+  no-span Make-SNum ;
+
+: ssym ( String -- Sexpr )
+  no-span Make-SSym ;
+
+: slist ( SexprList -- Sexpr )
+  no-span Make-SList ;
+
+: sclosure ( LispClosure -- Sexpr )
+  no-span Make-SClosure ;
+
+: smacro ( LispClosure -- Sexpr )
+  no-span Make-SMacro ;
+
+: sstring ( String -- Sexpr )
+  no-span Make-SString ;
+
+: sfloat ( Float -- Sexpr )
+  no-span Make-SFloat ;
 
 : snil ( -- SexprList )
   Make-SNil ;
@@ -180,6 +204,10 @@ union SexprList {
 
 : sfloat-val ( Sexpr -- Float )
   0 variant.field-at ;
+
+# Get the span from any Sexpr (span is always field 1)
+: sexpr-span ( Sexpr -- SourceSpan )
+  1 variant.field-at ;
 
 : scar ( SexprList -- Sexpr )
   0 variant.field-at ;
