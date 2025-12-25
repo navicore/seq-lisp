@@ -15,6 +15,14 @@
 # Type Definitions
 # ============================================
 
+# Source location span for error reporting
+# NoSpan: no location info (for generated/runtime values)
+# Span: start and end positions (1-based line/column)
+union SourceSpan {
+  NoSpan
+  Span { start_line: Int, start_col: Int, end_line: Int, end_col: Int }
+}
+
 # Environment binding: maps a name to a value
 union Binding {
   Bind { name: String, value: Sexpr }
@@ -101,6 +109,14 @@ union SexprList {
 : make-named-closure ( Sexpr Sexpr Env String -- LispClosure )
   Make-NamedClos ;
 
+# SourceSpan constructors
+: no-span ( -- SourceSpan )
+  Make-NoSpan ;
+
+: make-span ( Int Int Int Int -- SourceSpan )
+  # start_line start_col end_line end_col
+  Make-Span ;
+
 # ============================================
 # Predicates
 # ============================================
@@ -132,6 +148,13 @@ union SexprList {
 # Closure type predicates
 : named-closure? ( LispClosure -- Int )
   variant.tag 1 = ;
+
+# SourceSpan predicates
+: span? ( SourceSpan -- Int )
+  variant.tag 1 = ;  # 0=NoSpan, 1=Span
+
+: no-span? ( SourceSpan -- Int )
+  variant.tag 0 = ;
 
 # ============================================
 # Accessors
@@ -184,6 +207,19 @@ union SexprList {
 
 : closure-env ( LispClosure -- Env )
   2 variant.field-at ;
+
+# SourceSpan accessors (only valid when span? is true)
+: span-start-line ( SourceSpan -- Int )
+  0 variant.field-at ;
+
+: span-start-col ( SourceSpan -- Int )
+  1 variant.field-at ;
+
+: span-end-line ( SourceSpan -- Int )
+  2 variant.field-at ;
+
+: span-end-col ( SourceSpan -- Int )
+  3 variant.field-at ;
 
 # ============================================
 # Pretty Printing

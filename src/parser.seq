@@ -127,13 +127,17 @@ union ParseResult {
 : parse ( String -- Sexpr )
   tokenize parse-tokens result-expr ;
 
+# Get token text from first token in list
+: tcar-text ( TokenList -- String )
+  tcar tok-text ;
+
 : parse-tokens ( TokenList -- ParseResult )
   # TokenList is a token list, returns parse result
   dup tnil? if
     # Empty token list - return nil expression
     snil slist swap make-parse-result
   else
-    dup tcar
+    dup tcar-text
     dup is-lparen if
       # Start of list - parse list contents
       drop tcdr parse-list
@@ -248,7 +252,7 @@ union ParseResult {
     # Ran out of tokens - return accumulated list with empty token list
     drop list-reverse slist tnil make-parse-result
   else
-    dup tcar is-rparen if
+    dup tcar-text is-rparen if
       # End of list - return accumulated list and tokens after )
       tcdr swap list-reverse slist swap make-parse-result
     else

@@ -107,8 +107,80 @@ lisp-run file: build
     cat lib/test.lisp {{file}} > "$tmp"
     ./target/seqlisp "$tmp"
 
-# Full CI: test + build + lisp-test
-ci: test build lisp-test
+# Run LSP integration tests
+lsp-test: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Running LSP integration tests..."
+    failed=0
+
+    # Test 1: Initialize handshake
+    echo -n "  test_initialize... "
+    output=$(cat tests/lsp/test_initialize.txt | ./target/seqlisp lib/lsp.lisp 2>&1)
+    if echo "$output" | grep -q '"result":{"capabilities"' && echo "$output" | grep -q '"id":2,"result"'; then
+        echo "PASS"
+    else
+        echo "FAIL"
+        echo "Output: $output"
+        failed=1
+    fi
+
+    # Test 2: didOpen publishes diagnostics
+    echo -n "  test_didopen... "
+    output=$(cat tests/lsp/test_didopen.txt | ./target/seqlisp lib/lsp.lisp 2>&1)
+    if echo "$output" | grep -q 'publishDiagnostics' && echo "$output" | grep -q '"uri":"file:///test.lisp"'; then
+        echo "PASS"
+    else
+        echo "FAIL"
+        echo "Output: $output"
+        failed=1
+    fi
+
+    # Test 3: didChange publishes diagnostics
+    echo -n "  test_didchange... "
+    output=$(cat tests/lsp/test_didchange.txt | ./target/seqlisp lib/lsp.lisp 2>&1)
+    # Should get two publishDiagnostics (one for open, one for change)
+    count=$(echo "$output" | grep -c 'publishDiagnostics' || true)
+    if [ "$count" -ge 2 ]; then
+        echo "PASS"
+    else
+        echo "FAIL (expected 2 publishDiagnostics, got $count)"
+        echo "Output: $output"
+        failed=1
+    fi
+
+    # Test 4: Unknown method returns error
+    echo -n "  test_unknown_method... "
+    output=$(cat tests/lsp/test_unknown_method.txt | ./target/seqlisp lib/lsp.lisp 2>&1)
+    if echo "$output" | grep -q '"error"' && echo "$output" | grep -q 'Method not found'; then
+        echo "PASS"
+    else
+        echo "FAIL"
+        echo "Output: $output"
+        failed=1
+    fi
+
+    # Test 5: Empty contentChanges is handled gracefully
+    echo -n "  test_empty_changes... "
+    output=$(cat tests/lsp/test_empty_changes.txt | ./target/seqlisp lib/lsp.lisp 2>&1)
+    # Should not crash, should still respond to shutdown
+    if echo "$output" | grep -q '"id":2,"result"'; then
+        echo "PASS"
+    else
+        echo "FAIL"
+        echo "Output: $output"
+        failed=1
+    fi
+
+    if [ "$failed" -eq 0 ]; then
+        echo "All LSP tests passed!"
+    else
+        echo "Some LSP tests failed!"
+        exit 1
+    fi
+
+# Full CI: test + build + lisp-test + lsp-test
+ci: test build lisp-test lsp-test
     @echo "CI passed!"
 
 # Safe eval - for testing expressions with bounded output (prevents infinite loops)
