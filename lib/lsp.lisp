@@ -51,13 +51,20 @@
 ; LSP I/O
 ; ============================================
 
+; Maximum allowed message size (10MB) to prevent memory exhaustion
+(define *max-content-length* 10485760)
+
 (define (lsp-read-headers-loop content-length)
   (let line (read-line)
     (if (equal? line #f) -1
       (if (string-blank? line) content-length
         (if (string-starts-with? line "Content-Length:")
           ; Extract Content-Length value: skip "Content-Length: " (16 chars), take remaining minus newline
-          (lsp-read-headers-loop (json-parse (substring line 16 (- (string-length line) 17))))
+          (let parsed-length (json-parse (substring line 16 (- (string-length line) 17)))
+            ; Reject oversized messages
+            (if (> parsed-length *max-content-length*)
+                -1
+                (lsp-read-headers-loop parsed-length)))
           (lsp-read-headers-loop content-length))))))
 
 (define (lsp-read-headers) (lsp-read-headers-loop 0))
@@ -134,22 +141,30 @@
 ; Handle document open - validate and publish diagnostics
 (define (handle-did-open params)
   (let text-doc (assoc-val 'textDocument params)
-    (let uri (assoc-val 'uri text-doc)
-      (let text (assoc-val 'text text-doc)
-        (publish-diagnostics uri (validate-document text))))))
+    (if (null? text-doc)
+        '()
+        (let uri (assoc-val 'uri text-doc)
+          (if (null? uri)
+              '()
+              (let text (assoc-val 'text text-doc)
+                (publish-diagnostics uri (validate-document text))))))))
 
 ; Handle document change - validate and publish diagnostics
 ; Using full document sync (textDocumentSync: 1)
 (define (handle-did-change params)
   (let text-doc (assoc-val 'textDocument params)
-    (let uri (assoc-val 'uri text-doc)
-      (let changes (assoc-val 'contentChanges params)
-        ; With full sync, changes is a list with one element containing the full text
-        (if (null? changes)
-            '()
-            (let change (car changes)
-              (let text (assoc-val 'text change)
-                (publish-diagnostics uri (validate-document text)))))))))
+    (if (null? text-doc)
+        '()
+        (let uri (assoc-val 'uri text-doc)
+          (if (null? uri)
+              '()
+              (let changes (assoc-val 'contentChanges params)
+                ; With full sync, changes is a list with one element containing the full text
+                (if (null? changes)
+                    '()
+                    (let change (car changes)
+                      (let text (assoc-val 'text change)
+                        (publish-diagnostics uri (validate-document text)))))))))))
 
 ; ============================================
 ; LSP Dispatch
