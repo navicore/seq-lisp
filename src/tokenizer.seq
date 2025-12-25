@@ -1,7 +1,7 @@
-# Tokenizer for SeqLisp - Using ADTs
+# Tokenizer for SeqLisp - Using ADTs with Position Tracking
 #
-# Uses explicit state variant to avoid complex stack manipulation
-# Token type includes SourceSpan for LSP diagnostics
+# Uses nested union types to track source positions within Seq's 4-field limit.
+# Token type includes SourceSpan for LSP diagnostics.
 
 include "sexpr"  # For SourceSpan type
 
@@ -19,8 +19,19 @@ union TokenList {
   TCons { token: Token, rest: TokenList }
 }
 
+# Current position in source (3 fields)
+union TokPos {
+  Pos { pos: Int, line: Int, col: Int }
+}
+
+# Token being accumulated (3 fields)
+union TokAccum {
+  Accum { text: String, start_line: Int, start_col: Int }
+}
+
+# Main tokenizer state (4 fields - at the limit)
 union TokState {
-  TState { input: String, pos: Int, current_token: String, tokens: TokenList }
+  TState { input: String, current: TokPos, accum: TokAccum, tokens: TokenList }
 }
 
 # ============================================
@@ -29,10 +40,6 @@ union TokState {
 
 : make-token ( String SourceSpan -- Token )
   Make-Tok ;
-
-# Create token with no position info (for incremental migration)
-: make-simple-token ( String -- Token )
-  no-span make-token ;
 
 : tok-text ( Token -- String )
   0 variant.field-at ;
@@ -47,9 +54,13 @@ union TokState {
 : tnil ( -- TokenList )
   Make-TNil ;
 
-# Original interface: takes String, wraps in Token with no-span
-: tcons ( String TokenList -- TokenList )
-  swap make-simple-token swap Make-TCons ;
+# Add token with span to list
+: tcons-tok ( Token TokenList -- TokenList )
+  Make-TCons ;
+
+# Convenience: create token with span and add to list
+: tcons-span ( String SourceSpan TokenList -- TokenList )
+  rot rot make-token swap tcons-tok ;
 
 : tnil? ( TokenList -- Int )
   variant.tag 0 = ;
@@ -60,99 +71,286 @@ union TokState {
 : tcdr ( TokenList -- TokenList )
   1 variant.field-at ;
 
+# Reverse token list (preserving spans)
 : trev ( TokenList -- TokenList )
   tnil trev-loop ;
 
 : trev-loop ( TokenList TokenList -- TokenList )
   swap dup tnil? if drop else
-    dup tcar tok-text rot tcons swap tcdr swap trev-loop
+    dup tcar swap tcdr   # acc token rest
+    rot                  # token rest acc
+    rot                  # rest acc token
+    swap tcons-tok       # rest new-acc (correct order for recursive call!)
+    trev-loop            # NO swap needed - rest is list, new-acc is accumulator
   then
 ;
 
 # ============================================
-# Tokenizer State Constructors and Accessors
+# TokPos Constructors and Accessors
 # ============================================
 
-: make-state ( String Int String TokenList -- TokState )
+: make-pos ( Int Int Int -- TokPos )
+  Make-Pos ;
+
+: pos-pos ( TokPos -- Int )
+  0 variant.field-at ;
+
+: pos-line ( TokPos -- Int )
+  1 variant.field-at ;
+
+: pos-col ( TokPos -- Int )
+  2 variant.field-at ;
+
+# ============================================
+# TokAccum Constructors and Accessors
+# ============================================
+
+: make-accum ( String Int Int -- TokAccum )
+  Make-Accum ;
+
+# Empty accumulator at given position
+: empty-accum ( Int Int -- TokAccum )
+  "" rot rot make-accum ;
+
+: accum-text ( TokAccum -- String )
+  0 variant.field-at ;
+
+: accum-start-line ( TokAccum -- Int )
+  1 variant.field-at ;
+
+: accum-start-col ( TokAccum -- Int )
+  2 variant.field-at ;
+
+# ============================================
+# TokState Constructors and Accessors
+# ============================================
+
+: make-state ( String TokPos TokAccum TokenList -- TokState )
   Make-TState ;
 
 : state-input ( TokState -- String )
   0 variant.field-at ;
 
-: state-pos ( TokState -- Int )
+: state-current ( TokState -- TokPos )
   1 variant.field-at ;
 
-: state-tok ( TokState -- String )
+: state-accum ( TokState -- TokAccum )
   2 variant.field-at ;
 
-: state-list ( TokState -- TokenList )
+: state-tokens ( TokState -- TokenList )
   3 variant.field-at ;
 
+# Convenience accessors that unwrap nested types
+: state-pos ( TokState -- Int )
+  state-current pos-pos ;
+
+: state-line ( TokState -- Int )
+  state-current pos-line ;
+
+: state-col ( TokState -- Int )
+  state-current pos-col ;
+
+: state-tok ( TokState -- String )
+  state-accum accum-text ;
+
+: state-tok-start-line ( TokState -- Int )
+  state-accum accum-start-line ;
+
+: state-tok-start-col ( TokState -- Int )
+  state-accum accum-start-col ;
+
 # ============================================
-# Simple tokenizer
+# State Update Helpers
+# ============================================
+
+# Advance position by 1 char (not a newline)
+: advance-col ( TokState -- TokState )
+  dup state-input
+  over state-pos 1 add
+  2 pick state-line
+  3 pick state-col 1 add
+  make-pos
+  2 pick state-accum
+  3 pick state-tokens
+  make-state nip
+;
+
+# Advance position past a newline
+: advance-newline ( TokState -- TokState )
+  dup state-input
+  over state-pos 1 add
+  2 pick state-line 1 add
+  1  # col resets to 1
+  make-pos
+  2 pick state-accum
+  3 pick state-tokens
+  make-state nip
+;
+
+# Start accumulating a new token at current position
+: start-token ( TokState -- TokState )
+  dup state-input
+  over state-current
+  2 pick state-line
+  3 pick state-col
+  empty-accum
+  3 pick state-tokens
+  make-state nip
+;
+
+# Append character to current token
+: append-to-token ( TokState String -- TokState )
+  over state-accum accum-text swap string.concat  # new-text
+  over state-accum accum-start-line               # new-text start-line
+  2 pick state-accum accum-start-col              # new-text start-line start-col
+  make-accum                                       # new-accum
+  over state-input                                 # new-accum input
+  2 pick state-current                             # new-accum input current
+  rot                                              # input current new-accum
+  3 pick state-tokens                              # input current new-accum tokens
+  make-state nip
+;
+
+# Create span from token start to current position
+: make-token-span ( TokState -- SourceSpan )
+  dup state-tok-start-line
+  over state-tok-start-col
+  2 pick state-line
+  3 pick state-col
+  make-span nip
+;
+
+# Emit current accumulated token (if non-empty) and reset accumulator
+: emit-token ( TokState -- TokState )
+  dup state-tok string.empty? if
+    # Nothing to emit - return state unchanged
+  else
+    # Build all components for new state, then assemble
+    # Stack: state
+
+    # 1. Get input (stays the same)
+    dup state-input           # state input
+
+    # 2. Get current position (stays the same)
+    over state-current        # state input current
+
+    # 3. Create empty accum at current position
+    2 pick state-line         # state input current line
+    3 pick state-col          # state input current line col
+    empty-accum               # state input current new-accum
+
+    # 4. Create new token and add to token list
+    3 pick state-tok          # state input current new-accum text
+    4 pick make-token-span    # state input current new-accum text span
+    make-token                # state input current new-accum token
+    4 pick state-tokens       # state input current new-accum token tokens
+    tcons-tok                 # state input current new-accum new-tokens
+
+    # Stack: state input current new-accum new-tokens
+    # make-state needs: input current accum tokens (tokens on top)
+    # We have them in the right order!
+    make-state nip
+  then
+;
+
+# Emit a single-char token at current position, then advance
+# Builds token with span, adds to list, advances position, resets accum
+: emit-single-char ( TokState String -- TokState )
+  # Stack: state str
+  # Create span: (line, col) -> (line, col+1)
+  over state-line          # state str start-line
+  2 pick state-col         # state str start-line start-col
+  3 pick state-line        # state str start-line start-col end-line
+  4 pick state-col 1 add   # state str start-line start-col end-line end-col
+  make-span                # state str span
+
+  # Create token (make-token expects: String SourceSpan -- Token)
+  make-token               # state token
+
+  # Add token to state's token list
+  over state-tokens tcons-tok  # state new-tokens
+
+  # Build new state with advanced position and empty accum
+  over state-input             # state new-tokens input
+  2 pick state-pos 1 add       # state new-tokens input pos+1
+  3 pick state-line            # state new-tokens input pos+1 line
+  4 pick state-col 1 add       # state new-tokens input pos+1 line col+1
+  make-pos                     # state new-tokens input new-pos
+
+  3 pick state-line            # state new-tokens input new-pos line
+  4 pick state-col 1 add       # state new-tokens input new-pos line col+1
+  empty-accum                  # state new-tokens input new-pos new-accum
+
+  # Rearrange for make-state: need input new-pos new-accum new-tokens
+  # Current: state new-tokens input new-pos new-accum
+  # Indices:   4      3        2      1       0
+  3 roll                       # state input new-pos new-accum new-tokens
+  make-state nip
+;
+
+# ============================================
+# Main Tokenizer
 # ============================================
 
 : tokenize ( String -- TokenList )
-  0 "" tnil make-state
+  # Initial state: pos=0, line=1, col=1, empty accum, empty tokens
+  0 1 1 make-pos      # input pos
+  1 1 empty-accum     # input pos accum
+  tnil                # input pos accum tokens
+  make-state
   tokenize-loop
-  state-list trev
+  emit-token          # flush any remaining token
+  state-tokens trev
 ;
 
 : tokenize-loop ( TokState -- TokState )
   dup state-input string.length
   over state-pos <= if
-    # Done - flush any remaining token
-    dup state-tok string.empty? if
-      # Nothing to flush - keep state as is (do nothing)
-    else
-      # Flush final token using consistent pattern
-      dup state-input
-      over state-pos
-      2 pick state-list
-      3 pick state-tok
-      swap tcons
-      "" swap
-      make-state nip
-    then
+    # Done - return state (caller will flush)
   else
     # Get current char code at position
     dup state-input over state-pos string.char-at
     # Stack: State CharCode
 
-    dup 32 = over 10 = or over 9 = or over 13 = or if
-      # Whitespace
-      drop handle-space tokenize-loop
+    dup 10 = if
+      # Newline - flush token and advance with line increment
+      drop handle-newline tokenize-loop
     else
-      dup 59 = if
-        # Semicolon - start of comment, skip to end of line
-        drop handle-comment tokenize-loop
+      dup 32 = over 9 = or over 13 = or if
+        # Other whitespace (space, tab, CR)
+        drop handle-space tokenize-loop
       else
-        dup 40 = if
-          # Left paren
-          drop handle-lparen tokenize-loop
+        dup 59 = if
+          # Semicolon - start of comment
+          drop handle-comment tokenize-loop
         else
-          dup 41 = if
-            # Right paren
-            drop handle-rparen tokenize-loop
+          dup 40 = if
+            # Left paren
+            drop handle-lparen tokenize-loop
           else
-            dup 39 = if
-              # Single quote - emit as its own token
-              drop handle-quote tokenize-loop
+            dup 41 = if
+              # Right paren
+              drop handle-rparen tokenize-loop
             else
-              dup 96 = if
-                # Backtick (quasiquote) - emit as its own token
-                drop handle-backtick tokenize-loop
+              dup 39 = if
+                # Single quote
+                drop handle-quote tokenize-loop
               else
-                dup 44 = if
-                  # Comma (unquote) - check for ,@
-                  drop handle-comma tokenize-loop
+                dup 96 = if
+                  # Backtick (quasiquote)
+                  drop handle-backtick tokenize-loop
                 else
-                  dup 34 = if
-                    # Double quote - string literal
-                    drop handle-string tokenize-loop
+                  dup 44 = if
+                    # Comma (unquote/unquote-splicing)
+                    drop handle-comma tokenize-loop
                   else
-                    # Regular char
-                    drop handle-char tokenize-loop
+                    dup 34 = if
+                      # Double quote - string literal
+                      drop handle-string tokenize-loop
+                    else
+                      # Regular char - add to token
+                      drop handle-char tokenize-loop
+                    then
                   then
                 then
               then
@@ -164,378 +362,223 @@ union TokState {
   then
 ;
 
-# Flush current token (if any) and reset
+# ============================================
+# Character Handlers
+# ============================================
+
+# Handle newline: emit token, advance with line increment
+: handle-newline ( TokState -- TokState )
+  emit-token advance-newline start-token
+;
+
+# Handle whitespace: emit token, advance
 : handle-space ( TokState -- TokState )
-  dup state-tok string.empty? if
-    advance-pos
-  else
-    # Flush token and advance
-    dup state-input
-    over state-pos 1 add
-    2 pick state-list
-    3 pick state-tok
-    swap tcons
-    "" swap
-    make-state nip
-  then
+  emit-token advance-col start-token
 ;
 
-# Flush token, add "(", advance
+# Handle left paren: emit any accumulated token, emit "(", advance
 : handle-lparen ( TokState -- TokState )
-  dup state-tok string.empty? if
-    # Just add "(" to list and advance
-    dup state-input
-    over state-pos 1 add
-    2 pick state-list
-    "(" swap tcons
-    "" swap
-    make-state nip
-  else
-    # Flush token, then add "("
-    dup state-input
-    over state-pos 1 add
-    2 pick state-list
-    3 pick state-tok
-    swap tcons
-    "(" swap tcons
-    "" swap
-    make-state nip
-  then
+  emit-token "(" emit-single-char start-token
 ;
 
-# Flush token, add ")", advance
+# Handle right paren: emit any accumulated token, emit ")", advance
 : handle-rparen ( TokState -- TokState )
-  dup state-tok string.empty? if
-    # Just add ")" to list and advance
-    dup state-input
-    over state-pos 1 add
-    2 pick state-list
-    ")" swap tcons
-    "" swap
-    make-state nip
-  else
-    # Flush token, then add ")"
-    dup state-input
-    over state-pos 1 add
-    2 pick state-list
-    3 pick state-tok
-    swap tcons
-    ")" swap tcons
-    "" swap
-    make-state nip
-  then
+  emit-token ")" emit-single-char start-token
 ;
 
-# Flush token, add "'", advance
+# Handle quote: emit any accumulated token, emit "'", advance
 : handle-quote ( TokState -- TokState )
-  dup state-tok string.empty? if
-    # Just add "'" to list and advance
-    dup state-input
-    over state-pos 1 add
-    2 pick state-list
-    "'" swap tcons
-    "" swap
-    make-state nip
-  else
-    # Flush token, then add "'"
-    dup state-input
-    over state-pos 1 add
-    2 pick state-list
-    3 pick state-tok
-    swap tcons
-    "'" swap tcons
-    "" swap
-    make-state nip
-  then
+  emit-token "'" emit-single-char start-token
 ;
 
-# Flush token, add "`", advance (quasiquote)
+# Handle backtick: emit any accumulated token, emit "`", advance
 : handle-backtick ( TokState -- TokState )
-  dup state-tok string.empty? if
-    # Just add "`" to list and advance
-    dup state-input
-    over state-pos 1 add
-    2 pick state-list
-    "`" swap tcons
-    "" swap
-    make-state nip
-  else
-    # Flush token, then add "`"
-    dup state-input
-    over state-pos 1 add
-    2 pick state-list
-    3 pick state-tok
-    swap tcons
-    "`" swap tcons
-    "" swap
-    make-state nip
-  then
+  emit-token "`" emit-single-char start-token
 ;
 
-# Handle comma - check for ,@ (unquote-splicing) vs , (unquote)
+# Handle comma: check for ,@ vs ,
 : handle-comma ( TokState -- TokState )
-  # First flush any current token
-  dup state-tok string.empty? if
-    handle-comma-check
-  else
-    # Flush token first
-    dup state-input
-    over state-pos
-    2 pick state-list
-    3 pick state-tok
-    swap tcons
-    "" swap
-    make-state nip
-    handle-comma-check
-  then
-;
-
-# Check if next char is @ for ,@
-: handle-comma-check ( TokState -- TokState )
-  # Check if there's a next character
+  emit-token
+  # Check if next char is @
   dup state-input string.length
   over state-pos 1 add > if
-    # There's a next char - check if it's @
     dup state-input over state-pos 1 add string.char-at
     64 = if
-      # It's ,@ - emit ",@" and advance by 2
-      dup state-input
-      over state-pos 2 add
-      2 pick state-list
-      ",@" swap tcons
-      "" swap
-      make-state nip
+      # It's ,@ - emit as two-char token
+      ",@" emit-two-char start-token
     else
-      # Just , - emit "," and advance by 1
-      dup state-input
-      over state-pos 1 add
-      2 pick state-list
-      "," swap tcons
-      "" swap
-      make-state nip
+      "," emit-single-char start-token
     then
   else
-    # No next char - just emit ","
-    dup state-input
-    over state-pos 1 add
-    2 pick state-list
-    "," swap tcons
-    "" swap
-    make-state nip
+    "," emit-single-char start-token
   then
 ;
 
-# Handle string literal - accumulate until closing quote
-# Handles escape sequences: backslash-quote and backslash-backslash
-: handle-string ( TokState -- TokState )
-  # First flush any current token
+# Emit a two-char token at current position, then advance by 2
+: emit-two-char ( TokState String -- TokState )
+  # Stack: state str
+  # Create span: (line, col) -> (line, col+2)
+  over state-line            # state str start-line
+  2 pick state-col           # state str start-line start-col
+  3 pick state-line          # state str start-line start-col end-line
+  4 pick state-col 2 add     # state str start-line start-col end-line end-col
+  make-span                  # state str span
+
+  # Create token (make-token expects: String SourceSpan -- Token)
+  make-token                 # state token
+
+  # Add token to state's token list
+  over state-tokens tcons-tok  # state new-tokens
+
+  # Build new state with advanced position and empty accum
+  over state-input             # state new-tokens input
+  2 pick state-pos 2 add       # state new-tokens input pos+2
+  3 pick state-line            # state new-tokens input pos+2 line
+  4 pick state-col 2 add       # state new-tokens input pos+2 line col+2
+  make-pos                     # state new-tokens input new-pos
+
+  3 pick state-line            # state new-tokens input new-pos line
+  4 pick state-col 2 add       # state new-tokens input new-pos line col+2
+  empty-accum                  # state new-tokens input new-pos new-accum
+
+  # Rearrange for make-state: need input new-pos new-accum new-tokens
+  3 roll                       # state input new-pos new-accum new-tokens
+  make-state nip
+;
+
+# Handle regular character: add to accumulator, advance
+: handle-char ( TokState -- TokState )
+  # If accumulator is empty, this is the start of a new token
   dup state-tok string.empty? if
-    # Start string with opening quote char
-    34 char->string
-    swap string-scan-loop
+    start-token
   else
-    # Flush token first, then start string
-    dup state-input
-    over state-pos
-    2 pick state-list
-    3 pick state-tok
-    swap tcons
-    "" swap
-    make-state nip
-    34 char->string
-    swap string-scan-loop
   then
+  # Get current char as string
+  dup state-input
+  over state-pos
+  1 string.substring
+  # Append to token and advance
+  append-to-token
+  advance-col
+;
+
+# ============================================
+# String Literal Handler
+# ============================================
+
+# Handle string literal - accumulate until closing quote
+: handle-string ( TokState -- TokState )
+  emit-token
+  start-token
+  # Add opening quote to accumulator
+  34 char->string append-to-token
+  advance-col
+  string-scan-loop
 ;
 
 # Scan string contents until closing quote
-# Stack: accumulated_str TokState -- TokState
-: string-scan-loop ( String TokState -- TokState )
-  # Stack: accum TokState (TokState on top)
+: string-scan-loop ( TokState -- TokState )
   # Check if at end of input
   dup state-input string.length
-  over state-pos 1 add <= if
-    # End of input before closing quote - emit what we have
-    # and add closing quote for well-formed token
-    # Stack: accum TokState
-    dup state-input               # accum TokState input
-    over state-pos 1 add          # accum TokState input pos+1
-    2 pick state-list             # accum TokState input pos+1 list
-    4 pick 34 char->string string.concat  # accum TokState input pos+1 list (accum+quote)
-    swap tcons                    # accum TokState input pos+1 tokens
-    "" swap                       # accum TokState input pos+1 "" tokens
-    make-state                    # accum TokState NewState
-    nip nip                       # NewState
+  over state-pos <= if
+    # End of input before closing quote - emit what we have with closing quote
+    34 char->string append-to-token
+    emit-token start-token
   else
-    # Get next char
-    dup state-input over state-pos 1 add string.char-at
-    # Stack: accum TokState charcode
+    # Get current char
+    dup state-input over state-pos string.char-at
 
     dup 34 = if
-      # Found closing quote - emit complete string
+      # Closing quote - add it and emit
       drop
-      # Advance past opening and closing quotes
-      # Stack: accum TokState
-      dup state-input               # accum TokState input
-      over state-pos 2 add          # accum TokState input pos+2
-      2 pick state-list             # accum TokState input pos+2 list
-      4 pick 34 char->string string.concat  # accum TokState input pos+2 list (accum+quote)
-      swap tcons                    # accum TokState input pos+2 tokens
-      "" swap                       # accum TokState input pos+2 "" tokens
-      make-state                    # accum TokState NewState
-      nip nip                       # NewState
+      34 char->string append-to-token
+      advance-col
+      emit-token start-token
     else
       dup 92 = if
-        # Backslash - check for escape sequence
-        drop
-        # Check if there's another char after backslash
-        dup state-input string.length
-        over state-pos 2 add > if
-          # Get escaped char
-          dup state-input over state-pos 2 add string.char-at
-          # Stack: accum TokState escaped_char
-
-          dup 34 = if
-            # Escaped quote - add quote to string
-            drop
-            # Stack: accum TokState
-            swap 34 char->string string.concat swap  # (accum+quote) TokState
-            # Advance by 2 (backslash and quote)
-            dup state-input
-            over state-pos 2 add
-            2 pick state-tok
-            3 pick state-list
-            make-state nip
-            string-scan-loop
-          else
-            dup 92 = if
-              # Escaped backslash - add backslash to string
-              drop
-              # Stack: accum TokState
-              swap 92 char->string string.concat swap  # (accum+backslash) TokState
-              # Advance by 2
-              dup state-input
-              over state-pos 2 add
-              2 pick state-tok
-              3 pick state-list
-              make-state nip
-              string-scan-loop
-            else
-              dup 110 = if
-                # Escaped n - add newline to string
-                drop
-                # Stack: accum TokState
-                swap 10 char->string string.concat swap  # (accum+newline) TokState
-                # Advance by 2
-                dup state-input
-                over state-pos 2 add
-                2 pick state-tok
-                3 pick state-list
-                make-state nip
-                string-scan-loop
-              else
-                # Unknown escape - just add backslash and the char
-                # Stack: accum TokState escaped_char
-                char->string                        # accum TokState charstr
-                rot                                 # TokState charstr accum
-                92 char->string string.concat       # TokState charstr (accum+backslash)
-                swap string.concat                  # TokState (accum+backslash+charstr)
-                swap                                # (accum+backslash+charstr) TokState
-                # Advance by 2
-                dup state-input
-                over state-pos 2 add
-                2 pick state-tok
-                3 pick state-list
-                make-state nip
-                string-scan-loop
-              then
-            then
-          then
-        else
-          # No char after backslash - add backslash and continue
-          # Stack: accum TokState
-          swap 92 char->string string.concat swap
-          advance-pos-keep-accum string-scan-loop
-        then
+        # Backslash - handle escape
+        drop handle-string-escape string-scan-loop
       else
-        # Regular char - add to string
-        # Stack: accum TokState charcode
-        char->string                    # accum TokState charstr
-        rot                             # TokState charstr accum
-        swap string.concat              # TokState (accum+charstr)
-        swap                            # (accum+charstr) TokState
-        advance-pos-keep-accum string-scan-loop
+        dup 10 = if
+          # Newline in string - add it and update line tracking
+          drop
+          10 char->string append-to-token
+          advance-newline
+          string-scan-loop
+        else
+          # Regular char - add to string and advance
+          char->string append-to-token
+          advance-col
+          string-scan-loop
+        then
       then
     then
   then
 ;
 
-# Advance position while keeping accumulated string
-# Stack: accum TokState -- accum TokState'
-: advance-pos-keep-accum ( String TokState -- String TokState )
-  dup state-input
-  over state-pos 1 add
-  2 pick state-tok
-  3 pick state-list
-  make-state nip
+# Handle escape sequence in string
+: handle-string-escape ( TokState -- TokState )
+  # Check if there's another char after backslash
+  dup state-input string.length
+  over state-pos 1 add > if
+    # Get escaped char
+    dup state-input over state-pos 1 add string.char-at
+
+    dup 34 = if
+      # backslash-quote -> add quote to string
+      drop 34 char->string append-to-token
+      advance-col advance-col
+    else
+      dup 92 = if
+        # backslash-backslash -> add backslash to string
+        drop 92 char->string append-to-token
+        advance-col advance-col
+      else
+        dup 110 = if
+          # backslash-n -> add newline to string
+          drop 10 char->string append-to-token
+          advance-col advance-col
+        else
+          # Unknown escape - add backslash and the char
+          char->string
+          92 char->string swap string.concat
+          append-to-token
+          advance-col advance-col
+        then
+      then
+    then
+  else
+    # No char after backslash - just add backslash
+    92 char->string append-to-token
+    advance-col
+  then
 ;
+
+# ============================================
+# Comment Handler
+# ============================================
 
 # Skip comment (everything from ; to end of line)
 : handle-comment ( TokState -- TokState )
-  # First flush any current token
-  dup state-tok string.empty? if
-    skip-to-eol
-  else
-    # Flush token first, then skip
-    dup state-input
-    over state-pos
-    2 pick state-list
-    3 pick state-tok
-    swap tcons
-    "" swap
-    make-state nip
-    skip-to-eol
-  then
+  emit-token skip-to-eol
 ;
 
 # Skip characters until newline or end of input
 : skip-to-eol ( TokState -- TokState )
   dup state-input string.length
   over state-pos <= if
-    # End of input, done
+    # End of input
+    start-token
   else
     dup state-input over state-pos string.char-at
     10 = if
-      # Found newline, advance past it
-      advance-pos
+      # Found newline - advance past it with line increment
+      advance-newline start-token
     else
       # Keep skipping
-      advance-pos skip-to-eol
+      advance-col skip-to-eol
     then
   then
-;
-
-# Add char to current token, advance
-: handle-char ( TokState -- TokState )
-  # Build (Input, Pos+1, Tok++Char, List)
-  dup state-input
-  over state-pos 1 add
-  2 pick state-list
-  3 pick state-tok
-  4 pick state-input
-  5 pick state-pos
-  1 string.substring
-  string.concat
-  swap
-  make-state nip
-;
-
-# Just advance position
-: advance-pos ( TokState -- TokState )
-  dup state-input
-  over state-pos 1 add
-  2 pick state-tok
-  3 pick state-list
-  make-state nip
 ;
 
 # ============================================
@@ -545,5 +588,28 @@ union TokState {
 : print-tokens ( TokenList -- )
   dup tnil? if drop else
     dup tcar tok-text io.write-line tcdr print-tokens
+  then
+;
+
+# Debug function to print token with position
+# Format: "text @ line:col"
+: print-token-with-pos ( Token -- )
+  dup tok-text                    # token text
+  swap tok-span                   # text span
+  dup span? if
+    dup span-start-line int->string   # text span line-str
+    ":" string.concat                  # text span "line:"
+    swap span-start-col int->string   # text "line:" col-str
+    string.concat                      # text "line:col"
+    " @ " swap string.concat           # text " @ line:col"
+    string.concat io.write-line        # print "text @ line:col"
+  else
+    drop io.write-line                 # just print text
+  then
+;
+
+: print-tokens-with-pos ( TokenList -- )
+  dup tnil? if drop else
+    dup tcar print-token-with-pos tcdr print-tokens-with-pos
   then
 ;

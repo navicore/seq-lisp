@@ -3,7 +3,17 @@
 ;
 ; Supported methods:
 ;   initialize, initialized, shutdown, exit
-;   textDocument/didOpen, textDocument/didChange (with diagnostics)
+;   textDocument/didOpen, textDocument/didChange
+;
+; Features:
+;   - Real-time diagnostics with line/column positions
+;   - Uses eval-with-errors for validation
+;
+; Limitations:
+;   - Parser errors (unclosed parens, etc.) are not currently detected
+;     as the parser attempts recovery rather than failing.
+;   - Only the first expression in a document is validated.
+;   - Evaluation runs without timeout or resource limits.
 
 (define (string-starts-with? str prefix)
   (if (< (string-length str) (string-length prefix)) #f
@@ -132,11 +142,67 @@
             (list (list "uri" uri)
                   (list "diagnostics" diagnostics))))))
 
+; Check if eval result is an error: (error message line col end-line end-col)
+(define (eval-error? result)
+  (if (list? result)
+      (if (null? result) #f
+          (equal? (car result) 'error))
+      #f))
+
+; Safe nth accessor - returns default if index out of bounds
+(define (safe-nth n lst default)
+  (if (null? lst)
+      default
+      (if (= n 0)
+          (car lst)
+          (safe-nth (- n 1) (cdr lst) default))))
+
+; Extract error message from (error message line col end-line end-col)
+; Returns "Unknown error" if malformed
+(define (eval-error-message result)
+  (safe-nth 1 result "Unknown error"))
+
+; Extract start line from error result (convert to 0-based)
+; Returns 0 if malformed
+(define (eval-error-line result)
+  (let val (safe-nth 2 result 1)
+    (if (number? val) (- val 1) 0)))
+
+; Extract start column from error result (convert to 0-based)
+; Returns 0 if malformed
+(define (eval-error-col result)
+  (let val (safe-nth 3 result 1)
+    (if (number? val) (- val 1) 0)))
+
+; Extract end line from error result (convert to 0-based)
+; Returns 0 if malformed
+(define (eval-error-end-line result)
+  (let val (safe-nth 4 result 1)
+    (if (number? val) (- val 1) 0)))
+
+; Extract end column from error result (convert to 0-based)
+; Returns 0 if malformed
+(define (eval-error-end-col result)
+  (let val (safe-nth 5 result 1)
+    (if (number? val) (- val 1) 0)))
+
 ; Validate document text and return list of diagnostics
-; TODO: Add parse/eval builtins to SeqLisp to enable real validation
-; For now, just return empty diagnostics (no errors)
+; Uses eval-with-errors to parse and evaluate, returns diagnostics on error
 (define (validate-document text)
-  (list))
+  (let result (eval-with-errors text)
+    (if (eval-error? result)
+        ; Create a diagnostic from the error
+        (let msg (eval-error-message result)
+          (let start-line (eval-error-line result)
+            (let start-col (eval-error-col result)
+              (let end-line (eval-error-end-line result)
+                (let end-col (eval-error-end-col result)
+                  (list (make-diagnostic
+                          (make-range start-line start-col end-line end-col)
+                          1  ; Severity: Error
+                          msg)))))))
+        ; No error - return empty diagnostics
+        (list))))
 
 ; Handle document open - validate and publish diagnostics
 (define (handle-did-open params)

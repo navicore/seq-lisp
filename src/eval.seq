@@ -27,7 +27,7 @@ include "json"
 
 union EvalResult {
   EvalOk { value: Sexpr }
-  EvalErr { message: String }
+  EvalErr { message: String, span: SourceSpan }
   EvalDefine { name: String, def_value: Sexpr }
 }
 
@@ -35,8 +35,13 @@ union EvalResult {
 : eval-ok ( Sexpr -- EvalResult )
   Make-EvalOk ;
 
-: eval-err ( String -- EvalResult )
+# Create error with span
+: eval-err-at ( String SourceSpan -- EvalResult )
   Make-EvalErr ;
+
+# Create error without span (backward compatible)
+: eval-err ( String -- EvalResult )
+  no-span Make-EvalErr ;
 
 : eval-define ( String Sexpr -- EvalResult )
   Make-EvalDefine ;
@@ -57,6 +62,31 @@ union EvalResult {
 
 : eval-err-message ( EvalResult -- String )
   0 variant.field-at ;
+
+: eval-err-span ( EvalResult -- SourceSpan )
+  1 variant.field-at ;
+
+# Create error at the location of a Sexpr
+: eval-err-from ( String Sexpr -- EvalResult )
+  sexpr-span eval-err-at ;
+
+# Add span to an EvalErr if it doesn't already have one
+# Useful for wrapping results from functions that don't track spans
+: eval-result-add-span ( EvalResult SourceSpan -- EvalResult )
+  over eval-err? if
+    # It's an error - check if it already has a span
+    over eval-err-span no-span? if
+      # No span - add the provided one
+      swap eval-err-message swap eval-err-at
+    else
+      # Already has span - keep it
+      drop
+    then
+  else
+    # Not an error - return as-is
+    drop
+  then
+;
 
 : eval-define-name ( EvalResult -- String )
   0 variant.field-at ;
@@ -453,8 +483,12 @@ union EvalResult {
         drop nip eval-ok
       else
         # Regular symbol - lookup in environment
-        swap drop swap env-lookup
-        # env-lookup now returns EvalResult directly
+        # Stack: Env Expr SymName
+        over sexpr-span    # Env Expr SymName ExprSpan
+        rot drop           # Env SymName ExprSpan
+        rot rot            # ExprSpan Env SymName
+        swap env-lookup    # ExprSpan EvalResult
+        swap eval-result-add-span  # Add span to any error
       then
     else
       2 = if
@@ -504,12 +538,14 @@ union EvalResult {
             apply-closure
           else
             # Not a closure - error
-            drop drop drop "not a function" eval-err
+            # Stack: Env List ClosureSexpr - use expr span for error
+            nip nip "not a function" swap eval-err-from
           then
         then
       else
         # Non-symbol, non-list in function position
-        drop drop drop "invalid function position" eval-err
+        # Stack: Env List Head - use Head's span for error
+        nip nip "invalid function position" swap eval-err-from
       then
     then
   then
@@ -730,6 +766,19 @@ union EvalResult {
   else dup "json-encode" string.equal? if
     drop eval-json-encode-with-env
   else
+    dispatch-lsp
+  then then
+;
+
+# ----------------------------------------
+# Group 7c: LSP support (parse-with-errors, eval-with-errors)
+# ----------------------------------------
+: dispatch-lsp ( SexprList Env String -- EvalResult )
+  dup "parse-with-errors" string.equal? if
+    drop eval-parse-with-errors
+  else dup "eval-with-errors" string.equal? if
+    drop eval-eval-with-errors
+  else
     dispatch-user-defined
   then then
 ;
@@ -763,7 +812,8 @@ union EvalResult {
       apply-macro
     else
       # Not a closure or macro - type error
-      drop drop drop "not a function or macro" eval-err
+      # Stack: List Env FuncSexpr - use FuncSexpr span for error
+      nip nip "not a function or macro" swap eval-err-from
     then then
   then
 ;
@@ -1951,6 +2001,101 @@ union EvalResult {
       swap 1 add swap  # Increment pos
       json-encode-string-loop
     then then then then then
+  then
+;
+
+# ============================================
+# LSP Support Builtins
+# ============================================
+
+# Build result list: (ok value)
+: make-ok-result ( Sexpr -- Sexpr )
+  snil scons                    # (value)
+  "ok" ssym swap scons          # (ok value)
+  slist
+;
+
+# Build error result: (error message line col end-line end-col)
+: make-error-result ( String SourceSpan -- Sexpr )
+  dup span? if
+    # Has span - include position info
+    dup span-end-col snum snil scons      # (end-col)
+    over span-end-line snum swap scons    # (end-line end-col)
+    over span-start-col snum swap scons   # (col end-line end-col)
+    over span-start-line snum swap scons  # (line col end-line end-col)
+    nip                                   # msg (line col end-line end-col)
+    swap sstring swap scons               # (msg line col end-line end-col)
+    "error" ssym swap scons               # (error msg line col end-line end-col)
+    slist
+  else
+    # No span - just message with zeros
+    drop
+    0 snum snil scons                     # (0)
+    0 snum swap scons                     # (0 0)
+    0 snum swap scons                     # (0 0 0)
+    0 snum swap scons                     # (0 0 0 0)
+    swap sstring swap scons               # (msg 0 0 0 0)
+    "error" ssym swap scons               # (error msg 0 0 0 0)
+    slist
+  then
+;
+
+# (parse-with-errors text) - parse text and return (ok sexpr) or (error ...)
+# Note: Current parser doesn't return errors, so this always succeeds
+: eval-parse-with-errors ( SexprList Env -- EvalResult )
+  over 1 "parse-with-errors" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop  # -> List Env
+    swap scdr scar  # Get the string argument -> Env Arg
+    swap eval-with-env  # Evaluate it -> EvalResult
+    dup eval-err? if
+      # Error evaluating argument - propagate
+    else
+      eval-ok-value
+      dup sstring? if
+        sstring-val parse  # Parse the string -> Sexpr
+        make-ok-result eval-ok
+      else
+        drop "parse-with-errors: argument must be a string" eval-err
+      then
+    then
+  then
+;
+
+# (eval-with-errors text) - parse and evaluate text, return (ok value) or (error ...)
+: eval-eval-with-errors ( SexprList Env -- EvalResult )
+  over 1 "eval-with-errors" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop  # -> List Env
+    swap scdr scar  # Get the string argument -> Env Arg
+    swap eval-with-env  # Evaluate it -> EvalResult
+    dup eval-err? if
+      # Error evaluating argument - propagate
+    else
+      eval-ok-value
+      dup sstring? if
+        sstring-val parse  # Parse the string -> Sexpr
+        # Now evaluate the parsed expression with empty env
+        env-empty eval-with-env
+        dup eval-ok? if
+          eval-ok-value make-ok-result eval-ok
+        else dup eval-err? if
+          # Error during evaluation - extract message and span
+          dup eval-err-message
+          swap eval-err-span
+          make-error-result eval-ok
+        else
+          # EvalDefine - return the defined value wrapped in ok
+          eval-define-value make-ok-result eval-ok
+        then then
+      else
+        drop "eval-with-errors: argument must be a string" eval-err
+      then
+    then
   then
 ;
 
