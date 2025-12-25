@@ -1,19 +1,44 @@
 # Tokenizer for SeqLisp - Using ADTs
 #
 # Uses explicit state variant to avoid complex stack manipulation
+# Token type includes SourceSpan for LSP diagnostics
+
+include "sexpr"  # For SourceSpan type
 
 # ============================================
 # Type Definitions
 # ============================================
 
+# Token with source location (uses SourceSpan from sexpr.seq)
+union Token {
+  Tok { text: String, span: SourceSpan }
+}
+
 union TokenList {
   TNil
-  TCons { token: String, rest: TokenList }
+  TCons { token: Token, rest: TokenList }
 }
 
 union TokState {
   TState { input: String, pos: Int, current_token: String, tokens: TokenList }
 }
+
+# ============================================
+# Token Constructors and Accessors
+# ============================================
+
+: make-token ( String SourceSpan -- Token )
+  Make-Tok ;
+
+# Create token with no position info (for incremental migration)
+: make-simple-token ( String -- Token )
+  no-span make-token ;
+
+: tok-text ( Token -- String )
+  0 variant.field-at ;
+
+: tok-span ( Token -- SourceSpan )
+  1 variant.field-at ;
 
 # ============================================
 # Token List Constructors and Accessors
@@ -22,13 +47,14 @@ union TokState {
 : tnil ( -- TokenList )
   Make-TNil ;
 
+# Original interface: takes String, wraps in Token with no-span
 : tcons ( String TokenList -- TokenList )
-  Make-TCons ;
+  swap make-simple-token swap Make-TCons ;
 
 : tnil? ( TokenList -- Int )
   variant.tag 0 = ;
 
-: tcar ( TokenList -- String )
+: tcar ( TokenList -- Token )
   0 variant.field-at ;
 
 : tcdr ( TokenList -- TokenList )
@@ -39,7 +65,7 @@ union TokState {
 
 : trev-loop ( TokenList TokenList -- TokenList )
   swap dup tnil? if drop else
-    dup tcar rot tcons swap tcdr swap trev-loop
+    dup tcar tok-text rot tcons swap tcdr swap trev-loop
   then
 ;
 
@@ -518,6 +544,6 @@ union TokState {
 
 : print-tokens ( TokenList -- )
   dup tnil? if drop else
-    dup tcar io.write-line tcdr print-tokens
+    dup tcar tok-text io.write-line tcdr print-tokens
   then
 ;
