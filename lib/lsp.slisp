@@ -7,20 +7,18 @@
 ;
 ; Features:
 ;   - Real-time diagnostics with line/column positions
-;   - Uses eval-with-errors for validation
+;   - Paren balance checking (detects ALL unmatched parens)
+;   - Uses eval-all-with-errors for semantic validation of ALL expressions
 ;
 ; Limitations:
-;   - Parser errors (unclosed parens, etc.) are not currently detected
-;     as the parser attempts recovery rather than failing.
-;   - Only the first expression in a document is validated.
 ;   - Evaluation runs without timeout or resource limits.
 
 (define (string-starts-with? str prefix)
   (if (< (string-length str) (string-length prefix)) #f
     (equal? (substring str 0 (string-length prefix)) prefix)))
 
-; Note: \r check is for when tokenizer supports \r escape (see issue #38)
-; Currently io.read-line+ normalizes CRLF to LF, so \n check suffices
+; Note: \r escape is now supported by the tokenizer (issue #38 resolved)
+; io.read-line+ normalizes CRLF to LF, but explicit \r check handles edge cases
 (define (string-blank? str)
   (if (equal? str "") #t
     (if (equal? str "\n") #t
@@ -35,6 +33,64 @@
 
 (define (assoc-val key alist)
   (car (cdr (assoc key alist))))
+
+; ============================================
+; Paren balance checking
+; ============================================
+
+; Get character at position in string
+(define (char-at str pos)
+  (if (>= pos (string-length str))
+      ""
+      (substring str pos 1)))
+
+; Count paren balance: returns (opens - closes)
+; Positive = need more closing, Negative = too many closes, Zero = balanced
+(define (paren-balance-loop str pos balance)
+  (if (>= pos (string-length str))
+      balance
+      (let ch (char-at str pos)
+        (if (equal? ch "(")
+            (paren-balance-loop str (+ pos 1) (+ balance 1))
+            (if (equal? ch ")")
+                (paren-balance-loop str (+ pos 1) (- balance 1))
+                (paren-balance-loop str (+ pos 1) balance))))))
+
+(define (paren-balance str)
+  (paren-balance-loop str 0 0))
+
+; Find ALL unmatched parens, not just the first
+; Returns list of (line col type) where type is "open" or "close"
+; open-stack is list of (line col) for each unclosed '('
+; errors is accumulated list of error positions
+; NOTE: This is a simple character-based scanner that does not handle
+; parens inside string literals (e.g., "(foo \"a(b)c\" bar)"). In practice,
+; if parens are balanced inside strings, the overall count remains correct.
+; Semantic validation via eval-all-with-errors will catch actual syntax errors.
+(define (find-all-unmatched-loop str pos line col open-stack errors)
+  (if (>= pos (string-length str))
+      ; End of string - all remaining open parens are unmatched
+      (append errors (map (lambda (p) (list (car p) (car (cdr p)) "open")) open-stack))
+      (let ch (char-at str pos)
+        (if (equal? ch "\n")
+            (find-all-unmatched-loop str (+ pos 1) (+ line 1) 0 open-stack errors)
+            (if (equal? ch "(")
+                ; Push position onto open stack
+                (find-all-unmatched-loop str (+ pos 1) line (+ col 1)
+                                         (cons (list line col) open-stack) errors)
+                (if (equal? ch ")")
+                    (if (null? open-stack)
+                        ; Extra close paren - add to errors
+                        (find-all-unmatched-loop str (+ pos 1) line (+ col 1)
+                                                 open-stack
+                                                 (cons (list line col "close") errors))
+                        ; Matched - pop from stack
+                        (find-all-unmatched-loop str (+ pos 1) line (+ col 1)
+                                                 (cdr open-stack) errors))
+                    (find-all-unmatched-loop str (+ pos 1) line (+ col 1) open-stack errors)))))))
+
+(define (find-all-unmatched-parens str)
+  (find-all-unmatched-loop str 0 0 0 '() '()))
 
 ; ============================================
 ; Error handling helpers
@@ -64,37 +120,86 @@
 ; Maximum allowed message size (10MB) to prevent memory exhaustion
 (define *max-content-length* 10485760)
 
-(define (lsp-read-headers-loop content-length)
-  (let line (read-line)
-    (if (equal? line #f) -1
-      (if (string-blank? line) content-length
-        (if (string-starts-with? line "Content-Length:")
-          ; Extract Content-Length value: skip "Content-Length: " (16 chars), take remaining minus newline
-          (let parsed-length (json-parse (substring line 16 (- (string-length line) 17)))
-            ; Reject oversized messages
-            (if (> parsed-length *max-content-length*)
-                -1
-                (lsp-read-headers-loop parsed-length)))
-          (lsp-read-headers-loop content-length))))))
+; Find index of newline in string, or -1 if not found
+(define (find-newline-loop str idx len)
+  (if (>= idx len)
+      -1
+      (if (equal? (substring str idx (+ idx 1)) "\n")
+          idx
+          (find-newline-loop str (+ idx 1) len))))
 
-(define (lsp-read-headers) (lsp-read-headers-loop 0))
+(define (find-newline str)
+  (find-newline-loop str 0 (string-length str)))
 
-; Read message body of given length
-; Accumulates lines until we have enough characters
-(define (lsp-read-body-loop remaining acc)
-  (if (<= remaining 0)
-      acc
+; Read a line, using buffer first if available
+; Returns (list line remaining-buffer)
+(define (read-line-from-buffer buffer)
+  (if (equal? buffer "")
+      ; Buffer empty - just read from stdin
       (let line (read-line)
         (if (equal? line #f)
-            acc
-            (let line-len (string-length line)
-              (if (>= line-len remaining)
-                  (string-append acc (substring line 0 remaining))
-                  (lsp-read-body-loop (- remaining line-len)
-                                      (string-append acc line))))))))
+            (list #f "")
+            (list line "")))
+      ; Check if buffer has a complete line
+      (let nl-idx (find-newline buffer)
+        (if (< nl-idx 0)
+            ; No newline in buffer - read more and combine
+            (let line (read-line)
+              (if (equal? line #f)
+                  (list buffer "")  ; Return buffer as final partial line
+                  (list (string-append buffer line) "")))
+            ; Found newline - split buffer
+            (let buf-len (string-length buffer)
+              (list (substring buffer 0 (+ nl-idx 1))
+                    (substring buffer (+ nl-idx 1) buf-len)))))))
 
-(define (lsp-read-body length)
-  (lsp-read-body-loop length ""))
+; Read headers with buffer support, returns (list content-length remaining-buffer)
+; The seen-header flag tracks if we've seen any header (including Content-Length)
+; Blank lines before headers are skipped (may come from file newlines after body)
+; Blank line after headers signals end of headers
+; Returns -1 if Content-Length is missing or invalid
+(define (lsp-read-headers-loop content-length buffer seen-header)
+  (let result (read-line-from-buffer buffer)
+    (let line (car result)
+      (let new-buffer (car (cdr result))
+        (if (equal? line #f) (list -1 "")
+          (if (string-blank? line)
+              ; Blank line: if we've seen headers, this ends headers; otherwise skip it
+              (if seen-header
+                  ; Validate that we actually received a valid Content-Length
+                  (if (> content-length 0)
+                      (list content-length new-buffer)
+                      (list -1 new-buffer))  ; Missing or zero Content-Length
+                  (lsp-read-headers-loop content-length new-buffer #f))
+            (if (string-starts-with? line "Content-Length:")
+              ; Extract Content-Length value: skip "Content-Length: " (16 chars), take remaining minus newline
+              ; Minimum valid line is "Content-Length: X\n" (18 chars)
+              (if (< (string-length line) 18)
+                  (list -1 new-buffer)  ; Malformed Content-Length header
+                  (let parsed-length (json-parse (substring line 16 (- (string-length line) 17)))
+                    ; Reject oversized messages
+                    (if (> parsed-length *max-content-length*)
+                        (list -1 new-buffer)
+                        (lsp-read-headers-loop parsed-length new-buffer #t))))
+              ; Other header (Content-Type, etc) - mark as seen and continue
+              (lsp-read-headers-loop content-length new-buffer #t))))))))
+
+(define (lsp-read-headers buffer) (lsp-read-headers-loop 0 buffer #f))
+
+; Read message body of given length
+; Uses read-n to read exactly the required number of bytes (no newline buffering issues)
+; Returns the body as a string, or #f on EOF
+(define (lsp-read-body length buffer)
+  (let buf-len (string-length buffer)
+    (if (>= buf-len length)
+        ; Buffer has all the data we need - unlikely but handle it
+        (substring buffer 0 length)
+        ; Need to read more bytes from stdin
+        (let remaining (- length buf-len)
+          (let data (read-n remaining)
+            (if (equal? data #f)
+                #f  ; EOF
+                (string-append buffer data)))))))
 
 (define (lsp-send response)
   (let json-str (json-encode response)
@@ -186,23 +291,42 @@
   (let val (safe-nth 5 result 1)
     (if (number? val) (- val 1) 0)))
 
+; Convert a paren error (line col type) to a diagnostic
+(define (paren-error-to-diagnostic err)
+  (let line (car err)
+    (let col (car (cdr err))
+      (let type (car (cdr (cdr err)))
+        (let msg (if (equal? type "open")
+                     "Syntax error: unmatched '(' - missing closing parenthesis"
+                     "Syntax error: unexpected ')' - extra closing parenthesis")
+          (make-diagnostic
+            (make-range line col line (+ col 1))
+            1  ; Severity: Error
+            msg))))))
+
 ; Validate document text and return list of diagnostics
-; Uses eval-with-errors to parse and evaluate, returns diagnostics on error
+; First checks paren balance, then uses eval-all-with-errors to evaluate all expressions
 (define (validate-document text)
-  (let result (eval-with-errors text)
-    (if (eval-error? result)
-        ; Create a diagnostic from the error
-        (let msg (eval-error-message result)
-          (let start-line (eval-error-line result)
-            (let start-col (eval-error-col result)
-              (let end-line (eval-error-end-line result)
-                (let end-col (eval-error-end-col result)
-                  (list (make-diagnostic
-                          (make-range start-line start-col end-line end-col)
-                          1  ; Severity: Error
-                          msg)))))))
-        ; No error - return empty diagnostics
-        (list))))
+  (let balance (paren-balance text)
+    (if (= balance 0)
+        ; Balanced parens - try to evaluate all expressions
+        (let result (eval-all-with-errors text)
+          (if (eval-error? result)
+              ; Create a diagnostic from the error
+              (let msg (eval-error-message result)
+                (let start-line (eval-error-line result)
+                  (let start-col (eval-error-col result)
+                    (let end-line (eval-error-end-line result)
+                      (let end-col (eval-error-end-col result)
+                        (list (make-diagnostic
+                                (make-range start-line start-col end-line end-col)
+                                1  ; Severity: Error
+                                msg)))))))
+              ; No error - return empty diagnostics
+              (list)))
+        ; Unbalanced parens - report ALL unmatched parens
+        (let errors (find-all-unmatched-parens text)
+          (map paren-error-to-diagnostic errors)))))
 
 ; Handle document open - validate and publish diagnostics
 (define (handle-did-open params)
@@ -272,21 +396,30 @@
 ; Main Loop
 ; ============================================
 
-(define (lsp-loop)
-  (let cl (lsp-read-headers)
-    (if (<= cl 0)
-        '()
-        (let body (lsp-read-body cl)
-          (let parse-result (try (json-parse body))
-            (if (try-error? parse-result)
-                ; Parse error - send error response and continue
-                (begin
-                  (lsp-send-error '() -32700 "Parse error")
-                  (lsp-loop))
-                ; Success - extract value and dispatch
-                (let msg (try-value parse-result)
-                  (begin
-                    (lsp-dispatch msg)
-                    (lsp-loop)))))))))
+; Main loop with buffer threading
+; Buffer holds leftover bytes from header reading that belong to body
+; After body reading with read-n, no leftover exists so next message starts fresh
+(define (lsp-loop-with-buffer buffer)
+  (let header-result (lsp-read-headers buffer)
+    (let cl (car header-result)
+      (let header-buffer (car (cdr header-result))
+        (if (<= cl 0)
+            '()
+            (let body (lsp-read-body cl header-buffer)
+              (if (equal? body #f)
+                  '()  ; EOF
+                  (let parse-result (try (json-parse body))
+                    (if (try-error? parse-result)
+                        ; Parse error - send error response and continue
+                        (begin
+                          (lsp-send-error '() -32700 "Parse error")
+                          (lsp-loop-with-buffer ""))
+                        ; Success - extract value and dispatch
+                        (let msg (try-value parse-result)
+                          (begin
+                            (lsp-dispatch msg)
+                            (lsp-loop-with-buffer ""))))))))))))
+
+(define (lsp-loop) (lsp-loop-with-buffer ""))
 
 (lsp-loop)

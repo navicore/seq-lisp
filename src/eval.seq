@@ -335,6 +335,7 @@ union EvalResult {
   "apply" check-candidate
   "print" check-candidate
   "read-line" check-candidate
+  "read-n" check-candidate
   "string-length" check-candidate
   "substring" check-candidate
   "string-append" check-candidate
@@ -343,6 +344,8 @@ union EvalResult {
   "quasiquote" check-candidate
   "defmacro" check-candidate
   "gensym" check-candidate
+  "eval-with-errors" check-candidate
+  "eval-all-with-errors" check-candidate
 
   rot drop  # best_name best_dist
 ;
@@ -750,11 +753,13 @@ union EvalResult {
     drop eval-display-with-env
   else dup "read-line" string.equal? if
     drop eval-read-line-with-env
+  else dup "read-n" string.equal? if
+    drop eval-read-n-with-env
   else dup "exit" string.equal? if
     drop eval-exit-with-env
   else
     dispatch-json
-  then then then then
+  then then then then then
 ;
 
 # ----------------------------------------
@@ -778,9 +783,11 @@ union EvalResult {
     drop eval-parse-with-errors
   else dup "eval-with-errors" string.equal? if
     drop eval-eval-with-errors
+  else dup "eval-all-with-errors" string.equal? if
+    drop eval-eval-all-with-errors
   else
     dispatch-user-defined
-  then then
+  then then then
 ;
 
 # ----------------------------------------
@@ -791,8 +798,11 @@ union EvalResult {
   over  # List Env FuncName Env
   env-lookup  # List Env EvalResult
   dup eval-err? if
-    # Symbol not found - propagate error
-    nip nip
+    # Symbol not found - add span from function name in list
+    # Stack: List Env EvalResult
+    rot scar sexpr-span  # Env EvalResult FuncNameSpan
+    eval-result-add-span  # Env EvalResult (signature is EvalResult SourceSpan -> EvalResult)
+    nip
   else
     # Found something
     eval-ok-value  # List Env Value
@@ -1639,6 +1649,48 @@ union EvalResult {
 ;
 
 # ============================================
+# Read-N (read exactly N bytes from stdin)
+#
+# Usage:
+#   (read-n 58)  ; Returns string of 58 bytes, or #f on EOF/partial read
+# ============================================
+
+: eval-read-n-with-env ( SexprList Env -- EvalResult )
+  # (read-n n) - reads exactly n bytes from stdin
+  # io.read-n primitive: ( n -- string count )
+  #   - Always returns both string and count on stack (count on top)
+  #   - On success: count = n, string contains the bytes
+  #   - On EOF/partial: count = 0, string may be empty or partial (we discard it)
+  over 1 "read-n" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop
+    swap scdr scar  # Get the n argument
+    swap eval-with-env
+    dup eval-err? if
+      # Error evaluating n
+    else
+      eval-ok-value
+      dup snum? if
+        # Got a number - read that many bytes
+        snum-val
+        io.read-n        # Stack: string count
+        0 = if           # Stack: string (count was 0, consumed by comparison)
+          # EOF or partial read - discard partial string and return #f
+          drop "#f" ssym eval-ok
+        else             # Stack: string (count was non-zero, consumed by comparison)
+          # Got all bytes - wrap string as Sexpr and return
+          sstring eval-ok
+        then
+      else
+        drop "read-n: expected number" eval-err
+      then
+    then
+  then
+;
+
+# ============================================
 # String Operations
 # ============================================
 
@@ -2094,6 +2146,95 @@ union EvalResult {
         then then
       else
         drop "eval-with-errors: argument must be a string" eval-err
+      then
+    then
+  then
+;
+
+# Parse all expressions from token list
+: parse-all-for-lsp ( TokenList -- SexprList )
+    snil parse-all-for-lsp-loop list-reverse
+;
+
+: parse-all-for-lsp-loop ( TokenList SexprList -- SexprList )
+    # Stack: Tokens Exprs
+    over tnil? if
+        nip  # No more tokens, return expressions
+    else
+        swap parse-tokens  # -> Exprs ParseResult
+        dup result-expr swap result-tokens  # -> Exprs Expr RemainingTokens
+        rot rot swap scons  # -> RemainingTokens NewExprs
+        parse-all-for-lsp-loop
+    then
+;
+
+# Evaluate a list of expressions with persistent env, return first error or (ok last-value)
+# Stack: SexprList Env LastValue -> EvalResult
+: eval-all-with-errors-loop ( SexprList Env Sexpr -- EvalResult )
+    # Stack: Exprs Env LastValue
+    2 pick snil? if
+        # No more expressions - return ok with last value
+        nip nip  # -> LastValue
+        make-ok-result eval-ok
+    else
+        # Get next expression: Exprs Env LastValue
+        2 pick scar   # Exprs Env LastValue Expr
+        2 pick        # Exprs Env LastValue Expr Env
+        eval-with-env # Exprs Env LastValue EvalResult
+        dup eval-ok? if
+            # Expression succeeded - continue with its value
+            eval-ok-value  # Exprs Env LastValue NewValue
+            nip            # Exprs Env NewValue (drop old LastValue)
+            rot scdr       # Env NewValue RestExprs
+            rot rot        # RestExprs Env NewValue
+            eval-all-with-errors-loop
+        else dup eval-err? if
+            # Error - extract and return it
+            dup eval-err-message  # Exprs Env LastValue EvalResult Msg
+            swap eval-err-span    # Exprs Env LastValue Msg Span
+            make-error-result eval-ok  # Exprs Env LastValue ErrorResult
+            nip nip nip  # Drop Exprs Env LastValue
+        else
+            # EvalDefine - update env and continue
+            # Stack: Exprs Env LastValue EvalResult
+            dup eval-define-name    # Exprs Env LastValue EvalDef Name
+            swap eval-define-value  # Exprs Env LastValue Name Value
+            3 pick env-extend       # Exprs Env LastValue Name Value Env -> Exprs Env LastValue NewEnv
+            # Now need: RestExprs NewEnv snil
+            # Stack: Exprs Env LastValue NewEnv
+            nip nip                 # Exprs NewEnv (drop LastValue and old Env)
+            swap scdr               # NewEnv RestExprs
+            swap snil               # RestExprs NewEnv snil
+            eval-all-with-errors-loop
+        then then
+    then
+;
+
+# (eval-all-with-errors text) - parse and evaluate all exprs, return first error or (ok last)
+: eval-eval-all-with-errors ( SexprList Env -- EvalResult )
+  over 1 "eval-all-with-errors" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop  # -> List Env
+    swap scdr scar  # Get the string argument -> Env Arg
+    swap eval-with-env  # Evaluate it -> EvalResult
+    dup eval-err? if
+      # Error evaluating argument - propagate
+    else
+      eval-ok-value
+      dup sstring? if
+        sstring-val  # Get the string
+        tokenize parse-all-for-lsp  # Parse all expressions -> SexprList
+        dup snil? if
+          # Empty - return (ok ())
+          drop snil make-ok-result eval-ok
+        else
+          # Evaluate all with empty initial env
+          env-empty snil eval-all-with-errors-loop
+        then
+      else
+        drop "eval-all-with-errors: argument must be a string" eval-err
       then
     then
   then

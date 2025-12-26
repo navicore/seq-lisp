@@ -1,0 +1,68 @@
+# Test LSP-related features
+#
+# Tests for eval-all-with-errors function
+
+include "../../src/eval"
+
+# ============================================
+# Test Helpers
+# ============================================
+
+# Build a double-quote character as a string
+# (workaround for Seq compiler bug: patch-seq#117)
+: dquote ( -- String )
+  34 char->string ;
+
+# Wrap input in (eval-all-with-errors "...")
+: wrap-eval-all ( String -- String )
+  "(eval-all-with-errors " dquote string.concat
+  swap string.concat
+  dquote string.concat ")" string.concat ;
+
+# Simple test that just runs eval-all-with-errors and checks it returns ok
+: test-returns-ok ( String -- )
+  dup wrap-eval-all               # Stack: Input WrappedInput
+  parse env-empty eval-with-env   # Stack: Input EvalResult
+  dup eval-ok? if
+    eval-ok-value                 # Stack: Input ResultSexpr (SList)
+    slist-val scar ssym-val "ok" string.equal? if
+      "PASS: " swap string.concat io.write-line
+    else
+      "FAIL: " swap string.concat " (not ok result)" string.concat io.write-line
+    then
+  else
+    drop "FAIL: " swap string.concat " (eval failed)" string.concat io.write-line
+  then ;
+
+# Simple test that checks eval-all-with-errors returns error
+: test-returns-error ( String -- )
+  dup wrap-eval-all               # Stack: Input WrappedInput
+  parse env-empty eval-with-env   # Stack: Input EvalResult
+  dup eval-ok? if
+    eval-ok-value                 # Stack: Input ResultSexpr (SList)
+    slist-val scar ssym-val "error" string.equal? if
+      "PASS: " swap string.concat " (got error)" string.concat io.write-line
+    else
+      "FAIL: " swap string.concat " (expected error, got ok)" string.concat io.write-line
+    then
+  else
+    drop "FAIL: " swap string.concat " (eval failed)" string.concat io.write-line
+  then ;
+
+: main ( -- )
+  "=== eval-all-with-errors Tests ===" io.write-line
+
+  "--- Basic Tests ---" io.write-line
+  "(+ 1 2)" test-returns-ok
+  "(* 3 4)" test-returns-ok
+  "(list 1 2 3)" test-returns-ok
+  "(define x 10) x" test-returns-ok
+  "(define x 5) (define y 3) (+ x y)" test-returns-ok
+
+  "--- Error Cases ---" io.write-line
+  "(undefined-func)" test-returns-error
+  "(+ 1 unknown)" test-returns-error
+  "(/ 1 0)" test-returns-error
+
+  "=== All Tests Complete ===" io.write-line
+;
