@@ -1652,11 +1652,15 @@ union EvalResult {
 # Read-N (read exactly N bytes from stdin)
 #
 # Usage:
-#   (read-n 58)  ; Returns string of 58 bytes, or #f on EOF
+#   (read-n 58)  ; Returns string of 58 bytes, or #f on EOF/partial read
 # ============================================
 
 : eval-read-n-with-env ( SexprList Env -- EvalResult )
   # (read-n n) - reads exactly n bytes from stdin
+  # io.read-n primitive: ( n -- string count )
+  #   - Always returns both string and count on stack (count on top)
+  #   - On success: count = n, string contains the bytes
+  #   - On EOF/partial: count = 0, string may be empty or partial (we discard it)
   over 1 "read-n" check-arity
   dup eval-err? if
     nip nip nip
@@ -1671,12 +1675,12 @@ union EvalResult {
       dup snum? if
         # Got a number - read that many bytes
         snum-val
-        io.read-n
-        0 = if
-          # EOF or partial read - return #f
+        io.read-n        # Stack: string count
+        0 = if           # Stack: string (count was 0, consumed by comparison)
+          # EOF or partial read - discard partial string and return #f
           drop "#f" ssym eval-ok
-        else
-          # Got all bytes - return as string
+        else             # Stack: string (count was non-zero, consumed by comparison)
+          # Got all bytes - wrap string as Sexpr and return
           sstring eval-ok
         then
       else

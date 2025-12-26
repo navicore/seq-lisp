@@ -17,8 +17,8 @@
   (if (< (string-length str) (string-length prefix)) #f
     (equal? (substring str 0 (string-length prefix)) prefix)))
 
-; Note: \r check is for when tokenizer supports \r escape (see issue #38)
-; Currently io.read-line+ normalizes CRLF to LF, so \n check suffices
+; Note: \r escape is now supported by the tokenizer (issue #38 resolved)
+; io.read-line+ normalizes CRLF to LF, but explicit \r check handles edge cases
 (define (string-blank? str)
   (if (equal? str "") #t
     (if (equal? str "\n") #t
@@ -63,6 +63,10 @@
 ; Returns list of (line col type) where type is "open" or "close"
 ; open-stack is list of (line col) for each unclosed '('
 ; errors is accumulated list of error positions
+; NOTE: This is a simple character-based scanner that does not handle
+; parens inside string literals (e.g., "(foo \"a(b)c\" bar)"). In practice,
+; if parens are balanced inside strings, the overall count remains correct.
+; Semantic validation via eval-all-with-errors will catch actual syntax errors.
 (define (find-all-unmatched-loop str pos line col open-stack errors)
   (if (>= pos (string-length str))
       ; End of string - all remaining open parens are unmatched
@@ -150,26 +154,33 @@
                     (substring buffer (+ nl-idx 1) buf-len)))))))
 
 ; Read headers with buffer support, returns (list content-length remaining-buffer)
-; The seen-header flag tracks if we've seen Content-Length yet
-; Blank lines before Content-Length are skipped (may come from file newlines after body)
-; Blank line after Content-Length signals end of headers
+; The seen-header flag tracks if we've seen any header (including Content-Length)
+; Blank lines before headers are skipped (may come from file newlines after body)
+; Blank line after headers signals end of headers
+; Returns -1 if Content-Length is missing or invalid
 (define (lsp-read-headers-loop content-length buffer seen-header)
   (let result (read-line-from-buffer buffer)
     (let line (car result)
       (let new-buffer (car (cdr result))
         (if (equal? line #f) (list -1 "")
           (if (string-blank? line)
-              ; Blank line: if we've seen header, this ends headers; otherwise skip it
+              ; Blank line: if we've seen headers, this ends headers; otherwise skip it
               (if seen-header
-                  (list content-length new-buffer)
+                  ; Validate that we actually received a valid Content-Length
+                  (if (> content-length 0)
+                      (list content-length new-buffer)
+                      (list -1 new-buffer))  ; Missing or zero Content-Length
                   (lsp-read-headers-loop content-length new-buffer #f))
             (if (string-starts-with? line "Content-Length:")
               ; Extract Content-Length value: skip "Content-Length: " (16 chars), take remaining minus newline
-              (let parsed-length (json-parse (substring line 16 (- (string-length line) 17)))
-                ; Reject oversized messages
-                (if (> parsed-length *max-content-length*)
-                    (list -1 new-buffer)
-                    (lsp-read-headers-loop parsed-length new-buffer #t)))
+              ; Minimum valid line is "Content-Length: X\n" (18 chars)
+              (if (< (string-length line) 18)
+                  (list -1 new-buffer)  ; Malformed Content-Length header
+                  (let parsed-length (json-parse (substring line 16 (- (string-length line) 17)))
+                    ; Reject oversized messages
+                    (if (> parsed-length *max-content-length*)
+                        (list -1 new-buffer)
+                        (lsp-read-headers-loop parsed-length new-buffer #t))))
               ; Other header (Content-Type, etc) - mark as seen and continue
               (lsp-read-headers-loop content-length new-buffer #t))))))))
 
