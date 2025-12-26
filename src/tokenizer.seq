@@ -539,11 +539,17 @@ union TokState {
           drop 10 char->string append-to-token
           advance-col advance-col
         else
-          # Unknown escape - add backslash and the char
-          char->string
-          92 char->string swap string.concat
-          append-to-token
-          advance-col advance-col
+          dup 114 = if
+            # backslash-r -> add carriage return to string
+            drop 13 char->string append-to-token
+            advance-col advance-col
+          else
+            # Unknown escape - add backslash and the char
+            char->string
+            92 char->string swap string.concat
+            append-to-token
+            advance-col advance-col
+          then
         then
       then
     then
