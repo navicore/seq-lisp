@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(just lisp-test:*)"
+      "Bash(just lisp-test:*)",
+      "Bash(just build:*)",
+      "Bash(seqc build:*)"
     ]
   }
 }

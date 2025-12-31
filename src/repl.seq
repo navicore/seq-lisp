@@ -91,7 +91,7 @@ include ffi:libedit
             else
                 # EvalOk result - unwrap and print if not empty list
                 eval-ok-value
-                dup variant.tag 2 = if
+                dup variant.tag 2 i.= if
                     dup slist-val snil? if
                         drop
                     else
@@ -109,7 +109,7 @@ include ffi:libedit
 
 # Run a file
 : run-file ( String -- )
-    file.slurp tokenize parse-all
+    file.slurp drop tokenize parse-all
     env-empty eval-all-print drop
 ;
 
@@ -125,47 +125,47 @@ include ffi:libedit
 : paren-balance-loop ( Int String Int -- Int )
     # Stack: Balance Str Pos
     # Check if Pos >= Length (done)
-    dup 2 pick string.length >= if
+    dup 2 pick string.length i.>= if
         # End of string - return Balance
         drop drop  # Drop Str Pos, leave Balance
     else
         # Get char at pos
         over over string.char-at
-        dup 40 = if      # '('
-            drop rot 1 add rot rot 1 add paren-balance-loop
+        dup 40 i.= if      # '('
+            drop rot 1 i.add rot rot 1 i.add paren-balance-loop
         else
-            dup 41 = if  # ')'
-                drop rot 1 subtract rot rot 1 add paren-balance-loop
+            dup 41 i.= if  # ')'
+                drop rot 1 i.subtract rot rot 1 i.add paren-balance-loop
             else
                 # Skip other chars
-                drop 1 add paren-balance-loop
+                drop 1 i.add paren-balance-loop
             then
         then
     then ;
 
 # Check if input has content (non-whitespace, non-comment)
-# Returns 1 if there's non-whitespace before any comment, 0 otherwise
-: has-content ( String -- Int )
-    0 swap 0 has-content-loop ;
+# Returns true if there's non-whitespace before any comment, false otherwise
+: has-content ( String -- Bool )
+    false swap 0 has-content-loop ;
 
-: has-content-loop ( Int String Int -- Int )
+: has-content-loop ( Bool String Int -- Bool )
     # Stack: Found Str Pos
     # Check if Pos >= Length (done)
-    dup 2 pick string.length >= if
+    dup 2 pick string.length i.>= if
         # End of string - return Found
         drop drop  # Drop Str Pos, leave Found
     else
         over over string.char-at
         # Stack: Found Str Pos CharCode
-        dup 59 = if  # ';' - comment starts, stop scanning
-            # Return what we've found so far (0 if nothing before comment)
+        dup 59 i.= if  # ';' - comment starts, stop scanning
+            # Return what we've found so far (false if nothing before comment)
             drop drop drop
         else
-            dup 32 > if  # Non-whitespace - found content
-                drop drop drop drop 1
+            dup 32 i.> if  # Non-whitespace - found content
+                drop drop drop drop true
             else
                 # Whitespace - continue searching
-                drop 1 add has-content-loop
+                drop 1 i.add has-content-loop
             then
         then
     then ;
@@ -184,7 +184,7 @@ include ffi:libedit
 
 # Get prompt string based on whether we're continuing a multi-line expression
 : get-prompt ( Int -- String )
-    0 = if
+    0 i.= if
         "> "
     else
         "... "
@@ -194,7 +194,7 @@ include ffi:libedit
 : repl-handle-eof ( String Env -- )
     # Stack: Acc Env
     over has-content if
-        over paren-balance 0 = if
+        over paren-balance 0 i.= if
             # Balanced - evaluate remaining
             swap tokenize parse-all
             swap eval-all-print drop
@@ -217,17 +217,17 @@ include ffi:libedit
     # Stack: NewAcc Env
     over paren-balance
     # Stack: NewAcc Env Balance
-    dup 0 < if
+    dup 0 i.< if
         # Negative balance - too many closing parens
         drop "Error: unexpected ')'" io.write-line
         drop "" swap repl-loop
     else
-        0 =
+        0 i.=
         # Stack: NewAcc Env BalancedBool
         2 pick has-content
         # Stack: NewAcc Env BalancedBool HasContentBool
         and if
-            # Balanced and has content - add to history and evaluate
+            # Balanced and has content - i.add to history and evaluate
             over add-history
             swap tokenize parse-all
             swap eval-all-print
@@ -246,7 +246,7 @@ include ffi:libedit
         # EOF (Ctrl+D or empty input)
         drop repl-handle-eof
     else
-        # Got a line - add newline since readline strips it
+        # Got a line - i.add newline since readline strips it
         "\n" string.concat
         repl-handle-line
     then ;
@@ -266,7 +266,7 @@ include ffi:libedit
 # Read all lines until EOF (preserves newlines for comments)
 : read-all-stdin ( String -- String )
     io.read-line+
-    0 = if
+    0 i.= if
         # EOF reached
         drop
     else
@@ -291,25 +291,25 @@ include ffi:libedit
 # ============================================
 
 # Check if argument is a version flag
-: is-version-flag ( String -- Int )
+: is-version-flag ( String -- Bool )
     dup "--version" string.equal? if
-        drop 1
+        drop true
     else
         "-v" string.equal?
     then
 ;
 
 # Check if argument is a help flag
-: is-help-flag ( String -- Int )
+: is-help-flag ( String -- Bool )
     dup "--help" string.equal? if
-        drop 1
+        drop true
     else
         "-h" string.equal?
     then
 ;
 
 # Check if argument is LSP flag
-: is-lsp-flag ( String -- Int )
+: is-lsp-flag ( String -- Bool )
     "--lsp" string.equal?
 ;
 
@@ -336,30 +336,36 @@ include ffi:libedit
 
 # Run a file safely (handle missing files)
 : run-file-safe ( String -- )
-    dup file.slurp-safe if
-        # Stack: Filename Content (success)
-        nip  # Drop filename, keep content
-        tokenize parse-all
-        env-empty eval-all-print drop
+    dup file.exists? if
+        file.slurp if
+            # Stack: Content (success)
+            tokenize parse-all
+            env-empty eval-all-print drop
+        else
+            drop  # Drop empty/error content
+            "Error: Cannot read file" io.write-line
+        then
     else
-        # Stack: Filename Content (failure)
-        drop  # Drop empty/error content
         "Error: Cannot read file '" swap string.concat "'" string.concat io.write-line
     then
 ;
 
-# Run LSP server (load lib/lsp.lisp)
+# Run LSP server (load lib/lsp.slisp)
 : run-lsp ( -- )
-    "lib/lsp.lisp" file.slurp-safe if
-        tokenize parse-all
-        env-empty eval-all-quiet drop
+    "lib/lsp.slisp" file.exists? if
+        "lib/lsp.slisp" file.slurp if
+            tokenize parse-all
+            env-empty eval-all-quiet drop
+        else
+            drop "Error: Cannot read lib/lsp.slisp" io.write-line
+        then
     else
-        drop "Error: Cannot find lib/lsp.lisp" io.write-line
+        "Error: Cannot find lib/lsp.slisp" io.write-line
     then
 ;
 
 : main ( -- )
-    args.count 1 > if
+    args.count 1 i.> if
         1 args.at
         dup is-version-flag if
             drop print-version

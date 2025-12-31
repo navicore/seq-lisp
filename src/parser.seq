@@ -57,78 +57,78 @@ union ParseResult {
 # Token Predicates
 # ============================================
 
-: is-lparen ( String -- Int )
+: is-lparen ( String -- Bool )
   "(" string.equal? ;
 
-: is-rparen ( String -- Int )
+: is-rparen ( String -- Bool )
   ")" string.equal? ;
 
-: is-quote ( String -- Int )
+: is-quote ( String -- Bool )
   "'" string.equal? ;
 
-: is-quasiquote ( String -- Int )
+: is-quasiquote ( String -- Bool )
   "`" string.equal? ;
 
-: is-unquote ( String -- Int )
+: is-unquote ( String -- Bool )
   "," string.equal? ;
 
-: is-unquote-splice ( String -- Int )
+: is-unquote-splice ( String -- Bool )
   ",@" string.equal? ;
 
-: is-digit ( Int -- Int )
-  dup 48 >= swap 57 <= and ;
+: is-digit ( Int -- Bool )
+  dup 48 i.>= swap 57 i.<= and ;
 
 # Check if token is a string literal (starts with double quote)
-: is-string-token ( String -- Int )
-  dup string.length 0 = if
-    drop 0
+: is-string-token ( String -- Bool )
+  dup string.length 0 i.= if
+    drop false
   else
-    0 string.char-at 34 =  # char 34 is double quote
+    0 string.char-at 34 i.=  # char 34 is double quote
   then
 ;
 
 # Check if char is a decimal point
-: is-dot ( Int -- Int )
-  46 = ;  # char 46 is '.'
+: is-dot ( Int -- Bool )
+  46 i.= ;  # char 46 is '.'
 
 # Check if token contains a decimal point (for float detection)
-: has-decimal-point ( String -- Int )
+: has-decimal-point ( String -- Bool )
   0 has-decimal-loop ;
 
-: has-decimal-loop ( String Int -- Int )
+: has-decimal-loop ( String Int -- Bool )
   # Stack: str pos
-  over string.length over <= if
-    drop drop 0  # Reached end, no decimal found
+  over string.length over i.<= if
+    drop drop false  # Reached end, no decimal found
   else
     2dup string.char-at is-dot if
-      drop drop 1  # Found decimal
+      drop drop true  # Found decimal
     else
-      1 add has-decimal-loop  # Check next char
+      1 i.add has-decimal-loop  # Check next char
     then
   then
 ;
 
 # Check if token is a float (number with decimal point)
-: is-float-token ( String -- Int )
+: is-float-token ( String -- Bool )
   dup is-number-start? if
     has-decimal-point
   else
-    drop 0
+    drop false
   then
 ;
 
 # Check if token starts like a number (digit or minus-digit)
-: is-number-start? ( String -- Int )
-  dup string.length 0 = if
-    drop 0
+: is-number-start? ( String -- Bool )
+  dup string.length 0 i.= if
+    drop false
   else
     dup 0 string.char-at
-    dup 45 = if
+    dup 45 i.= if
       # Starts with minus - check if length > 1 and second char is digit
-      drop dup string.length 1 > if
+      drop dup string.length 1 i.> if
         1 string.char-at is-digit
       else
-        drop 0
+        drop false
       then
     else
       is-digit nip
@@ -136,13 +136,13 @@ union ParseResult {
   then
 ;
 
-: is-number-token ( String -- Int )
+: is-number-token ( String -- Bool )
   # Check if first char is a digit or minus followed by digit
   # and does NOT contain a decimal point (integers only)
   dup is-number-start? if
-    has-decimal-point 0 =  # True if no decimal point
+    has-decimal-point not  # True if no decimal point
   else
-    drop 0
+    drop false
   then
 ;
 
@@ -205,7 +205,7 @@ union ParseResult {
                 dup is-string-token if
                   # String literal - strip quotes and create SString
                   # Stack: tokens token span text
-                  dup string.length 2 subtract    # tokens token span text len
+                  dup string.length 2 i.subtract    # tokens token span text len
                   over                            # tokens token span text len text
                   1 rot                           # tokens token span text text 1 len
                   string.substring                # tokens token span text content

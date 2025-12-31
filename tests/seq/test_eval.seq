@@ -159,10 +159,10 @@ include "../../src/eval"
   "(begin (define a 10) (define b 20) (+ a b))" eval-print  # 30
 
   # Define a lambda
-  "(begin (define add (lambda (x y) (+ x y))) (add 3 4))" eval-print  # 7
+  "(begin (define i.add (lambda (x y) (+ x y))) (add 3 4))" eval-print  # 7
 
   # Curried define usage
-  "(begin (define add (lambda (x y) (+ x y))) ((add 10) 5))" eval-print  # 15
+  "(begin (define i.add (lambda (x y) (+ x y))) ((add 10) 5))" eval-print  # 15
 
   # Function shorthand define
   "(begin (define (square n) (* n n)) (square 5))" eval-print  # 25
