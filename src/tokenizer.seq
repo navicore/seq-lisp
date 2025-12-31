@@ -58,12 +58,12 @@ union TokState {
 : tcons-tok ( Token TokenList -- TokenList )
   Make-TCons ;
 
-# Convenience: create token with span and add to list
+# Convenience: create token with span and i.add to list
 : tcons-span ( String SourceSpan TokenList -- TokenList )
   rot rot make-token swap tcons-tok ;
 
-: tnil? ( TokenList -- Int )
-  variant.tag 0 = ;
+: tnil? ( TokenList -- Bool )
+  variant.tag 0 i.= ;
 
 : tcar ( TokenList -- Token )
   0 variant.field-at ;
@@ -166,9 +166,9 @@ union TokState {
 # Advance position by 1 char (not a newline)
 : advance-col ( TokState -- TokState )
   dup state-input
-  over state-pos 1 add
+  over state-pos 1 i.add
   2 pick state-line
-  3 pick state-col 1 add
+  3 pick state-col 1 i.add
   make-pos
   2 pick state-accum
   3 pick state-tokens
@@ -178,8 +178,8 @@ union TokState {
 # Advance position past a newline
 : advance-newline ( TokState -- TokState )
   dup state-input
-  over state-pos 1 add
-  2 pick state-line 1 add
+  over state-pos 1 i.add
+  2 pick state-line 1 i.add
   1  # col resets to 1
   make-pos
   2 pick state-accum
@@ -239,7 +239,7 @@ union TokState {
     3 pick state-col          # state input current line col
     empty-accum               # state input current new-accum
 
-    # 4. Create new token and add to token list
+    # 4. Create new token and i.add to token list
     3 pick state-tok          # state input current new-accum text
     4 pick make-token-span    # state input current new-accum text span
     make-token                # state input current new-accum token
@@ -261,7 +261,7 @@ union TokState {
   over state-line          # state str start-line
   2 pick state-col         # state str start-line start-col
   3 pick state-line        # state str start-line start-col end-line
-  4 pick state-col 1 add   # state str start-line start-col end-line end-col
+  4 pick state-col 1 i.add   # state str start-line start-col end-line end-col
   make-span                # state str span
 
   # Create token (make-token expects: String SourceSpan -- Token)
@@ -272,13 +272,13 @@ union TokState {
 
   # Build new state with advanced position and empty accum
   over state-input             # state new-tokens input
-  2 pick state-pos 1 add       # state new-tokens input pos+1
+  2 pick state-pos 1 i.add       # state new-tokens input pos+1
   3 pick state-line            # state new-tokens input pos+1 line
-  4 pick state-col 1 add       # state new-tokens input pos+1 line col+1
+  4 pick state-col 1 i.add       # state new-tokens input pos+1 line col+1
   make-pos                     # state new-tokens input new-pos
 
   3 pick state-line            # state new-tokens input new-pos line
-  4 pick state-col 1 add       # state new-tokens input new-pos line col+1
+  4 pick state-col 1 i.add       # state new-tokens input new-pos line col+1
   empty-accum                  # state new-tokens input new-pos new-accum
 
   # Rearrange for make-state: need input new-pos new-accum new-tokens
@@ -305,50 +305,50 @@ union TokState {
 
 : tokenize-loop ( TokState -- TokState )
   dup state-input string.length
-  over state-pos <= if
+  over state-pos i.<= if
     # Done - return state (caller will flush)
   else
     # Get current char code at position
     dup state-input over state-pos string.char-at
     # Stack: State CharCode
 
-    dup 10 = if
+    dup 10 i.= if
       # Newline - flush token and advance with line increment
       drop handle-newline tokenize-loop
     else
-      dup 32 = over 9 = or over 13 = or if
+      dup 32 i.= over 9 i.= or over 13 i.= or if
         # Other whitespace (space, tab, CR)
         drop handle-space tokenize-loop
       else
-        dup 59 = if
+        dup 59 i.= if
           # Semicolon - start of comment
           drop handle-comment tokenize-loop
         else
-          dup 40 = if
+          dup 40 i.= if
             # Left paren
             drop handle-lparen tokenize-loop
           else
-            dup 41 = if
+            dup 41 i.= if
               # Right paren
               drop handle-rparen tokenize-loop
             else
-              dup 39 = if
+              dup 39 i.= if
                 # Single quote
                 drop handle-quote tokenize-loop
               else
-                dup 96 = if
+                dup 96 i.= if
                   # Backtick (quasiquote)
                   drop handle-backtick tokenize-loop
                 else
-                  dup 44 = if
+                  dup 44 i.= if
                     # Comma (unquote/unquote-splicing)
                     drop handle-comma tokenize-loop
                   else
-                    dup 34 = if
+                    dup 34 i.= if
                       # Double quote - string literal
                       drop handle-string tokenize-loop
                     else
-                      # Regular char - add to token
+                      # Regular char - i.add to token
                       drop handle-char tokenize-loop
                     then
                   then
@@ -401,9 +401,9 @@ union TokState {
   emit-token
   # Check if next char is @
   dup state-input string.length
-  over state-pos 1 add > if
-    dup state-input over state-pos 1 add string.char-at
-    64 = if
+  over state-pos 1 i.add i.> if
+    dup state-input over state-pos 1 i.add string.char-at
+    64 i.= if
       # It's ,@ - emit as two-char token
       ",@" emit-two-char start-token
     else
@@ -421,7 +421,7 @@ union TokState {
   over state-line            # state str start-line
   2 pick state-col           # state str start-line start-col
   3 pick state-line          # state str start-line start-col end-line
-  4 pick state-col 2 add     # state str start-line start-col end-line end-col
+  4 pick state-col 2 i.add     # state str start-line start-col end-line end-col
   make-span                  # state str span
 
   # Create token (make-token expects: String SourceSpan -- Token)
@@ -432,13 +432,13 @@ union TokState {
 
   # Build new state with advanced position and empty accum
   over state-input             # state new-tokens input
-  2 pick state-pos 2 add       # state new-tokens input pos+2
+  2 pick state-pos 2 i.add       # state new-tokens input pos+2
   3 pick state-line            # state new-tokens input pos+2 line
-  4 pick state-col 2 add       # state new-tokens input pos+2 line col+2
+  4 pick state-col 2 i.add       # state new-tokens input pos+2 line col+2
   make-pos                     # state new-tokens input new-pos
 
   3 pick state-line            # state new-tokens input new-pos line
-  4 pick state-col 2 add       # state new-tokens input new-pos line col+2
+  4 pick state-col 2 i.add       # state new-tokens input new-pos line col+2
   empty-accum                  # state new-tokens input new-pos new-accum
 
   # Rearrange for make-state: need input new-pos new-accum new-tokens
@@ -446,7 +446,7 @@ union TokState {
   make-state nip
 ;
 
-# Handle regular character: add to accumulator, advance
+# Handle regular character: i.add to accumulator, advance
 : handle-char ( TokState -- TokState )
   # If accumulator is empty, this is the start of a new token
   dup state-tok string.empty? if
@@ -480,7 +480,7 @@ union TokState {
 : string-scan-loop ( TokState -- TokState )
   # Check if at end of input
   dup state-input string.length
-  over state-pos <= if
+  over state-pos i.<= if
     # End of input before closing quote - emit what we have with closing quote
     34 char->string append-to-token
     emit-token start-token
@@ -488,25 +488,25 @@ union TokState {
     # Get current char
     dup state-input over state-pos string.char-at
 
-    dup 34 = if
-      # Closing quote - add it and emit
+    dup 34 i.= if
+      # Closing quote - i.add it and emit
       drop
       34 char->string append-to-token
       advance-col
       emit-token start-token
     else
-      dup 92 = if
+      dup 92 i.= if
         # Backslash - handle escape
         drop handle-string-escape string-scan-loop
       else
-        dup 10 = if
-          # Newline in string - add it and update line tracking
+        dup 10 i.= if
+          # Newline in string - i.add it and update line tracking
           drop
           10 char->string append-to-token
           advance-newline
           string-scan-loop
         else
-          # Regular char - add to string and advance
+          # Regular char - i.add to string and advance
           char->string append-to-token
           advance-col
           string-scan-loop
@@ -520,31 +520,31 @@ union TokState {
 : handle-string-escape ( TokState -- TokState )
   # Check if there's another char after backslash
   dup state-input string.length
-  over state-pos 1 add > if
+  over state-pos 1 i.add i.> if
     # Get escaped char
-    dup state-input over state-pos 1 add string.char-at
+    dup state-input over state-pos 1 i.add string.char-at
 
-    dup 34 = if
-      # backslash-quote -> add quote to string
+    dup 34 i.= if
+      # backslash-quote -> i.add quote to string
       drop 34 char->string append-to-token
       advance-col advance-col
     else
-      dup 92 = if
-        # backslash-backslash -> add backslash to string
+      dup 92 i.= if
+        # backslash-backslash -> i.add backslash to string
         drop 92 char->string append-to-token
         advance-col advance-col
       else
-        dup 110 = if
-          # backslash-n -> add newline to string
+        dup 110 i.= if
+          # backslash-n -> i.add newline to string
           drop 10 char->string append-to-token
           advance-col advance-col
         else
-          dup 114 = if
-            # backslash-r -> add carriage return to string
+          dup 114 i.= if
+            # backslash-r -> i.add carriage return to string
             drop 13 char->string append-to-token
             advance-col advance-col
           else
-            # Unknown escape - add backslash and the char
+            # Unknown escape - i.add backslash and the char
             char->string
             92 char->string swap string.concat
             append-to-token
@@ -554,7 +554,7 @@ union TokState {
       then
     then
   else
-    # No char after backslash - just add backslash
+    # No char after backslash - just i.add backslash
     92 char->string append-to-token
     advance-col
   then
@@ -572,12 +572,12 @@ union TokState {
 # Skip characters until newline or end of input
 : skip-to-eol ( TokState -- TokState )
   dup state-input string.length
-  over state-pos <= if
+  over state-pos i.<= if
     # End of input
     start-token
   else
     dup state-input over state-pos string.char-at
-    10 = if
+    10 i.= if
       # Found newline - advance past it with line increment
       advance-newline start-token
     else

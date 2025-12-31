@@ -47,14 +47,14 @@ union EvalResult {
   Make-EvalDefine ;
 
 # Predicates
-: eval-ok? ( EvalResult -- Int )
-  variant.tag 0 = ;
+: eval-ok? ( EvalResult -- Bool )
+  variant.tag 0 i.= ;
 
-: eval-err? ( EvalResult -- Int )
-  variant.tag 1 = ;
+: eval-err? ( EvalResult -- Bool )
+  variant.tag 1 i.= ;
 
-: eval-define? ( EvalResult -- Int )
-  variant.tag 2 = ;
+: eval-define? ( EvalResult -- Bool )
+  variant.tag 2 i.= ;
 
 # Accessors
 : eval-ok-value ( EvalResult -- Sexpr )
@@ -76,7 +76,7 @@ union EvalResult {
   over eval-err? if
     # It's an error - check if it already has a span
     over eval-err-span no-span? if
-      # No span - add the provided one
+      # No span - i.add the provided one
       swap eval-err-message swap eval-err-at
     else
       # Already has span - keep it
@@ -107,7 +107,7 @@ union EvalResult {
   dup snil? if
     drop
   else
-    scdr swap 1 add swap list-length-loop
+    scdr swap 1 i.add swap list-length-loop
   then ;
 
 # Count arguments in a list (excluding the function name)
@@ -129,7 +129,7 @@ union EvalResult {
 : check-arity ( SexprList Int String -- SexprList EvalResult )
   # Stack: List Expected FuncName
   2 pick count-args  # Stack: List Expected FuncName Actual
-  2 pick = if        # Compares Actual with Expected (copy), consumes both
+  2 pick i.= if        # Compares Actual with Expected (copy), consumes both
     # Stack: List Expected FuncName - arity matches
     drop drop        # Stack: List
     snil slist eval-ok  # Return List and EvalOk
@@ -145,7 +145,7 @@ union EvalResult {
 : check-min-arity ( SexprList Int String -- SexprList EvalResult )
   # Stack: List MinExpected FuncName
   2 pick count-args  # Stack: List MinExpected FuncName Actual
-  2 pick >= if       # Actual >= MinExpected
+  2 pick i.>= if       # Actual >= MinExpected
     # Stack: List MinExpected FuncName - arity ok
     drop drop        # Stack: List
     snil slist eval-ok  # Return List and EvalOk
@@ -169,57 +169,57 @@ union EvalResult {
 
 # Absolute value
 : int-abs ( Int -- Int )
-  dup 0 < if 0 swap subtract then ;
+  dup 0 i.< if 0 swap i.subtract then ;
 
 # Check chars at position 0
-: first-char-matches? ( String String -- Int )
+: first-char-matches? ( String String -- Bool )
   # s1 s2 -> bool
-  over string.length 0 = if
-    drop drop 0  # s1 is empty
+  over string.length 0 i.= if
+    drop drop false  # s1 is empty
   else
-    dup string.length 0 = if
-      drop drop 0  # s2 is empty
+    dup string.length 0 i.= if
+      drop drop false  # s2 is empty
     else
       # Both non-empty, compare char at position 0
       over 0 string.char-at  # s1 s2 c1
       over 0 string.char-at  # s1 s2 c1 c2
-      =                      # s1 s2 bool
+      i.=                      # s1 s2 bool
       nip nip                # bool
     then
   then
 ;
 
 # Check chars at position 1
-: second-char-matches? ( String String -- Int )
+: second-char-matches? ( String String -- Bool )
   # s1 s2 -> bool
-  over string.length 2 < if
-    drop drop 0  # s1 too short
+  over string.length 2 i.< if
+    drop drop false  # s1 too short
   else
-    dup string.length 2 < if
-      drop drop 0  # s2 too short
+    dup string.length 2 i.< if
+      drop drop false  # s2 too short
     else
       # Both long enough, compare char at position 1
       over 1 string.char-at  # s1 s2 c1
       over 1 string.char-at  # s1 s2 c1 c2
-      =                      # s1 s2 bool
+      i.=                      # s1 s2 bool
       nip nip                # bool
     then
   then
 ;
 
 # Check chars at position 2
-: third-char-matches? ( String String -- Int )
+: third-char-matches? ( String String -- Bool )
   # s1 s2 -> bool
-  over string.length 3 < if
-    drop drop 0  # s1 too short
+  over string.length 3 i.< if
+    drop drop false  # s1 too short
   else
-    dup string.length 3 < if
-      drop drop 0  # s2 too short
+    dup string.length 3 i.< if
+      drop drop false  # s2 too short
     else
       # Both long enough, compare char at position 2
       over 2 string.char-at  # s1 s2 c1
       over 2 string.char-at  # s1 s2 c1 c2
-      =                      # s1 s2 bool
+      i.=                      # s1 s2 bool
       nip nip                # bool
     then
   then
@@ -240,17 +240,17 @@ union EvalResult {
         # Check third char
         2dup third-char-matches? if
           # First 3 chars match - excellent candidate
-          string.length swap string.length subtract int-abs
+          string.length swap string.length i.subtract int-abs
           # score = length_diff (0-based, best possible for non-exact)
         else
           # First 2 chars match - good candidate
-          string.length swap string.length subtract int-abs
-          10 add  # score = 10 + length_diff
+          string.length swap string.length i.subtract int-abs
+          10 i.add  # score = 10 + length_diff
         then
       else
         # Only first char matches - weak candidate
-        string.length swap string.length subtract int-abs
-        50 add  # score = 50 + length_diff
+        string.length swap string.length i.subtract int-abs
+        50 i.add  # score = 50 + length_diff
       then
     else
       # First char doesn't match - no suggestion
@@ -261,7 +261,7 @@ union EvalResult {
 
 # Find minimum of two integers
 : min ( Int Int -- Int )
-  2dup > if nip else drop then ;
+  2dup i.> if nip else drop then ;
 
 # Check if candidate is better than current best
 # Stack: target best_name best_dist candidate -> target best_name best_dist
@@ -269,7 +269,7 @@ union EvalResult {
   # Stack: target best_name best_dist candidate
   3 pick over  # target best_name best_dist candidate target candidate
   simple-similarity  # target best_name best_dist candidate new_dist
-  dup 3 pick < if
+  dup 3 pick i.< if
     # New candidate is better
     # Stack: target best_name best_dist candidate new_dist
     rot drop rot drop  # target candidate new_dist
@@ -358,7 +358,7 @@ union EvalResult {
 
   # Only suggest if distance <= 15 (allows 2+ char prefix matches)
   # 3 chars match: 0-5, 2 chars match: 10-15, 1 char match: 50+ (rejected)
-  dup 15 > if
+  dup 15 i.> if
     drop drop ""  # No good suggestion
   else
     drop  # Return best_name
@@ -368,7 +368,7 @@ union EvalResult {
 # Format error message with optional suggestion
 : format-undefined-error ( String String -- String )
   # Stack: symbol_name suggestion
-  dup string.length 0 = if
+  dup string.length 0 i.= if
     # No suggestion
     drop "undefined symbol: " swap string.concat
   else
@@ -403,7 +403,7 @@ union EvalResult {
   #
   2dup env-lookup-raw
   dup eval-err? if
-    # Not found - try to add suggestion
+    # Not found - try to i.add suggestion
     drop
     2dup find-suggestion
     rot swap
@@ -419,7 +419,7 @@ union EvalResult {
 : env-lookup-raw ( String Env -- EvalResult )
   # Stack: Name Env
   # Returns EvalOk with the value, or EvalErr if not found
-  dup variant.tag 0 = if
+  dup variant.tag 0 i.= if
     # EnvEmpty - not found, return error
     drop "undefined symbol: " swap string.concat eval-err
   else
@@ -443,7 +443,7 @@ union EvalResult {
 : env-concat ( Env Env -- Env )
   # Stack: Env1 Env2 -> Result where Env1 bindings come first
   swap  # Env2 Env1
-  dup variant.tag 0 = if
+  dup variant.tag 0 i.= if
     # EnvEmpty - just return Env2
     drop
   else
@@ -474,11 +474,11 @@ union EvalResult {
 : eval-with-env ( Sexpr Env -- EvalResult )
   # Stack: Expr Env
   over variant.tag
-  dup 0 = if
+  dup 0 i.= if
     # SNum - return as-is wrapped in EvalOk
     drop drop eval-ok
   else
-    dup 1 = if
+    dup 1 i.= if
       # SSym - check for self-evaluating symbols (#t, #f) or lookup
       drop swap dup ssym-val
       dup "#t" string.equal? over "#f" string.equal? or if
@@ -494,7 +494,7 @@ union EvalResult {
         swap eval-result-add-span  # Add span to any error
       then
     else
-      2 = if
+      2 i.= if
         # SList - function application
         eval-list-with-env
       else
@@ -798,7 +798,7 @@ union EvalResult {
   over  # List Env FuncName Env
   env-lookup  # List Env EvalResult
   dup eval-err? if
-    # Symbol not found - add span from function name in list
+    # Symbol not found - i.add span from function name in list
     # Stack: List Env EvalResult
     rot scar sexpr-span  # Env EvalResult FuncNameSpan
     eval-result-add-span  # Env EvalResult (signature is EvalResult SourceSpan -> EvalResult)
@@ -833,7 +833,7 @@ union EvalResult {
 # ============================================
 
 # Check if Sexpr is a number (int or float)
-: is-numeric? ( Sexpr -- Int )
+: is-numeric? ( Sexpr -- Bool )
   dup snum? swap sfloat? or ;
 
 # Convert numeric Sexpr to Float (assumes is-numeric? is true)
@@ -854,7 +854,7 @@ union EvalResult {
   0 swap eval-fold-add-int-with-env
 ;
 
-# Fold add with Int accumulator - switches to float if needed
+# Fold i.add with Int accumulator - switches to float if needed
 : eval-fold-add-int-with-env ( SexprList Int Env -- EvalResult )
   # Stack: List Acc Env
   2 pick snil? if
@@ -872,7 +872,7 @@ union EvalResult {
       dup snum? if
         snum-val
         # Stack: List Acc Env FirstVal
-        rot add
+        rot i.add
         # Stack: List Env NewAcc
         swap rot scdr rot rot
         # Stack: RestList NewAcc Env
@@ -894,7 +894,7 @@ union EvalResult {
   then
 ;
 
-# Fold add with Float accumulator
+# Fold i.add with Float accumulator
 : eval-fold-add-float-with-env ( SexprList Float Env -- EvalResult )
   # Stack: List Acc Env
   2 pick snil? if
@@ -939,7 +939,7 @@ union EvalResult {
         swap scdr
         dup snil? if
           # Unary minus: negate
-          drop nip 0 swap subtract snum eval-ok
+          drop nip 0 swap i.subtract snum eval-ok
         else
           # Binary minus: first - rest
           # Stack: Env FirstVal RestList -> need RestList FirstVal Env
@@ -975,7 +975,7 @@ union EvalResult {
       eval-ok-value
       dup snum? if
         snum-val
-        rot swap subtract
+        rot swap i.subtract
         swap rot scdr rot rot
         eval-fold-sub-int-with-env
       else
@@ -1030,7 +1030,7 @@ union EvalResult {
       eval-ok-value
       dup snum? if
         snum-val
-        rot multiply
+        rot i.multiply
         swap rot scdr rot rot
         eval-fold-mul-int-with-env
       else
@@ -1115,10 +1115,10 @@ union EvalResult {
       eval-ok-value
       dup snum? if
         snum-val
-        dup 0 = if
+        dup 0 i.= if
           drop drop drop drop "/: division by zero" eval-err
         else
-          rot swap divide
+          rot swap i.divide
           swap rot scdr rot rot
           eval-fold-div-int-with-env
         then
@@ -1183,7 +1183,7 @@ union EvalResult {
     else
       eval-ok-value
       dup snum? if
-        snum-val dup 0 < if 0 swap subtract then snum eval-ok
+        snum-val dup 0 i.< if 0 swap i.subtract then snum eval-ok
       else
         dup sfloat? if
           sfloat-val dup 0.0 f.< if 0.0 swap f.subtract then sfloat eval-ok
@@ -1236,7 +1236,7 @@ union EvalResult {
       eval-ok-value
       dup snum? if
         snum-val
-        rot over over > if nip else drop then
+        rot over over i.> if nip else drop then
         swap rot scdr rot rot
         eval-fold-min-int-with-env
       else
@@ -1315,7 +1315,7 @@ union EvalResult {
       eval-ok-value
       dup snum? if
         snum-val
-        rot over over < if nip else drop then
+        rot over over i.< if nip else drop then
         swap rot scdr rot rot
         eval-fold-max-int-with-env
       else
@@ -1375,29 +1375,33 @@ union EvalResult {
           eval-ok-value
           dup snum? if
             snum-val  # -> Env A B
-            dup 0 = if
+            dup 0 i.= if
               drop drop drop "modulo: division by zero" eval-err
             else
               # Proper modulo: result has same sign as divisor
               # Save B for sign comparison, then compute R = A - (A/B)*B
               # Stack: Env A B
               dup rot rot   # -> Env B A B
-              over over divide multiply subtract  # -> Env B R
-              dup 0 = if
+              over over i.divide i.multiply i.subtract  # -> Env B R
+              dup 0 i.= if
                 # R is 0, done
                 nip nip snum eval-ok
               else
                 # Check if R and B have different signs
                 # Stack: Env B R
-                over 0 <      # -> Env B R (B<0)
-                over 0 <      # -> Env B R (B<0) (R<0)
-                = if
+                # Same sign = (B<0 and R<0) or (B>=0 and R>=0)
+                over 0 i.<      # -> Env B R (B<0)
+                over 0 i.<      # -> Env B R (B<0) (R<0)
+                over over and   # -> Env B R (B<0) (R<0) (both-neg)
+                rot rot         # -> Env B R (both-neg) (B<0) (R<0)
+                not swap not and  # -> Env B R (both-neg) (both-pos)
+                or if
                   # Same sign, just return R
                   nip nip snum eval-ok
                 else
-                  # Different signs, add B to R
+                  # Different signs, i.add B to R
                   # Stack: Env B R
-                  swap add nip snum eval-ok
+                  swap i.add nip snum eval-ok
                 then
               then
             then
@@ -1638,7 +1642,7 @@ union EvalResult {
   else
     drop drop drop drop
     io.read-line+
-    0 = if
+    0 i.= if
       # EOF - return #f
       drop "#f" ssym eval-ok
     else
@@ -1676,7 +1680,7 @@ union EvalResult {
         # Got a number - read that many bytes
         snum-val
         io.read-n        # Stack: string count
-        0 = if           # Stack: string (count was 0, consumed by comparison)
+        0 i.= if           # Stack: string (count was 0, consumed by comparison)
           # EOF or partial read - discard partial string and return #f
           drop "#f" ssym eval-ok
         else             # Stack: string (count was non-zero, consumed by comparison)
@@ -1930,30 +1934,30 @@ union EvalResult {
 ;
 
 # Check if a list looks like an object (all elements are 2-element lists)
-: json-is-object-list? ( SexprList -- Int )
+: json-is-object-list? ( SexprList -- Bool )
   dup snil? if
-    drop 1  # Empty list could be object
+    drop true  # Empty list could be object
   else
     dup scar
     dup slist? if
       slist-val
       dup snil? if
-        drop drop 0  # Empty pair - not valid
+        drop drop false  # Empty pair - not valid
       else
         scdr
         dup snil? if
-          drop drop 0  # Single element - not valid
+          drop drop false  # Single element - not valid
         else
           scdr snil? if
             # Exactly 2 elements - check rest
             scdr json-is-object-list?
           else
-            drop 0  # More than 2 elements - not valid
+            drop false  # More than 2 elements - not valid
           then
         then
       then
     else
-      drop drop 0  # Not a list - not valid pair
+      drop drop false  # Not a list - not valid pair
     then
   then
 ;
@@ -2013,44 +2017,44 @@ union EvalResult {
 
 : json-encode-string-loop ( String Int String -- String )
   # Stack: input pos acc
-  2 pick string.length 2 pick <= if
+  2 pick string.length 2 pick i.<= if
     nip nip  # Return accumulated string (drop input and pos)
   else
     2 pick 2 pick string.char-at  # Get char at input[pos]
-    dup 34 = if  # Quote - escape with backslash
+    dup 34 i.= if  # Quote - escape with backslash
       drop  # input pos acc (char dropped)
       92 char->string 34 char->string string.concat  # build escape
       string.concat  # input pos (acc + escape)
-      swap 1 add swap  # Increment pos
+      swap 1 i.add swap  # Increment pos
       json-encode-string-loop
-    else dup 92 = if  # Backslash - double it
+    else dup 92 i.= if  # Backslash - double it
       drop
       92 char->string 92 char->string string.concat
       string.concat
-      swap 1 add swap
+      swap 1 i.add swap
       json-encode-string-loop
-    else dup 10 = if  # Newline - backslash n
+    else dup 10 i.= if  # Newline - backslash n
       drop
       92 char->string 110 char->string string.concat
       string.concat
-      swap 1 add swap
+      swap 1 i.add swap
       json-encode-string-loop
-    else dup 9 = if  # Tab - backslash t
+    else dup 9 i.= if  # Tab - backslash t
       drop
       92 char->string 116 char->string string.concat
       string.concat
-      swap 1 add swap
+      swap 1 i.add swap
       json-encode-string-loop
-    else dup 13 = if  # Carriage return - backslash r
+    else dup 13 i.= if  # Carriage return - backslash r
       drop
       92 char->string 114 char->string string.concat
       string.concat
-      swap 1 add swap
+      swap 1 i.add swap
       json-encode-string-loop
     else
       # Regular char - append to acc
       char->string string.concat  # input pos (acc + charStr)
-      swap 1 add swap  # Increment pos
+      swap 1 i.add swap  # Increment pos
       json-encode-string-loop
     then then then then then
   then
@@ -2507,31 +2511,31 @@ union EvalResult {
   then
 ;
 
-# Process single element, returns (EvalResult, IsSplice) where IsSplice is 0 or 1
+# Process single element, returns (EvalResult, IsSplice) where IsSplice is true or false
 # If error, IsSplice is undefined (caller should check error first)
-: qq-elem-one ( Sexpr Env -- EvalResult Int )
+: qq-elem-one ( Sexpr Env -- EvalResult Bool )
   over qq-is-unquote? if
     # (unquote x) - evaluate x
     swap slist-val scdr scar swap eval-with-env
-    0  # Not a splice
+    false  # Not a splice
   else over qq-is-splice? if
     # (unquote-splicing x) - evaluate x, must be a list
     swap slist-val scdr scar swap eval-with-env
     dup eval-err? if
-      1  # Mark as splice (error will be propagated anyway)
+      true  # Mark as splice (error will be propagated anyway)
     else
       dup eval-ok-value slist? if
-        1  # Return list value, marked as splice
+        true  # Return list value, marked as splice
       else
         # Not a list - return error
         drop "unquote-splicing: value must be a list" eval-err
-        1  # Marked as splice
+        true  # Marked as splice
       then
     then
   else
     # Regular element - recursively process
     qq-process
-    0  # Not a splice
+    false  # Not a splice
   then then
 ;
 
@@ -2559,36 +2563,36 @@ union EvalResult {
 ;
 
 # Check if expr is (unquote x)
-: qq-is-unquote? ( Sexpr -- Int )
+: qq-is-unquote? ( Sexpr -- Bool )
   dup slist? if
     slist-val dup snil? if
-      drop 0
+      drop false
     else
       scar dup ssym? if
         ssym-val "unquote" string.equal?
       else
-        drop 0
+        drop false
       then
     then
   else
-    drop 0
+    drop false
   then
 ;
 
 # Check if expr is (unquote-splicing x)
-: qq-is-splice? ( Sexpr -- Int )
+: qq-is-splice? ( Sexpr -- Bool )
   dup slist? if
     slist-val dup snil? if
-      drop 0
+      drop false
     else
       scar dup ssym? if
         ssym-val "unquote-splicing" string.equal?
       else
-        drop 0
+        drop false
       then
     then
   else
-    drop 0
+    drop false
   then
 ;
 
@@ -2843,7 +2847,7 @@ union EvalResult {
       eval-ok-value  # -> Env Args NVal
       dup snum? if
         snum-val  # -> Env Args N
-        dup 0 < if
+        dup 0 i.< if
           drop drop drop "nth: index must be non-negative" eval-err
         else
           swap scdr scar 2 pick eval-with-env  # Eval second arg -> Env N EvalResult
@@ -2873,10 +2877,10 @@ union EvalResult {
   over snil? if
     drop drop "nth: index out of bounds" eval-err
   else
-    dup 0 = if
+    dup 0 i.= if
       drop scar eval-ok
     else
-      1 subtract  # -> List N-1
+      1 i.subtract  # -> List N-1
       swap scdr swap  # -> RestList N-1
       nth-helper
     then
@@ -2937,7 +2941,7 @@ union EvalResult {
       eval-ok-value  # -> Env Args NVal
       dup snum? if
         snum-val  # -> Env Args N
-        dup 0 < if
+        dup 0 i.< if
           drop drop drop "take: count must be non-negative" eval-err
         else
           swap scdr scar 2 pick eval-with-env  # Eval second arg -> Env N EvalResult
@@ -2964,7 +2968,7 @@ union EvalResult {
 # Helper: take first N elements from SexprList
 : take-helper ( SexprList Int -- SexprList )
   # Stack: List N
-  dup 0 <= if
+  dup 0 i.<= if
     drop drop snil
   else
     over snil? if
@@ -2973,7 +2977,7 @@ union EvalResult {
       # Get first element and recurse on rest with N-1
       over scar      # -> List N First
       rot scdr       # -> N First Rest
-      rot 1 subtract # -> First Rest N-1
+      rot 1 i.subtract # -> First Rest N-1
       take-helper    # -> First TakenRest
       scons
     then
@@ -2996,7 +3000,7 @@ union EvalResult {
       eval-ok-value  # -> Env Args NVal
       dup snum? if
         snum-val  # -> Env Args N
-        dup 0 < if
+        dup 0 i.< if
           drop drop drop "drop: count must be non-negative" eval-err
         else
           swap scdr scar 2 pick eval-with-env  # Eval second arg -> Env N EvalResult
@@ -3023,13 +3027,13 @@ union EvalResult {
 # Helper: drop first N elements from SexprList
 : drop-helper ( SexprList Int -- SexprList )
   # Stack: List N
-  dup 0 <= if
+  dup 0 i.<= if
     drop  # Return whole list
   else
     over snil? if
       drop drop snil  # List exhausted
     else
-      1 subtract  # -> List N-1
+      1 i.subtract  # -> List N-1
       swap scdr swap  # -> Rest N-1
       drop-helper
     then
@@ -3546,31 +3550,31 @@ union EvalResult {
 
 # Helper: compare two Sexpr values for structural equality
 # Uses depth limit to prevent stack overflow on deeply nested structures
-: sexpr-equal? ( Sexpr Sexpr -- Int )
+: sexpr-equal? ( Sexpr Sexpr -- Bool )
   1000 sexpr-equal-depth?
 ;
 
 # Depth-limited equality check
 # Note: Depth limit of 1000 prevents stack overflow on deeply nested structures.
 # Returns false when depth exceeded (safe default for untrusted input).
-: sexpr-equal-depth? ( Sexpr Sexpr Int -- Int )
+: sexpr-equal-depth? ( Sexpr Sexpr Int -- Bool )
   # Check depth limit
-  dup 0 <= if
-    drop drop drop 0  # Depth exceeded - return false (safe default)
+  dup 0 i.<= if
+    drop drop drop false  # Depth exceeded - return false (safe default)
   else
     # Stack: A B Depth -> Depth A B (after rot rot)
     rot rot
-    over variant.tag over variant.tag = if
+    over variant.tag over variant.tag i.= if
       # Same type - compare by type
       over snum? if
         # Stack: Depth A B -> Depth ValB ValA -> Depth Bool -> Bool
-        snum-val swap snum-val = nip
+        snum-val swap snum-val i.= nip
       else over ssym? if
         # Stack: Depth A B -> Depth StrB StrA -> Depth Bool -> Bool
         ssym-val swap ssym-val string.equal? nip
       else over slist? if
         # Stack: Depth A B -> ListA ListB (Depth-1) -> Bool (recursive)
-        slist-val swap slist-val rot 1 subtract sexpr-list-equal-depth?
+        slist-val swap slist-val rot 1 i.subtract sexpr-list-equal-depth?
       else over sstring? if
         # String comparison
         sstring-val swap sstring-val string.equal? nip
@@ -3579,37 +3583,37 @@ union EvalResult {
         sfloat-val swap sfloat-val f.= nip
       else
         # Closures/macros - compare by identity (always false for now)
-        drop drop drop 0
+        drop drop drop false
       then then then then then
     else
       # Different types - not equal
-      drop drop drop 0
+      drop drop drop false
     then
   then
 ;
 
 # Helper: compare two SexprList values with depth limit
-: sexpr-list-equal-depth? ( SexprList SexprList Int -- Int )
+: sexpr-list-equal-depth? ( SexprList SexprList Int -- Bool )
   # Check depth limit first
-  dup 0 <= if
-    drop drop drop 0  # Depth exceeded - return false
+  dup 0 i.<= if
+    drop drop drop false  # Depth exceeded - return false
   else
     rot rot  # -> Depth L1 L2
     # Check if both empty
     over snil? over snil? and if
-      drop drop drop 1  # Both empty = equal
+      drop drop drop true  # Both empty = equal
     else over snil? over snil? or if
-      drop drop drop 0  # One empty, one not = not equal
+      drop drop drop false  # One empty, one not = not equal
     else
       # Both non-empty - compare car and cdr
       # Stack: Depth L1 L2
       over scar over scar  # -> Depth L1 L2 L1.car L2.car
-      4 pick 1 subtract    # -> Depth L1 L2 L1.car L2.car (Depth-1)
+      4 pick 1 i.subtract    # -> Depth L1 L2 L1.car L2.car (Depth-1)
       sexpr-equal-depth? if
         # Heads equal - compare tails with decremented depth
-        scdr swap scdr rot 1 subtract sexpr-list-equal-depth?
+        scdr swap scdr rot 1 i.subtract sexpr-list-equal-depth?
       else
-        drop drop drop 0  # Heads not equal
+        drop drop drop false  # Heads not equal
       then
     then then
   then
@@ -3677,7 +3681,7 @@ union EvalResult {
   # (gensym n) - returns symbol g<n>
   # (gensym prefix n) - returns symbol <prefix><n>
   over count-args
-  dup 1 = if
+  dup 1 i.= if
     # One arg: (gensym n) -> g<n>
     drop
     swap scdr scar  # Skip 'gensym', get arg -> Env Arg
@@ -3692,7 +3696,7 @@ union EvalResult {
         drop "gensym: argument must be a number" eval-err
       then
     then
-  else dup 2 = if
+  else dup 2 i.= if
     # Two args: (gensym prefix n) -> <prefix><n>
     drop
     swap scdr  # Skip 'gensym' -> Env Args
@@ -3872,16 +3876,16 @@ union EvalResult {
   then
 ;
 
-: cond-test-true? ( Sexpr -- Int )
-  # Returns 1 if test result is truthy, 0 if falsy
+: cond-test-true? ( Sexpr -- Bool )
+  # Returns true if test result is truthy, false if falsy
   # Falsy: numeric 0 or #f
   dup snum? if
-    snum-val 0 = if 0 else 1 then
+    snum-val 0 i.= not
   else
     dup ssym? if
-      ssym-val "#f" string.equal? if 0 else 1 then
+      ssym-val "#f" string.equal? not
     else
-      drop 1  # Lists and other values are truthy
+      drop true  # Lists and other values are truthy
     then
   then
 ;
@@ -3919,7 +3923,7 @@ union EvalResult {
       # naturally has only (Expr Env) when we call eval-with-env.
       # The branch operations consume Args and produce the branch Expr.
       dup snum? if
-        snum-val 0 = if  # -> Env Args
+        snum-val 0 i.= if  # -> Env Args
           # False (0) - eval else branch (TAIL CALL)
           scdr scdr scar swap eval-with-env
         else
@@ -4025,7 +4029,7 @@ union EvalResult {
     # Stack: Params RequiredCount ArgCount - test if ArgCount >= RequiredCount
     # In Seq, `a b <=` tests a <= b, where a=RequiredCount, b=ArgCount
     # RequiredCount <= ArgCount is what we want
-    <= if
+    i.<= if
       # RequiredCount <= ArgCount: full variadic application
       drop apply-full-variadic
     else
@@ -4040,11 +4044,11 @@ union EvalResult {
     2 pick list-length  # -> ... ParamCount ArgCount
 
     # Compare: ArgCount vs ParamCount
-    over over = if
+    over over i.= if
       # Exact match: full application
       drop drop apply-full
     else
-      dup 2 pick < if
+      dup 2 pick i.< if
         # ArgCount < ParamCount: partial application
         drop drop apply-partial
       else
@@ -4137,11 +4141,11 @@ union EvalResult {
 : apply-full ( Sexpr SexprList Env -- EvalResult )
   # Stack: ClosureSexpr Args CallerEnv (pos 2,1,0)
   2 pick sclosure-val  # -> ClosureSexpr Args CallerEnv Closure (pos 3,2,1,0)
-  # For named closures, add self-binding for recursion (O(1) instead of O(n) env-concat)
+  # For named closures, i.add self-binding for recursion (O(1) instead of O(n) env-concat)
   # For anonymous closures, just use captured env
   dup closure-env  # -> ClosureSexpr Args CallerEnv Closure ClosureEnv
   over named-closure? if
-    # Named: add self-binding so function can call itself
+    # Named: i.add self-binding so function can call itself
     # env-extend signature: ( String Sexpr Env -- Env )
     over closure-self-name  # -> ... Closure ClosureEnv SelfName
     5 pick  # -> ... Closure ClosureEnv SelfName ClosureSexpr
@@ -4197,7 +4201,7 @@ union EvalResult {
 : apply-full-variadic ( Sexpr SexprList Env -- EvalResult )
   # Stack: ClosureSexpr Args CallerEnv (pos 2,1,0)
   2 pick sclosure-val  # -> ClosureSexpr Args CallerEnv Closure (pos 3,2,1,0)
-  # For named closures, add self-binding for recursion
+  # For named closures, i.add self-binding for recursion
   dup closure-env  # -> ClosureSexpr Args CallerEnv Closure ClosureEnv
   over named-closure? if
     over closure-self-name  # -> ... Closure ClosureEnv SelfName
@@ -4369,11 +4373,11 @@ union EvalResult {
 
 : split-list-loop ( SexprList SexprList Int -- SexprList SexprList )
   # Stack: Acc Rest Count (2,1,0)
-  dup 0 = if
+  dup 0 i.= if
     drop  # -> Acc Rest
   else
-    # Count > 0: take one element from Rest, add to Acc, decrement Count
-    1 subtract         # -> Acc Rest NewCount
+    # Count > 0: take one element from Rest, i.add to Acc, decrement Count
+    1 i.subtract         # -> Acc Rest NewCount
     swap               # -> Acc NewCount Rest
     dup scar           # -> Acc NewCount Rest FirstElem
     swap scdr          # -> Acc NewCount FirstElem RestTail
@@ -4403,7 +4407,7 @@ union EvalResult {
   2 pick closure-params slist-val scar ssym-val  # -> Closure ArgVal CallerEnv ParamName
   rot  # -> Closure CallerEnv ParamName ArgVal
   3 pick closure-env  # -> Closure CallerEnv ParamName ArgVal ClosureEnv
-  # For named closures, add self-binding for recursion (O(1) instead of O(n) env-concat)
+  # For named closures, i.add self-binding for recursion (O(1) instead of O(n) env-concat)
   4 pick named-closure? if
     4 pick closure-self-name  # -> ... ClosureEnv SelfName
     5 pick sclosure  # -> ... ClosureEnv SelfName ClosureSexpr
@@ -4423,12 +4427,12 @@ union EvalResult {
   # Args is (Arg1 Arg2) where Arg1=acc, Arg2=elem for fold
 
   # Build extended environment: bind both params then eval body
-  # For named closures, add self-binding for recursion (O(1) instead of O(n) env-concat)
+  # For named closures, i.add self-binding for recursion (O(1) instead of O(n) env-concat)
   # then extend with param1=arg1, then param2=arg2
 
   # Get closure's captured env
   2 pick closure-env     # -> Closure Args CallerEnv ClosureEnv
-  # For named closures, add self-binding
+  # For named closures, i.add self-binding
   3 pick named-closure? if
     3 pick closure-self-name  # -> ... ClosureEnv SelfName
     4 pick sclosure  # -> ... ClosureEnv SelfName ClosureSexpr
@@ -4456,17 +4460,17 @@ union EvalResult {
 # Macro Application
 # ============================================
 
-# Check macro arity - returns 1 if OK, 0 if mismatch
+# Check macro arity - returns true if OK, false if mismatch
 # Also returns error message (or empty string if OK)
-: check-macro-arity ( SexprList SexprList -- Int String )
+: check-macro-arity ( SexprList SexprList -- Bool String )
   # Stack: Params Args
   # Returns: (IsOK, ErrorMsg)
   over has-rest-param? if
     # Variadic: need >= required params
     over count-required-params  # -> Params Args Required
     over list-length            # -> Params Args Required ArgCount
-    over over <= if             # Required <= ArgCount means ArgCount >= Required
-      drop drop drop drop 1 ""  # OK
+    over over i.<= if             # Required <= ArgCount means ArgCount >= Required
+      drop drop drop drop true ""  # OK
     else
       # Not enough args
       # Stack: Params Args Required ArgCount
@@ -4476,7 +4480,7 @@ union EvalResult {
       swap int->string string.concat
       # Stack: Params Args ErrorMsg
       nip nip       # -> ErrorMsg
-      0 swap        # -> 0 ErrorMsg
+      false swap        # -> false ErrorMsg
     then
   else
     # Non-variadic: need exact match
@@ -4484,8 +4488,8 @@ union EvalResult {
     swap dup list-length  # -> Args Params ParamCount
     rot dup list-length   # -> Params ParamCount Args ArgCount
     rot swap              # -> Params Args ParamCount ArgCount
-    over over = if
-      drop drop drop drop 1 ""  # OK
+    over over i.= if
+      drop drop drop drop true ""  # OK
     else
       # Mismatch: Stack is Params Args ParamCount ArgCount
       swap  # -> Params Args ArgCount ParamCount
@@ -4494,7 +4498,7 @@ union EvalResult {
       swap int->string string.concat
       # Stack: Params Args ErrorMsg
       nip nip       # -> ErrorMsg
-      0 swap        # -> 0 ErrorMsg
+      false swap        # -> false ErrorMsg
     then
   then
 ;
@@ -4541,21 +4545,21 @@ union EvalResult {
 ;
 
 # Check if a symbol is the dot (.) for rest params
-: is-dot-symbol? ( Sexpr -- Int )
+: is-dot-symbol? ( Sexpr -- Bool )
   dup ssym? if
     ssym-val "." string.equal?
   else
-    drop 0
+    drop false
   then
 ;
 
 # Check if params list has a rest param (contains .)
-: has-rest-param? ( SexprList -- Int )
+: has-rest-param? ( SexprList -- Bool )
   dup snil? if
-    drop 0
+    drop false
   else
     dup scar is-dot-symbol? if
-      drop 1
+      drop true
     else
       scdr has-rest-param?
     then
@@ -4574,7 +4578,7 @@ union EvalResult {
     dup scar is-dot-symbol? if
       drop  # Found dot, return current count
     else
-      scdr swap 1 add swap count-required-params-loop
+      scdr swap 1 i.add swap count-required-params-loop
     then
   then
 ;
@@ -4589,7 +4593,7 @@ union EvalResult {
     drop
   else
     dup scar is-dot-symbol? if
-      scdr swap 1 add swap count-dots-loop
+      scdr swap 1 i.add swap count-dots-loop
     else
       scdr count-dots-loop
     then
@@ -4597,17 +4601,17 @@ union EvalResult {
 ;
 
 # Validate rest parameter syntax
-# Returns: 1 if valid, 0 if invalid
+# Returns: true if valid, false if invalid
 # Also returns error message (or empty string if valid)
-: validate-rest-params ( SexprList -- Int String )
+: validate-rest-params ( SexprList -- Bool String )
   # Check number of dots
   dup count-dots
-  dup 1 > if
+  dup 1 i.> if
     # More than one dot
-    drop drop 0 "defmacro: multiple dots in parameter list"
-  else dup 0 = if
+    drop drop false "defmacro: multiple dots in parameter list"
+  else dup 0 i.= if
     # No dots - valid
-    drop drop 1 ""
+    drop drop true ""
   else
     # Exactly one dot - check syntax
     drop  # -> Params
@@ -4615,36 +4619,36 @@ union EvalResult {
       # Find the dot and check what follows
       validate-after-dot
     else
-      drop 1 ""  # No rest param (shouldn't happen if count-dots is 1)
+      drop true ""  # No rest param (shouldn't happen if count-dots is 1)
     then
   then then
 ;
 
 # Helper to validate what comes after the dot
-: validate-after-dot ( SexprList -- Int String )
+: validate-after-dot ( SexprList -- Bool String )
   dup snil? if
-    drop 1 ""
+    drop true ""
   else
     dup scar is-dot-symbol? if
       # Found the dot - check what follows
       scdr  # -> RestOfList (after dot)
       dup snil? if
         # Dot at end with nothing after
-        drop 0 "defmacro: dot requires a parameter name after it"
+        drop false "defmacro: dot requires a parameter name after it"
       else
         dup scar dup ssym? if
           # Next element is a symbol - good!
           drop scdr  # -> Rest after the symbol
           snil? if
             # Nothing after the rest param name - valid!
-            1 ""
+            true ""
           else
             # Extra elements after rest param
-            0 "defmacro: only one parameter allowed after dot"
+            false "defmacro: only one parameter allowed after dot"
           then
         else
           # Not a symbol after dot
-          drop drop 0 "defmacro: parameter after dot must be a symbol"
+          drop drop false "defmacro: parameter after dot must be a symbol"
         then
       then
     else

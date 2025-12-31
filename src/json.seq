@@ -41,11 +41,11 @@ union JsonResult {
 : json-err ( String -- JsonResult )
   Make-JErr ;
 
-: json-ok? ( JsonResult -- Int )
-  variant.tag 0 = ;
+: json-ok? ( JsonResult -- Bool )
+  variant.tag 0 i.= ;
 
-: json-err? ( JsonResult -- Int )
-  variant.tag 1 = ;
+: json-err? ( JsonResult -- Bool )
+  variant.tag 1 i.= ;
 
 : json-ok-value ( JsonResult -- Sexpr )
   0 variant.field-at ;
@@ -61,9 +61,9 @@ union JsonResult {
 # ============================================
 
 # Check if at end of input (pos >= length)
-: json-at-end? ( JsonState -- Int )
+: json-at-end? ( JsonState -- Bool )
   dup jstate-pos
-  swap jstate-input string.length >= ;
+  swap jstate-input string.length i.>= ;
 
 # Get current char (assumes not at end) - preserves state on stack
 : json-peek ( JsonState -- JsonState Int )
@@ -71,7 +71,7 @@ union JsonResult {
 
 # Advance position by n
 : json-advance ( JsonState Int -- JsonState )
-  over jstate-pos add
+  over jstate-pos i.add
   swap jstate-input swap
   make-json-state ;
 
@@ -81,9 +81,9 @@ union JsonResult {
 
 # Skip whitespace
 : json-skip-ws ( JsonState -- JsonState )
-  dup json-at-end? 0 = if
+  dup json-at-end? not if
     json-peek
-    dup 32 = over 10 = or over 9 = or over 13 = or if
+    dup 32 i.= over 10 i.= or over 9 i.= or over 13 i.= or if
       # Whitespace - skip it
       drop json-advance-1 json-skip-ws
     else
@@ -92,8 +92,8 @@ union JsonResult {
   then ;
 
 # Check if char is digit
-: json-is-digit? ( Int -- Int )
-  dup 48 >= swap 57 <= and ;
+: json-is-digit? ( Int -- Bool )
+  dup 48 i.>= swap 57 i.<= and ;
 
 # ============================================
 # JSON Value Parsing
@@ -107,19 +107,19 @@ union JsonResult {
   else
     json-peek
     # Check for each JSON type
-    dup 123 = if  # open brace
+    dup 123 i.= if  # open brace
       drop json-parse-object
-    else dup 91 = if  #  open bracket
+    else dup 91 i.= if  #  open bracket
       drop json-parse-array
-    else dup 34 = if  #  double quote
+    else dup 34 i.= if  #  double quote
       drop json-parse-string
-    else dup 116 = if  # t for true
+    else dup 116 i.= if  # t for true
       drop json-parse-true
-    else dup 102 = if  # f for false
+    else dup 102 i.= if  # f for false
       drop json-parse-false
-    else dup 110 = if  # n for null
+    else dup 110 i.= if  # n for null
       drop json-parse-null
-    else dup json-is-digit? over 45 = or if  # digit or minus
+    else dup json-is-digit? over 45 i.= or if  # digit or minus
       drop json-parse-number
     else
       drop drop "Unexpected character in JSON" json-err
@@ -134,7 +134,7 @@ union JsonResult {
 : json-parse-true ( JsonState -- JsonResult )
   # Check we have at least 4 chars
   dup jstate-input string.length
-  over jstate-pos subtract 4 < if
+  over jstate-pos i.subtract 4 i.< if
     drop "Unexpected end while parsing true" json-err
   else
     # Check true matches
@@ -150,7 +150,7 @@ union JsonResult {
 # Parse false
 : json-parse-false ( JsonState -- JsonResult )
   dup jstate-input string.length
-  over jstate-pos subtract 5 < if
+  over jstate-pos i.subtract 5 i.< if
     drop "Unexpected end while parsing false" json-err
   else
     dup jstate-input over jstate-pos 5 string.substring
@@ -165,7 +165,7 @@ union JsonResult {
 # Parse null
 : json-parse-null ( JsonState -- JsonResult )
   dup jstate-input string.length
-  over jstate-pos subtract 4 < if
+  over jstate-pos i.subtract 4 i.< if
     drop "Unexpected end while parsing null" json-err
   else
     dup jstate-input over jstate-pos 4 string.substring
@@ -193,32 +193,32 @@ union JsonResult {
     drop drop "Unterminated string" json-err
   else
     json-peek
-    dup 34 = if  # Closing quote
+    dup 34 i.= if  # Closing quote
       drop json-advance-1  # Skip closing quote
       swap sstring swap json-ok
-    else dup 92 = if  # Backslash - escape sequence
+    else dup 92 i.= if  # Backslash - escape sequence
       drop json-advance-1  # Skip backslash
       dup json-at-end? if
         drop drop "Unterminated escape sequence" json-err
       else
         json-peek
-        dup 34 = if  # escaped quote
+        dup 34 i.= if  # escaped quote
           drop 34 char->string
           rot swap string.concat swap
           json-advance-1 json-parse-string-loop
-        else dup 92 = if  # escaped backslash
+        else dup 92 i.= if  # escaped backslash
           drop 92 char->string
           rot swap string.concat swap
           json-advance-1 json-parse-string-loop
-        else dup 110 = if  # escaped n (newline)
+        else dup 110 i.= if  # escaped n (newline)
           drop 10 char->string
           rot swap string.concat swap
           json-advance-1 json-parse-string-loop
-        else dup 116 = if  # escaped t (tab)
+        else dup 116 i.= if  # escaped t (tab)
           drop 9 char->string
           rot swap string.concat swap
           json-advance-1 json-parse-string-loop
-        else dup 114 = if  # escaped r (carriage return)
+        else dup 114 i.= if  # escaped r (carriage return)
           drop 13 char->string
           rot swap string.concat swap
           json-advance-1 json-parse-string-loop
@@ -254,11 +254,11 @@ union JsonResult {
     json-peek
     # Continue if: digit, minus (at start), dot, e, E, plus
     dup json-is-digit?
-    over 45 = or  # minus
-    over 46 = or  # dot
-    over 101 = or #  letter e
-    over 69 = or  #  letter E
-    over 43 = or  # plus
+    over 45 i.= or  # minus
+    over 46 i.= or  # dot
+    over 101 i.= or #  letter e
+    over 69 i.= or  #  letter E
+    over 43 i.= or  # plus
     if
       char->string
       rot swap string.concat swap
@@ -284,18 +284,18 @@ union JsonResult {
   then ;
 
 # Check if string has decimal point or exponent
-: json-has-decimal-or-exp? ( String -- Int )
+: json-has-decimal-or-exp? ( String -- Bool )
   0 json-check-decimal-loop ;
 
-: json-check-decimal-loop ( String Int -- Int )
-  over string.length over <= if
-    drop drop 0
+: json-check-decimal-loop ( String Int -- Bool )
+  over string.length over i.<= if
+    drop drop false
   else
     2dup string.char-at
-    dup 46 = over 101 = or over 69 = or if
-      drop drop drop 1
+    dup 46 i.= over 101 i.= or over 69 i.= or if
+      drop drop drop true
     else
-      drop 1 add json-check-decimal-loop
+      drop 1 i.add json-check-decimal-loop
     then
   then ;
 
@@ -309,7 +309,7 @@ union JsonResult {
   dup json-at-end? if
     drop "Unterminated array" json-err
   else
-    json-peek 93 = if  # Empty array
+    json-peek 93 i.= if  # Empty array
       json-advance-1
       snil slist swap json-ok
     else
@@ -341,11 +341,11 @@ union JsonResult {
       drop drop "Unterminated array" json-err
     else
       json-peek
-      dup 93 = if  #  close bracket - end of array
+      dup 93 i.= if  #  close bracket - end of array
         drop json-advance-1
         # Reverse the accumulated list
         swap json-reverse-list slist swap json-ok
-      else dup 44 = if  #  comma - more elements
+      else dup 44 i.= if  #  comma - more elements
         drop json-advance-1 json-skip-ws
         json-parse-array-elements
       else
@@ -375,7 +375,7 @@ union JsonResult {
   dup json-at-end? if
     drop "Unterminated object" json-err
   else
-    json-peek 125 = if  # Empty object
+    json-peek 125 i.= if  # Empty object
       json-advance-1
       snil slist swap json-ok
     else
@@ -392,7 +392,7 @@ union JsonResult {
   dup json-at-end? if
     drop drop "Unterminated object" json-err
   else
-    json-peek 34 = if  #  double quote - start of key
+    json-peek 34 i.= if  #  double quote - start of key
       dup json-parse-string
       dup json-err? if
         nip nip  # Return the error
@@ -405,7 +405,7 @@ union JsonResult {
         dup json-at-end? if
           drop drop drop "Expected colon after key" json-err
         else
-          json-peek 58 = if  #  colon
+          json-peek 58 i.= if  #  colon
             json-advance-1 json-skip-ws
             # Parse the value
             dup json-parse-value
@@ -434,10 +434,10 @@ union JsonResult {
                 drop drop "Unterminated object" json-err
               else
                 json-peek
-                dup 125 = if  #  close brace - end of object
+                dup 125 i.= if  #  close brace - end of object
                   drop json-advance-1
                   swap json-reverse-list slist swap json-ok
-                else dup 44 = if  #  comma - more members
+                else dup 44 i.= if  #  comma - more members
                   drop json-advance-1 json-skip-ws
                   json-parse-object-members
                 else

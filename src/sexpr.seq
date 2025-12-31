@@ -145,40 +145,40 @@ union SexprList {
 # Predicates
 # ============================================
 
-: snum? ( Sexpr -- Int )
-  variant.tag 0 = ;
+: snum? ( Sexpr -- Bool )
+  variant.tag 0 i.= ;
 
-: ssym? ( Sexpr -- Int )
-  variant.tag 1 = ;
+: ssym? ( Sexpr -- Bool )
+  variant.tag 1 i.= ;
 
-: slist? ( Sexpr -- Int )
-  variant.tag 2 = ;
+: slist? ( Sexpr -- Bool )
+  variant.tag 2 i.= ;
 
-: sclosure? ( Sexpr -- Int )
-  variant.tag 3 = ;
+: sclosure? ( Sexpr -- Bool )
+  variant.tag 3 i.= ;
 
-: smacro? ( Sexpr -- Int )
-  variant.tag 4 = ;
+: smacro? ( Sexpr -- Bool )
+  variant.tag 4 i.= ;
 
-: sstring? ( Sexpr -- Int )
-  variant.tag 5 = ;
+: sstring? ( Sexpr -- Bool )
+  variant.tag 5 i.= ;
 
-: sfloat? ( Sexpr -- Int )
-  variant.tag 6 = ;
+: sfloat? ( Sexpr -- Bool )
+  variant.tag 6 i.= ;
 
-: snil? ( SexprList -- Int )
-  variant.tag 0 = ;
+: snil? ( SexprList -- Bool )
+  variant.tag 0 i.= ;
 
 # Closure type predicates
-: named-closure? ( LispClosure -- Int )
-  variant.tag 1 = ;
+: named-closure? ( LispClosure -- Bool )
+  variant.tag 1 i.= ;
 
 # SourceSpan predicates
-: span? ( SourceSpan -- Int )
-  variant.tag 1 = ;  # 0=NoSpan, 1=Span
+: span? ( SourceSpan -- Bool )
+  variant.tag 1 i.= ;  # 0=NoSpan, 1=Span
 
-: no-span? ( SourceSpan -- Int )
-  variant.tag 0 = ;
+: no-span? ( SourceSpan -- Bool )
+  variant.tag 0 i.= ;
 
 # ============================================
 # Accessors
