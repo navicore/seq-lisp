@@ -350,11 +350,68 @@ union EvalResult {
   rot drop  # best_name best_dist
 ;
 
-# Find best matching symbol (checks builtins only for simplicity)
+# Search environment for best matching symbol (recursive helper)
+# Stack: target env -> best_name best_dist
+: find-best-in-env ( String Env -- String Int )
+  # Stack: target env
+  dup variant.tag 0 i.= if
+    # EnvEmpty - no match found in env
+    drop drop "" 999
+  else
+    # EnvExtend - check this binding and recurse
+    dup 0 variant.field-at   # target env binding
+    binding-name             # target env binding_name
+    2 pick over              # target env binding_name target binding_name
+    simple-similarity        # target env binding_name dist
+
+    # Recurse to check rest of environment
+    # Stack: target env binding_name dist
+    3 pick                   # target env binding_name dist target
+    3 pick 1 variant.field-at  # target env binding_name dist target parent
+    find-best-in-env         # target env binding_name dist rest_name rest_dist
+
+    # Compare: keep the better one
+    # After dup, stack positions (0-indexed from top):
+    #   rest_dist_copy=0, rest_dist=1, rest_name=2, dist=3, binding_name=4, env=5, target=6
+    dup 3 pick i.< if
+      # rest is better (rest_dist < dist)
+      # Stack after dup 3 pick i.<: target env binding_name dist rest_name rest_dist
+      # Need: rest_name rest_dist
+      rot drop rot drop      # target env rest_name rest_dist
+      rot drop rot drop      # rest_name rest_dist
+    else
+      # current is better or equal
+      # Stack after drop drop (removes rest_name rest_dist): target env binding_name dist
+      # Need: binding_name dist
+      drop drop              # target env binding_name dist
+      rot drop rot drop      # binding_name dist
+    then
+  then
+;
+
+# Find best matching symbol (checks both environment and builtins)
 # Stack: target env -> suggestion (or "" if none close enough)
 : find-suggestion ( String Env -- String )
-  drop  # Don't search env, just builtins
-  find-best-builtin  # best_name best_dist
+  # Search environment first
+  over over                  # target env target env
+  find-best-in-env           # target env env_name env_dist
+
+  # Search builtins
+  3 pick find-best-builtin   # target env env_name env_dist builtin_name builtin_dist
+
+  # Compare: keep the better one
+  # After dup, stack positions (0-indexed from top):
+  #   builtin_dist_copy=0, builtin_dist=1, builtin_name=2, env_dist=3, env_name=4, env=5, target=6
+  dup 3 pick i.< if
+    # builtin is better (builtin_dist < env_dist)
+    rot drop rot drop        # target env builtin_name builtin_dist
+  else
+    # env is better or equal
+    drop drop                # target env env_name env_dist
+  then
+
+  # Clean up target and env from stack
+  rot drop rot drop          # best_name best_dist
 
   # Only suggest if distance <= 15 (allows 2+ char prefix matches)
   # 3 chars match: 0-5, 2 chars match: 10-15, 1 char match: 50+ (rejected)
