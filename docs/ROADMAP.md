@@ -86,6 +86,10 @@ The current architecture is sound for adding comprehensive error handling. No fu
   - Tokenizer tracks positions for all tokens
   - Parser propagates spans to S-expressions
   - Evaluator includes spans in EvalErr for LSP diagnostics
+- [x] Error messages display line/column information
+  - Format: `Error [line:col]: message` when span is available
+  - Falls back to `Error: message` when no span
+  - File mode shows correct multi-line positions
 - [ ] Stack traces showing call chain
 - [ ] Error recovery suggestions
 

@@ -94,6 +94,26 @@ union EvalResult {
 : eval-define-value ( EvalResult -- Sexpr )
   1 variant.field-at ;
 
+# Format an EvalErr with span information for display
+# Returns: "Error [line:col]: message" or "Error: message" if no span
+: format-eval-error ( EvalResult -- String )
+  dup eval-err-span
+  dup no-span? if
+    # No span - just use message
+    drop "Error: " swap eval-err-message string.concat
+  else
+    # Has span - format with location
+    # Stack: EvalResult Span
+    dup span-start-line int->string   # EvalResult Span LineStr
+    ":" string.concat                  # EvalResult Span "Line:"
+    swap span-start-col int->string   # EvalResult "Line:" ColStr
+    string.concat                      # EvalResult "Line:Col"
+    "Error [" swap string.concat      # EvalResult "Error [Line:Col"
+    "]: " string.concat               # EvalResult "Error [Line:Col]: "
+    swap eval-err-message string.concat  # Full error message
+  then
+;
+
 
 # ============================================
 # Arity Checking Helpers
@@ -4760,7 +4780,7 @@ union EvalResult {
 : eval-print ( String -- )
   parse env-empty eval-with-env
   dup eval-err? if
-    "Error: " swap eval-err-message string.concat io.write-line
+    format-eval-error io.write-line
   else
     eval-ok-value sexpr-to-string io.write-line
   then ;
