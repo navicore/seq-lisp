@@ -58,7 +58,7 @@ include ffi:libedit
         else
             dup eval-err? if
                 # Print error but continue
-                "Error: " swap eval-err-message string.concat io.write-line
+                format-eval-error io.write-line
                 scdr swap
                 eval-all-quiet
             else
@@ -85,7 +85,7 @@ include ffi:libedit
         else
             dup eval-err? if
                 # Print error and continue
-                "Error: " swap eval-err-message string.concat io.write-line
+                format-eval-error io.write-line
                 scdr swap
                 eval-all-print
             else
@@ -263,14 +263,15 @@ include ffi:libedit
 # Stdin Mode - Read all lines, then evaluate (for piped input)
 # ============================================
 
-# Read all lines until EOF (preserves newlines for comments)
+# Read all lines until EOF (preserves newlines for comments and line tracking)
 : read-all-stdin ( String -- String )
     io.read-line+
     0 i.= if
         # EOF reached
         drop
     else
-        # Got a line - append to accumulator (keep newline for comments)
+        # Got a line - append newline since io.read-line+ strips it
+        "\n" string.concat
         string.concat
         read-all-stdin
     then
