@@ -69,16 +69,23 @@ The current architecture is sound for adding comprehensive error handling. No fu
   ```seq
   union EvalResult {
     EvalOk { value: Sexpr }
-    EvalErr { message: String }
+    EvalErr { message: String, span: SourceSpan }
     EvalDefine { name: String, def_value: Sexpr }
   }
   ```
 - [x] Update all `eval-*-with-env` functions to return `EvalResult`
 - [x] Type validation for builtins (e.g., `car` requires a list, `cons` requires list as second arg)
-- [ ] Undefined symbol errors with suggestions (partially done - returns error, no suggestions yet)
+- [x] Undefined symbol errors with suggestions
+  - Searches both builtins and user-defined symbols in scope
+  - Uses prefix-matching heuristic (first 3 chars) with length penalty
+  - Example: `lamda` suggests `lambda`, `my-functon` suggests `my-function`
 
 **Phase 3: Rich Diagnostics (Long Term)**
-- [ ] Source location tracking through tokenizer/parser/evaluator
+- [x] Source location tracking through tokenizer/parser/evaluator
+  - SourceSpan type with start/end line/column
+  - Tokenizer tracks positions for all tokens
+  - Parser propagates spans to S-expressions
+  - Evaluator includes spans in EvalErr for LSP diagnostics
 - [ ] Stack traces showing call chain
 - [ ] Error recovery suggestions
 
