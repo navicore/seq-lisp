@@ -955,6 +955,8 @@ union EvalResult {
     drop eval-print-with-env
   else dup "display" string.equal? if
     drop eval-display-with-env
+  else dup "write" string.equal? if
+    drop eval-write-with-env
   else dup "read-line" string.equal? if
     drop eval-read-line-with-env
   else dup "read-n" string.equal? if
@@ -963,7 +965,7 @@ union EvalResult {
     drop eval-exit-with-env
   else
     dispatch-json
-  then then then then then
+  then then then then then then
 ;
 
 # ----------------------------------------
@@ -1836,6 +1838,25 @@ union EvalResult {
     # Error - return it
   else
     dup eval-ok-value sexpr-to-display-string io.write-line
+  then
+;
+
+: eval-write-with-env ( SexprList Env -- EvalResult )
+  # (write expr) - like display but without trailing newline
+  over 1 "write" check-arity
+  dup eval-err? if
+    # Stack: SexprList Env SexprList EvalResult -> EvalResult
+    nip nip nip
+  else
+    # Stack: SexprList Env SexprList EvalResult -> SexprList Env
+    drop drop
+    swap scdr scar
+    swap eval-with-env
+    dup eval-err? if
+      # Error - return it
+    else
+      dup eval-ok-value sexpr-to-display-string io.write
+    then
   then
 ;
 

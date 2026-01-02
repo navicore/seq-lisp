@@ -1,5 +1,5 @@
 ;; I/O Tests
-;; Tests for: print, exit
+;; Tests for: print, display, write, exit
 ;;
 ;; Note: These are hard to test automatically since print has side effects
 ;; and exit terminates the process. These are mostly placeholder tests.
@@ -11,6 +11,16 @@
   ;; (test 'print-returns-number (assert-eq (print 42) 42))
   ;; (test 'print-returns-symbol (assert-eq (print 'foo) 'foo))
   ;; (test 'print-returns-list (assert-eq (print '(a b c)) '(a b c)))
+
+  ;; display outputs strings without quotes, with newline
+  ;; (test 'display-returns-value (assert-eq (display "hello") "hello"))
+
+  ;; write outputs strings without quotes, without newline (for LSP protocol)
+  ;; (test 'write-returns-value (assert-eq (write "hello") "hello"))
+
+  ;; Arity checks for write
+  (test 'write-arity-zero (assert-error (write)))
+  (test 'write-arity-two (assert-error (write "a" "b")))
 
   ;; Placeholder - we need at least one test
   (test 'io-placeholder (assert-true #t))))
