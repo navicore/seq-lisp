@@ -18,6 +18,10 @@
   ;; write outputs strings without quotes, without newline (for LSP protocol)
   ;; (test 'write-returns-value (assert-eq (write "hello") "hello"))
 
+  ;; Arity checks for write
+  (test 'write-arity-zero (assert-error (write)))
+  (test 'write-arity-two (assert-error (write "a" "b")))
+
   ;; Placeholder - we need at least one test
   (test 'io-placeholder (assert-true #t))))
 

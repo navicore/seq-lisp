@@ -1843,12 +1843,20 @@ union EvalResult {
 
 : eval-write-with-env ( SexprList Env -- EvalResult )
   # (write expr) - like display but without trailing newline
-  swap scdr scar
-  swap eval-with-env
+  over 1 "write" check-arity
   dup eval-err? if
-    # Error - return it
+    # Stack: SexprList Env SexprList EvalResult -> EvalResult
+    nip nip nip
   else
-    dup eval-ok-value sexpr-to-display-string io.write
+    # Stack: SexprList Env SexprList EvalResult -> SexprList Env
+    drop drop
+    swap scdr scar
+    swap eval-with-env
+    dup eval-err? if
+      # Error - return it
+    else
+      dup eval-ok-value sexpr-to-display-string io.write
+    then
   then
 ;
 
