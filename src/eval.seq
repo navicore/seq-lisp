@@ -140,32 +140,24 @@ union EvalResult {
 
 # Add a stack frame to an existing EvalErr
 # Used when errors propagate through function calls
+# If input is not an EvalErr, returns it unchanged
 : add-stack-frame ( EvalResult String SourceSpan -- EvalResult )
   # Stack: EvalResult FuncName FuncSpan
-  rot  # FuncName FuncSpan EvalResult
-  dup eval-err? if
-    # Extract components from error
-    dup eval-err-message  # FuncName FuncSpan EvalResult Message
-    over eval-err-span    # FuncName FuncSpan EvalResult Message Span
-    rot eval-err-stack    # FuncName FuncSpan Message Span Stack
-    # Stack positions: 0=Stack, 1=Span, 2=Message, 3=FuncSpan, 4=FuncName
-    # We want to call stack-push(FuncName, FuncSpan, Stack)
-    # Rearrange stack for stack-push: need String SourceSpan CallStack on top
-    4 pick  # ... Stack FuncName (pos 4 -> FuncName)
-    # Now: 0=FuncName, 1=Stack, 2=Span, 3=Message, 4=FuncSpan, 5=FuncName
-    4 pick  # ... Stack FuncName FuncSpan (pos 4 -> FuncSpan)
-    # Now: 0=FuncSpan, 1=FuncName, 2=Stack, 3=Span, 4=Message, 5=FuncSpan, 6=FuncName
-    2 pick  # ... Stack FuncName FuncSpan Stack (pos 2 -> Stack)
-    # Now top 3: FuncName FuncSpan Stack (Stack on top) - correct for stack-push!
-    stack-push  # ... Message Span Stack NewStack (consumes FuncName FuncSpan Stack)
-    # Drop the old Stack that's still on the stack (at position 1)
-    nip  # FuncName FuncSpan Message Span NewStack
-    # Reconstruct with new stack
-    eval-err-with-stack  # FuncName FuncSpan NewEvalResult
-    nip nip  # NewEvalResult
+  2 pick eval-err? if
+    # It's an error - extract, add frame, reconstruct
+    # First, build the new stack by pushing frame onto existing stack
+    2 pick eval-err-stack   # EvalResult FuncName FuncSpan OldStack
+    stack-push              # EvalResult NewStack
+    # Now extract message and span from original error
+    over eval-err-message   # EvalResult NewStack Message
+    2 pick eval-err-span    # EvalResult NewStack Message Span
+    # Rearrange for eval-err-with-stack: need Message Span NewStack
+    rot                     # EvalResult Message Span NewStack
+    eval-err-with-stack     # EvalResult NewEvalResult
+    nip                     # NewEvalResult
   else
-    # Not an error, just drop FuncName and FuncSpan
-    nip nip
+    # Not an error - drop FuncName and FuncSpan, return original
+    drop drop
   then
 ;
 
@@ -215,8 +207,12 @@ union EvalResult {
 
 # Format an EvalErr with span and stack trace for display
 # Returns multi-line string with error and stack trace
-# IMPORTANT: Only call this on EvalErr results!
+# If called on non-EvalErr, returns a generic message
 : format-eval-error ( EvalResult -- String )
+  # Guard: only process EvalErr variants
+  dup eval-err? not if
+    drop "Error: unexpected result type"
+  else
   # First format the error line
   dup eval-err-span
   dup no-span? if
@@ -242,6 +238,7 @@ union EvalResult {
     "" format-call-stack               # Format stack frames
     string.concat                      # Combine
   then
+  then  # Close guard if-else
 ;
 
 

@@ -1,0 +1,61 @@
+;; Stack Trace Infrastructure Tests
+;; Tests for the CallFrame, CallStack types and error formatting
+
+;; Test that errors still work correctly with empty stacks
+;; (The infrastructure is in place but not actively adding frames)
+
+;; Basic error should format correctly
+(define stack-trace-tests (list
+  ;; Division by zero error
+  (test 'div-error-format
+    (assert-error (/ 1 0)))
+
+  ;; Undefined symbol error
+  (test 'undefined-sym-error
+    (assert-error undefined-symbol-xyz))
+
+  ;; Arity error (cons requires exactly 2 args)
+  (test 'arity-error
+    (assert-error (cons 1)))
+
+  ;; Type error in car
+  (test 'type-error-car
+    (assert-error (car 42)))
+
+  ;; Type error in cdr
+  (test 'type-error-cdr
+    (assert-error (cdr 42)))
+
+  ;; Nested function error (error propagates through call chain)
+  (test 'nested-error
+    (let inner (lambda (x) (/ x 0))
+      (let outer (lambda (x) (inner x))
+        (assert-error (outer 5)))))
+
+  ;; Deep nested error
+  (test 'deep-nested-error
+    (let f1 (lambda (x) (/ x 0))
+      (let f2 (lambda (x) (f1 x))
+        (let f3 (lambda (x) (f2 x))
+          (assert-error (f3 5))))))
+
+  ;; Error in conditional branch
+  (test 'error-in-if
+    (assert-error (if #t (/ 1 0) 42)))
+
+  ;; Error in let binding
+  (test 'error-in-let-binding
+    (assert-error (let x (/ 1 0) x)))
+
+  ;; Error with try - verify try catches errors
+  (test 'try-catches-error
+    (assert-eq (car (try (/ 1 0))) 'error))
+
+  ;; Try returns ok on success
+  (test 'try-ok-on-success
+    (assert-eq (car (try (+ 1 2))) 'ok))
+
+  ;; Try captures error message
+  (test 'try-error-message
+    (assert-true (list? (try (/ 1 0)))))
+))
