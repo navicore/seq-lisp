@@ -4,14 +4,17 @@
 ; Supported methods:
 ;   initialize, initialized, shutdown, exit
 ;   textDocument/didOpen, textDocument/didChange
+;   textDocument/completion
 ;
 ; Features:
 ;   - Real-time diagnostics with line/column positions
 ;   - Paren balance checking (detects ALL unmatched parens)
 ;   - Uses eval-all-with-errors for semantic validation of ALL expressions
+;   - Code completion for all builtins
 ;
 ; Limitations:
 ;   - Evaluation runs without timeout or resource limits.
+;   - Completion only includes builtins (not user-defined symbols)
 
 (define (string-starts-with? str prefix)
   (if (< (string-length str) (string-length prefix)) #f
@@ -357,6 +360,42 @@
                         (publish-diagnostics uri (validate-document text)))))))))))
 
 ; ============================================
+; Completion Support
+; ============================================
+
+; All SeqLisp builtins for completion
+(define *builtins*
+  '("+" "-" "*" "/" "abs" "min" "max" "modulo"
+    "<" ">" "<=" ">=" "="
+    "null?" "number?" "symbol?" "list?" "boolean?" "string?" "float?" "integer?"
+    "equal?" "not"
+    "car" "cdr" "cons" "list" "append" "reverse" "length" "nth" "last" "take" "drop"
+    "map" "filter" "fold" "apply"
+    "if" "cond" "begin" "let" "lambda" "define" "quote" "quasiquote" "unquote" "unquote-splicing"
+    "print" "display" "write" "read-line" "read-n" "exit"
+    "try" "assert-error"
+    "defmacro" "gensym"
+    "json-parse" "json-encode"
+    "string-length" "substring" "string-append" "string?"
+    "eval-with-errors" "eval-all-with-errors"))
+
+; Make a completion item
+; kind: 3 = Function, 6 = Variable, 14 = Keyword
+(define (make-completion-item label kind)
+  (list (list "label" label)
+        (list "kind" kind)))
+
+; Build completion items from a list of names
+(define (build-completion-items names kind)
+  (map (lambda (name) (make-completion-item name kind)) names))
+
+; Handle completion request
+; Returns all builtins - client will do prefix filtering
+(define (handle-completion params)
+  (list (list "isIncomplete" #f)
+        (list "items" (build-completion-items *builtins* 3))))
+
+; ============================================
 ; LSP Dispatch
 ; ============================================
 
@@ -371,10 +410,12 @@
                    (list "id" id)
                    (list "result"
                      (list (list "capabilities"
-                             (list (list "textDocumentSync" 1)))
+                             (list (list "textDocumentSync" 1)
+                                   (list "completionProvider"
+                                     (list (list "triggerCharacters" (list "("))))))
                            (list "serverInfo"
                              (list (list "name" "seqlisp-lsp")
-                                   (list "version" "0.1.0"))))))))
+                                   (list "version" "0.2.0"))))))))
           ((equal? method "initialized") '())
           ((equal? method "shutdown")
            (lsp-send
@@ -386,6 +427,11 @@
            (handle-did-open params))
           ((equal? method "textDocument/didChange")
            (handle-did-change params))
+          ((equal? method "textDocument/completion")
+           (lsp-send
+             (list (list "jsonrpc" "2.0")
+                   (list "id" id)
+                   (list "result" (handle-completion params)))))
           (else
             ; For unknown methods: notifications (no id) are ignored, requests get error
             (if (null? id)
