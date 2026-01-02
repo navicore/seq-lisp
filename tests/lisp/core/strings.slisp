@@ -29,6 +29,8 @@
   (test 'string-escaped-quote (assert-true (string? "hello\"world")))
   (test 'string-escaped-backslash (assert-true (string? "path\\to\\file")))
   (test 'string-escaped-newline (assert-true (string? "line1\nline2")))
+  (test 'string-escaped-tab (assert-eq 3 (string-length "a\tb")))
+  (test 'string-escaped-cr (assert-eq 3 (string-length "a\rb")))
 
   ;; Strings in lists
   (test 'string-in-list (assert-true (string? (car (list "hello" "world")))))
