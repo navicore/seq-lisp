@@ -95,6 +95,7 @@ lisp-test: build
         tests/lisp/edge_cases/parser.slisp \
         tests/lisp/edge_cases/io.slisp \
         tests/lisp/edge_cases/suggestions.slisp \
+        tests/lisp/edge_cases/stack_trace.slisp \
         tests/lisp/all.slisp \
         > "$tmp"
     ./target/seqlisp "$tmp"

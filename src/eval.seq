@@ -19,6 +19,46 @@ include "json"
   int->string string.concat ;
 
 # ============================================
+# Call Stack Types for Error Traces
+# ============================================
+
+# A single frame in the call stack
+union CallFrame {
+  Frame { name: String, span: SourceSpan }
+}
+
+# Call stack is a list of frames (most recent first)
+union CallStack {
+  StackEmpty { }
+  StackFrame { frame: CallFrame, rest: CallStack }
+}
+
+# CallStack constructors
+: stack-empty ( -- CallStack )
+  Make-StackEmpty ;
+
+: stack-push ( String SourceSpan CallStack -- CallStack )
+  rot rot Make-Frame rot Make-StackFrame ;
+
+# CallFrame accessors
+: frame-name ( CallFrame -- String )
+  0 variant.field-at ;
+
+: frame-span ( CallFrame -- SourceSpan )
+  1 variant.field-at ;
+
+# CallStack predicates
+: stack-empty? ( CallStack -- Bool )
+  variant.tag 0 i.= ;
+
+# CallStack accessors
+: stack-top ( CallStack -- CallFrame )
+  0 variant.field-at ;
+
+: stack-rest ( CallStack -- CallStack )
+  1 variant.field-at ;
+
+# ============================================
 # EvalResult Union Type
 #
 # All eval functions return EvalResult for consistent error handling.
@@ -27,7 +67,7 @@ include "json"
 
 union EvalResult {
   EvalOk { value: Sexpr }
-  EvalErr { message: String, span: SourceSpan }
+  EvalErr { message: String, span: SourceSpan, stack: CallStack }
   EvalDefine { name: String, def_value: Sexpr }
 }
 
@@ -35,13 +75,17 @@ union EvalResult {
 : eval-ok ( Sexpr -- EvalResult )
   Make-EvalOk ;
 
-# Create error with span
+# Create error with span (starts with empty stack)
 : eval-err-at ( String SourceSpan -- EvalResult )
-  Make-EvalErr ;
+  stack-empty Make-EvalErr ;
 
-# Create error without span (backward compatible)
+# Create error without span (backward compatible, empty stack)
 : eval-err ( String -- EvalResult )
-  no-span Make-EvalErr ;
+  no-span stack-empty Make-EvalErr ;
+
+# Create error with span and existing stack
+: eval-err-with-stack ( String SourceSpan CallStack -- EvalResult )
+  Make-EvalErr ;
 
 : eval-define ( String Sexpr -- EvalResult )
   Make-EvalDefine ;
@@ -66,6 +110,9 @@ union EvalResult {
 : eval-err-span ( EvalResult -- SourceSpan )
   1 variant.field-at ;
 
+: eval-err-stack ( EvalResult -- CallStack )
+  2 variant.field-at ;
+
 # Create error at the location of a Sexpr
 : eval-err-from ( String Sexpr -- EvalResult )
   sexpr-span eval-err-at ;
@@ -76,8 +123,11 @@ union EvalResult {
   over eval-err? if
     # It's an error - check if it already has a span
     over eval-err-span no-span? if
-      # No span - i.add the provided one
-      swap eval-err-message swap eval-err-at
+      # No span - add the provided one, preserve stack
+      over eval-err-stack       # EvalResult Span Stack
+      rot eval-err-message      # Span Stack Message
+      rot rot                   # Message Span Stack
+      eval-err-with-stack
     else
       # Already has span - keep it
       drop
@@ -88,30 +138,107 @@ union EvalResult {
   then
 ;
 
+# Add a stack frame to an existing EvalErr
+# Used when errors propagate through function calls
+# If input is not an EvalErr, returns it unchanged
+: add-stack-frame ( EvalResult String SourceSpan -- EvalResult )
+  # Stack: EvalResult FuncName FuncSpan
+  2 pick eval-err? if
+    # It's an error - extract, add frame, reconstruct
+    # First, build the new stack by pushing frame onto existing stack
+    2 pick eval-err-stack   # EvalResult FuncName FuncSpan OldStack
+    stack-push              # EvalResult NewStack
+    # Now extract message and span from original error
+    over eval-err-message   # EvalResult NewStack Message
+    2 pick eval-err-span    # EvalResult NewStack Message Span
+    # Rearrange for eval-err-with-stack: need Message Span NewStack
+    rot                     # EvalResult Message Span NewStack
+    eval-err-with-stack     # EvalResult NewEvalResult
+    nip                     # NewEvalResult
+  else
+    # Not an error - drop FuncName and FuncSpan, return original
+    drop drop
+  then
+;
+
 : eval-define-name ( EvalResult -- String )
   0 variant.field-at ;
 
 : eval-define-value ( EvalResult -- Sexpr )
   1 variant.field-at ;
 
-# Format an EvalErr with span information for display
-# Returns: "Error [line:col]: message" or "Error: message" if no span
+# Format a span as "line:col"
+: format-span ( SourceSpan -- String )
+  dup no-span? if
+    drop "?:?"
+  else
+    dup span-start-line int->string
+    ":" string.concat
+    swap span-start-col int->string
+    string.concat
+  then
+;
+
+# Format a single stack frame as "  at name (line:col)"
+: format-stack-frame ( CallFrame -- String )
+  dup frame-name          # CallFrame name
+  "  at " swap            # CallFrame "  at " name
+  string.concat           # CallFrame "  at name"
+  " (" string.concat      # CallFrame "  at name ("
+  swap frame-span         # "  at name (" span
+  format-span             # "  at name (" "line:col"
+  string.concat           # "  at name (line:col"
+  ")" string.concat       # "  at name (line:col)"
+;
+
+# Format entire call stack (recursive)
+: format-call-stack ( CallStack String -- String )
+  # Stack: CallStack Accumulator
+  over stack-empty? if
+    nip  # Return accumulator
+  else
+    over stack-top format-stack-frame  # CallStack Acc FrameStr
+    "\n" string.concat                  # CallStack Acc FrameStr+newline
+    string.concat                       # CallStack NewAcc
+    swap stack-rest swap               # RestStack NewAcc
+    format-call-stack
+  then
+;
+
+# Format an EvalErr with span and stack trace for display
+# Returns multi-line string with error and stack trace
+# If called on non-EvalErr, returns a generic message
 : format-eval-error ( EvalResult -- String )
+  # Guard: only process EvalErr variants
+  dup eval-err? not if
+    drop "Error: unexpected result type"
+  else
+  # First format the error line
   dup eval-err-span
   dup no-span? if
     # No span - just use message
-    drop "Error: " swap eval-err-message string.concat
+    drop dup eval-err-message "Error: " swap string.concat
   else
     # Has span - format with location
     # Stack: EvalResult Span
-    dup span-start-line int->string   # EvalResult Span LineStr
-    ":" string.concat                  # EvalResult Span "Line:"
-    swap span-start-col int->string   # EvalResult "Line:" ColStr
-    string.concat                      # EvalResult "Line:Col"
+    format-span                        # EvalResult SpanStr
     "Error [" swap string.concat      # EvalResult "Error [Line:Col"
     "]: " string.concat               # EvalResult "Error [Line:Col]: "
-    swap eval-err-message string.concat  # Full error message
+    over eval-err-message              # EvalResult "Error [...]:" Message
+    string.concat                      # EvalResult "Error [...]: message"
   then
+  # Stack now: EvalResult ErrorLine
+  # Add stack trace if non-empty
+  swap eval-err-stack                  # ErrorLine CallStack
+  dup stack-empty? if
+    drop  # No stack trace, just return error line
+  else
+    # Has stack trace - format and append
+    swap "\n" string.concat swap       # Add newline after error
+    "" format-call-stack               # Format stack frames
+    string.concat                      # Combine
+  then
+  then  # Close guard if-else
 ;
 
 
@@ -875,10 +1002,10 @@ union EvalResult {
   over  # List Env FuncName Env
   env-lookup  # List Env EvalResult
   dup eval-err? if
-    # Symbol not found - i.add span from function name in list
+    # Symbol not found - add span from function name in list
     # Stack: List Env EvalResult
     rot scar sexpr-span  # Env EvalResult FuncNameSpan
-    eval-result-add-span  # Env EvalResult (signature is EvalResult SourceSpan -> EvalResult)
+    eval-result-add-span  # Env EvalResult
     nip
   else
     # Found something
@@ -886,17 +1013,25 @@ union EvalResult {
     dup sclosure? if
       # Apply the closure
       # Stack: List Env ClosureSexpr
-      rot  # Env ClosureSexpr List
-      scdr  # Env ClosureSexpr Args (skip function name)
-      rot  # ClosureSexpr Args Env
-      apply-closure
+      # Rearrange for apply-closure (ClosureSexpr Args Env) without extra overhead
+      rot rot       # ClosureSexpr List Env
+      over scdr     # ClosureSexpr List Env Args
+      rot drop      # ClosureSexpr Env Args
+      swap          # ClosureSexpr Args Env
+      apply-closure # EvalResult
+      # Note: List is gone now, so we can't add stack frame info
+      # TODO: Find a way to track function name for errors without TCO overhead
     else dup smacro? if
       # Apply the macro
       # Stack: List Env MacroSexpr
-      rot  # Env MacroSexpr List
-      scdr  # Env MacroSexpr Args (skip macro name) - args are UNEVALUATED
-      rot  # MacroSexpr Args Env
-      apply-macro
+      # Rearrange for apply-macro (MacroSexpr Args Env) without extra overhead
+      rot rot       # MacroSexpr List Env
+      over scdr     # MacroSexpr List Env Args
+      rot drop      # MacroSexpr Env Args
+      swap          # MacroSexpr Args Env
+      apply-macro   # EvalResult
+      # Note: List is gone now, so we can't add stack frame info
+      # TODO: Find a way to track function name for errors without TCO overhead
     else
       # Not a closure or macro - type error
       # Stack: List Env FuncSexpr - use FuncSexpr span for error
