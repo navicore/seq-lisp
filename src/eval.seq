@@ -2166,7 +2166,7 @@ union EvalResult {
   then then then then then
 ;
 
-# Check if a list looks like an object (all elements are 2-element lists)
+# Check if a list looks like an object (all elements are 2-element lists with string/symbol keys)
 : json-is-object-list? ( SexprList -- Bool )
   dup snil? if
     drop true  # Empty list could be object
@@ -2177,16 +2177,21 @@ union EvalResult {
       dup snil? if
         drop drop false  # Empty pair - not valid
       else
-        scdr
-        dup snil? if
-          drop drop false  # Single element - not valid
-        else
-          scdr snil? if
-            # Exactly 2 elements - check rest
-            scdr json-is-object-list?
+        dup scar  # Get the key (first element of pair)
+        dup ssym? swap sstring? or if  # Key must be string or symbol
+          scdr
+          dup snil? if
+            drop drop false  # Single element - not valid
           else
-            drop false  # More than 2 elements - not valid
+            scdr snil? if
+              # Exactly 2 elements with string/symbol key - check rest
+              scdr json-is-object-list?
+            else
+              drop false  # More than 2 elements - not valid
+            then
           then
+        else
+          drop drop false  # Key is not string/symbol (e.g., it's a list) - not an object
         then
       then
     else

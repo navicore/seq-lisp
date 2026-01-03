@@ -412,10 +412,11 @@
                      (list (list "capabilities"
                              (list (list "textDocumentSync" 1)
                                    (list "completionProvider"
-                                     (list (list "triggerCharacters" (list "("))))))
-                           (list "serverInfo"
-                             (list (list "name" "seqlisp-lsp")
-                                   (list "version" "0.2.0"))))))))
+                                     (list (list "triggerCharacters" '("(" " "))
+                                           (list "resolveProvider" #f)))))
+                          (list "serverInfo"
+                            (list (list "name" "seqlisp-lsp")
+                                  (list "version" "0.2.0"))))))))
           ((equal? method "initialized") '())
           ((equal? method "shutdown")
            (lsp-send
