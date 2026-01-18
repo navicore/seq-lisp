@@ -144,16 +144,46 @@ The current architecture is sound for adding comprehensive error handling. No fu
   - CI integration with clear pass/fail reporting
 
 ### Tooling
-- [ ] LSP (Language Server Protocol) support
-  - Rust-based language server
-  - Diagnostics (parse errors, undefined symbols)
-  - Hover (builtin docs, function info)
-  - Completion (builtins, defined symbols)
-  - Go to Definition
-  - Document Symbols
-- [ ] Code formatter
-  - Consistent indentation based on nesting
-  - Preserve comments
+
+**LSP (Language Server Protocol)** - Partial
+- [x] Basic LSP server (written in SeqLisp itself)
+- [x] `textDocument/didOpen` and `textDocument/didChange`
+- [x] `textDocument/completion` for builtins and keywords
+- [ ] Diagnostics (parse errors, undefined symbols)
+- [ ] Hover (builtin docs, function info)
+- [ ] Go to Definition
+- [ ] Document Symbols
+
+**Code Formatter**
+- [ ] Consistent indentation based on nesting
+- [ ] Preserve comments
+
+### Vim-Style REPL Editor ([#52](https://github.com/navicore/seq-lisp/issues/52))
+
+Replace libedit with a vim-style line editor written in pure Seq, using the new terminal FFI (patch-seq v1.0.5+):
+
+**Phase 1: Basic Modal Editing**
+- [ ] Normal/Insert modes with `i`, `a`, `Escape`
+- [ ] Basic cursor movement (`h`, `l`, `0`, `$`)
+- [ ] Backspace, delete (`x`), Enter to submit
+
+**Phase 2: Vim Motions**
+- [ ] Word motions (`w`, `b`, `e`)
+- [ ] Character find (`f`, `F`, `t`, `T`)
+
+**Phase 3: Operators**
+- [ ] Delete/change with motion (`d`, `c` + motion)
+- [ ] Yank and paste (`y`, `p`, `P`)
+
+**Phase 4: Polish**
+- [ ] Visual mode, command history, undo
+
+### Seq Code Quality ([#51](https://github.com/navicore/seq-lisp/issues/51))
+
+- [ ] Convert `while`/`until`/`times` usage to recursive style
+  - These combinators require neutral stack effects, creating false expectations
+  - Use recursion or fold/map/filter instead
+  - Gather data on what patterns emerge to inform Seq language design
 
 ## Long Term
 
