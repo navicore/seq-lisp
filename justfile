@@ -174,6 +174,18 @@ lsp-test: build
         failed=1
     fi
 
+    # Test 6: Completion returns items
+    echo -n "  test_completion... "
+    output=$(cat tests/lsp/test_completion.txt | ./target/seqlisp lib/lsp.slisp 2>&1)
+    # Should return completion items with isIncomplete and items array
+    if echo "$output" | grep -q '"isIncomplete":false' && echo "$output" | grep -q '"items":\[' && echo "$output" | grep -q '"label"'; then
+        echo "PASS"
+    else
+        echo "FAIL"
+        echo "Output: $output"
+        failed=1
+    fi
+
     if [ "$failed" -eq 0 ]; then
         echo "All LSP tests passed!"
     else

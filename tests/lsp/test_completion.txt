@@ -1,0 +1,15 @@
+Content-Length: 108
+
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{},"processId":1234,"rootUri":null}}
+Content-Length: 52
+
+{"jsonrpc":"2.0","method":"initialized","params":{}}
+Content-Length: 167
+
+{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file:///test.slisp","languageId":"seqlisp","version":1,"text":"(define x 1)\n(+ x "}}}
+Content-Length: 150
+
+{"jsonrpc":"2.0","id":2,"method":"textDocument/completion","params":{"textDocument":{"uri":"file:///test.slisp"},"position":{"line":1,"character":4}}}
+Content-Length: 44
+
+{"jsonrpc":"2.0","id":3,"method":"shutdown"}

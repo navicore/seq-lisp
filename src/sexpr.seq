@@ -146,39 +146,39 @@ union SexprList {
 # ============================================
 
 : snum? ( Sexpr -- Bool )
-  variant.tag 0 i.= ;
+  variant.tag :SNum symbol.= ;
 
 : ssym? ( Sexpr -- Bool )
-  variant.tag 1 i.= ;
+  variant.tag :SSym symbol.= ;
 
 : slist? ( Sexpr -- Bool )
-  variant.tag 2 i.= ;
+  variant.tag :SList symbol.= ;
 
 : sclosure? ( Sexpr -- Bool )
-  variant.tag 3 i.= ;
+  variant.tag :SClosure symbol.= ;
 
 : smacro? ( Sexpr -- Bool )
-  variant.tag 4 i.= ;
+  variant.tag :SMacro symbol.= ;
 
 : sstring? ( Sexpr -- Bool )
-  variant.tag 5 i.= ;
+  variant.tag :SString symbol.= ;
 
 : sfloat? ( Sexpr -- Bool )
-  variant.tag 6 i.= ;
+  variant.tag :SFloat symbol.= ;
 
 : snil? ( SexprList -- Bool )
-  variant.tag 0 i.= ;
+  variant.tag :SNil symbol.= ;
 
 # Closure type predicates
 : named-closure? ( LispClosure -- Bool )
-  variant.tag 1 i.= ;
+  variant.tag :NamedClos symbol.= ;
 
 # SourceSpan predicates
 : span? ( SourceSpan -- Bool )
-  variant.tag 1 i.= ;  # 0=NoSpan, 1=Span
+  variant.tag :Span symbol.= ;
 
 : no-span? ( SourceSpan -- Bool )
-  variant.tag 0 i.= ;
+  variant.tag :NoSpan symbol.= ;
 
 # ============================================
 # Accessors

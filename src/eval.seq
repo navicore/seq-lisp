@@ -38,7 +38,7 @@ union CallStack {
   Make-StackEmpty ;
 
 : stack-push ( String SourceSpan CallStack -- CallStack )
-  rot rot Make-Frame rot Make-StackFrame ;
+  rot rot Make-Frame swap Make-StackFrame ;
 
 # CallFrame accessors
 : frame-name ( CallFrame -- String )
@@ -49,7 +49,7 @@ union CallStack {
 
 # CallStack predicates
 : stack-empty? ( CallStack -- Bool )
-  variant.tag 0 i.= ;
+  variant.tag :StackEmpty symbol.= ;
 
 # CallStack accessors
 : stack-top ( CallStack -- CallFrame )
@@ -92,13 +92,13 @@ union EvalResult {
 
 # Predicates
 : eval-ok? ( EvalResult -- Bool )
-  variant.tag 0 i.= ;
+  variant.tag :EvalOk symbol.= ;
 
 : eval-err? ( EvalResult -- Bool )
-  variant.tag 1 i.= ;
+  variant.tag :EvalErr symbol.= ;
 
 : eval-define? ( EvalResult -- Bool )
-  variant.tag 2 i.= ;
+  variant.tag :EvalDefine symbol.= ;
 
 # Accessors
 : eval-ok-value ( EvalResult -- Sexpr )
@@ -501,7 +501,7 @@ union EvalResult {
 # Stack: target env -> best_name best_dist
 : find-best-in-env ( String Env -- String Int )
   # Stack: target env
-  dup variant.tag 0 i.= if
+  dup variant.tag :EnvEmpty symbol.= if
     # EnvEmpty - no match found in env
     drop drop "" 999
   else
@@ -623,7 +623,7 @@ union EvalResult {
 : env-lookup-raw ( String Env -- EvalResult )
   # Stack: Name Env
   # Returns EvalOk with the value, or EvalErr if not found
-  dup variant.tag 0 i.= if
+  dup variant.tag :EnvEmpty symbol.= if
     # EnvEmpty - not found, return error
     drop "undefined symbol: " swap string.concat eval-err
   else
@@ -647,7 +647,7 @@ union EvalResult {
 : env-concat ( Env Env -- Env )
   # Stack: Env1 Env2 -> Result where Env1 bindings come first
   swap  # Env2 Env1
-  dup variant.tag 0 i.= if
+  dup variant.tag :EnvEmpty symbol.= if
     # EnvEmpty - just return Env2
     drop
   else
@@ -678,11 +678,11 @@ union EvalResult {
 : eval-with-env ( Sexpr Env -- EvalResult )
   # Stack: Expr Env
   over variant.tag
-  dup 0 i.= if
+  dup :SNum symbol.= if
     # SNum - return as-is wrapped in EvalOk
     drop drop eval-ok
   else
-    dup 1 i.= if
+    dup :SSym symbol.= if
       # SSym - check for self-evaluating symbols (#t, #f) or lookup
       drop swap dup ssym-val
       dup "#t" string.equal? over "#f" string.equal? or if
@@ -698,7 +698,7 @@ union EvalResult {
         swap eval-result-add-span  # Add span to any error
       then
     else
-      2 i.= if
+      :SList symbol.= if
         # SList - function application
         eval-list-with-env
       else
@@ -733,7 +733,7 @@ union EvalResult {
         2 pick eval-with-env  # -> Env List EvalResult
         dup eval-err? if
           # Error - propagate it
-          nip nip nip
+          nip nip
         else
           eval-ok-value  # Unwrap to get the Sexpr
           dup sclosure? if
@@ -1145,7 +1145,7 @@ union EvalResult {
   else
     dup scar 2 pick eval-with-env
     dup eval-err? if
-      nip nip nip
+      nip nip
     else
       eval-ok-value
       dup snum? if
@@ -1290,7 +1290,7 @@ union EvalResult {
   else
     dup scar 2 pick eval-with-env
     dup eval-err? if
-      nip nip nip
+      nip nip
     else
       eval-ok-value
       dup snum? if
@@ -1419,7 +1419,7 @@ union EvalResult {
     swap scdr  # Skip 'min' -> Env Args
     dup scar 2 pick eval-with-env
     dup eval-err? if
-      nip nip nip
+      nip nip
     else
       eval-ok-value
       dup snum? if
@@ -1498,7 +1498,7 @@ union EvalResult {
     swap scdr  # Skip 'max' -> Env Args
     dup scar 2 pick eval-with-env
     dup eval-err? if
-      nip nip nip
+      nip nip
     else
       eval-ok-value
       dup snum? if
@@ -1577,14 +1577,14 @@ union EvalResult {
     swap scdr  # Skip 'modulo' -> Env Args
     dup scar 2 pick eval-with-env  # Eval first arg
     dup eval-err? if
-      nip nip nip
+      nip nip
     else
       eval-ok-value
       dup snum? if
         snum-val  # -> Env Args A
         swap scdr scar 2 pick eval-with-env  # Eval second arg
         dup eval-err? if
-          nip nip nip
+          nip nip
         else
           eval-ok-value
           dup snum? if
@@ -1644,14 +1644,14 @@ union EvalResult {
     swap scdr
     dup scar 2 pick eval-with-env
     dup eval-err? if
-      nip nip nip
+      nip nip
     else
       eval-ok-value
       dup is-numeric? if
         sexpr->float
         swap scdr scar 2 pick eval-with-env
         dup eval-err? if
-          nip nip nip
+          nip nip
         else
           eval-ok-value
           dup is-numeric? if
@@ -1678,14 +1678,14 @@ union EvalResult {
     swap scdr
     dup scar 2 pick eval-with-env
     dup eval-err? if
-      nip nip nip
+      nip nip
     else
       eval-ok-value
       dup is-numeric? if
         sexpr->float
         swap scdr scar 2 pick eval-with-env
         dup eval-err? if
-          nip nip nip
+          nip nip
         else
           eval-ok-value
           dup is-numeric? if
@@ -1712,14 +1712,14 @@ union EvalResult {
     swap scdr
     dup scar 2 pick eval-with-env
     dup eval-err? if
-      nip nip nip
+      nip nip
     else
       eval-ok-value
       dup is-numeric? if
         sexpr->float
         swap scdr scar 2 pick eval-with-env
         dup eval-err? if
-          nip nip nip
+          nip nip
         else
           eval-ok-value
           dup is-numeric? if
@@ -1746,14 +1746,14 @@ union EvalResult {
     swap scdr
     dup scar 2 pick eval-with-env
     dup eval-err? if
-      nip nip nip
+      nip nip
     else
       eval-ok-value
       dup is-numeric? if
         sexpr->float
         swap scdr scar 2 pick eval-with-env
         dup eval-err? if
-          nip nip nip
+          nip nip
         else
           eval-ok-value
           dup is-numeric? if
@@ -1780,14 +1780,14 @@ union EvalResult {
     swap scdr
     dup scar 2 pick eval-with-env
     dup eval-err? if
-      nip nip nip
+      nip nip
     else
       eval-ok-value
       dup is-numeric? if
         sexpr->float
         swap scdr scar 2 pick eval-with-env
         dup eval-err? if
-          nip nip nip
+          nip nip
         else
           eval-ok-value
           dup is-numeric? if
@@ -2166,7 +2166,7 @@ union EvalResult {
   then then then then then
 ;
 
-# Check if a list looks like an object (all elements are 2-element lists)
+# Check if a list looks like an object (all elements are 2-element lists with string/symbol keys)
 : json-is-object-list? ( SexprList -- Bool )
   dup snil? if
     drop true  # Empty list could be object
@@ -2177,16 +2177,21 @@ union EvalResult {
       dup snil? if
         drop drop false  # Empty pair - not valid
       else
-        scdr
-        dup snil? if
-          drop drop false  # Single element - not valid
-        else
-          scdr snil? if
-            # Exactly 2 elements - check rest
-            scdr json-is-object-list?
+        dup scar  # Get the key (first element of pair)
+        dup ssym? swap sstring? or if  # Key must be string or symbol
+          scdr
+          dup snil? if
+            drop drop false  # Single element - not valid
           else
-            drop false  # More than 2 elements - not valid
+            scdr snil? if
+              # Exactly 2 elements with string/symbol key - check rest
+              scdr json-is-object-list?
+            else
+              drop false  # More than 2 elements - not valid
+            then
           then
+        else
+          drop drop false  # Key is not string/symbol (e.g., it's a list) - not an object
         then
       then
     else
@@ -2844,12 +2849,12 @@ union EvalResult {
     swap scdr  # Skip 'cons' -> Env Args
     dup scar 2 pick eval-with-env  # Eval head -> Env Args EvalResult
     dup eval-err? if
-      nip nip nip
+      nip nip
     else
       eval-ok-value  # -> Env Args Head
       swap scdr scar 2 pick eval-with-env  # Eval tail -> Env Head EvalResult
       dup eval-err? if
-        nip nip nip
+        nip nip
       else
         eval-ok-value  # -> Env Head Tail
         # Tail must be a list (SList)
@@ -2972,14 +2977,14 @@ union EvalResult {
     swap scdr  # -> Env Args (skip 'append')
     dup scar 2 pick eval-with-env  # Eval first arg -> Env Args EvalResult
     dup eval-err? if
-      nip nip nip  # Error - propagate
+      nip nip  # Error - propagate
     else
       eval-ok-value  # -> Env Args List1Val
       dup slist? if
         slist-val  # -> Env Args List1
         swap scdr scar 2 pick eval-with-env  # Eval second arg -> Env List1 EvalResult
         dup eval-err? if
-          nip nip nip  # Error - propagate
+          nip nip  # Error - propagate
         else
           eval-ok-value  # -> Env List1 List2Val
           dup slist? if
@@ -3075,7 +3080,7 @@ union EvalResult {
     swap scdr  # -> Env Args (skip 'nth')
     dup scar 2 pick eval-with-env  # Eval first arg (n) -> Env Args EvalResult
     dup eval-err? if
-      nip nip nip
+      nip nip
     else
       eval-ok-value  # -> Env Args NVal
       dup snum? if
@@ -3085,7 +3090,7 @@ union EvalResult {
         else
           swap scdr scar 2 pick eval-with-env  # Eval second arg -> Env N EvalResult
           dup eval-err? if
-            nip nip nip
+            nip nip
           else
             eval-ok-value  # -> Env N ListVal
             dup slist? if
@@ -3169,7 +3174,7 @@ union EvalResult {
     swap scdr  # -> Env Args (skip 'take')
     dup scar 2 pick eval-with-env  # Eval first arg (n) -> Env Args EvalResult
     dup eval-err? if
-      nip nip nip
+      nip nip
     else
       eval-ok-value  # -> Env Args NVal
       dup snum? if
@@ -3179,7 +3184,7 @@ union EvalResult {
         else
           swap scdr scar 2 pick eval-with-env  # Eval second arg -> Env N EvalResult
           dup eval-err? if
-            nip nip nip
+            nip nip
           else
             eval-ok-value  # -> Env N ListVal
             dup slist? if
@@ -3228,7 +3233,7 @@ union EvalResult {
     swap scdr  # -> Env Args (skip 'drop')
     dup scar 2 pick eval-with-env  # Eval first arg (n) -> Env Args EvalResult
     dup eval-err? if
-      nip nip nip
+      nip nip
     else
       eval-ok-value  # -> Env Args NVal
       dup snum? if
@@ -3238,7 +3243,7 @@ union EvalResult {
         else
           swap scdr scar 2 pick eval-with-env  # Eval second arg -> Env N EvalResult
           dup eval-err? if
-            nip nip nip
+            nip nip
           else
             eval-ok-value  # -> Env N ListVal
             dup slist? if
@@ -3288,14 +3293,14 @@ union EvalResult {
     swap scdr  # -> Env Args (skip 'map')
     dup scar 2 pick eval-with-env  # Eval fn -> Env Args EvalResult
     dup eval-err? if
-      nip nip nip  # Error - propagate
+      nip nip  # Error - propagate
     else
       eval-ok-value  # -> Env Args FnVal
       dup sclosure? if
         sclosure-val  # -> Env Args Closure (unwrap from Sexpr)
         swap scdr scar 2 pick eval-with-env  # Eval list arg -> Env Closure EvalResult
         dup eval-err? if
-          nip nip nip  # Error - propagate
+          nip nip  # Error - propagate
         else
           eval-ok-value  # -> Env Closure ListVal
           dup slist? if
@@ -3327,7 +3332,7 @@ union EvalResult {
     5 pick  # -> ... Closure Elem Env
     apply-closure-val  # -> Env Closure Acc InputList EvalResult
     dup eval-err? if
-      nip nip nip nip nip  # Error - propagate
+      nip nip nip nip  # Error - propagate (5 items -> need 4 nips)
     else
       eval-ok-value  # -> Env Closure Acc InputList MappedVal
       rot scons  # -> Env Closure InputList NewAcc
@@ -3348,14 +3353,14 @@ union EvalResult {
     swap scdr  # -> Env Args (skip 'filter')
     dup scar 2 pick eval-with-env  # Eval pred -> Env Args EvalResult
     dup eval-err? if
-      nip nip nip  # Error - propagate
+      nip nip  # Error - propagate
     else
       eval-ok-value  # -> Env Args PredVal
       dup sclosure? if
         sclosure-val  # -> Env Args Closure (unwrap from Sexpr)
         swap scdr scar 2 pick eval-with-env  # Eval list arg -> Env Closure EvalResult
         dup eval-err? if
-          nip nip nip  # Error - propagate
+          nip nip  # Error - propagate
         else
           eval-ok-value  # -> Env Closure ListVal
           dup slist? if
@@ -3388,7 +3393,7 @@ union EvalResult {
     6 pick  # -> ... Elem Closure Elem Env
     apply-closure-val  # -> Env Closure Acc InputList Elem EvalResult
     dup eval-err? if
-      nip nip nip nip nip nip  # Error - propagate
+      nip nip nip nip nip  # Error - propagate (6 items -> need 5 nips)
     else
       eval-ok-value  # -> Env Closure Acc InputList Elem PredResult
       # Check if truthy (not #f and not ())
@@ -3445,7 +3450,7 @@ union EvalResult {
     swap scdr  # -> Env Args (skip 'fold')
     dup scar 2 pick eval-with-env  # Eval fn -> Env Args EvalResult
     dup eval-err? if
-      nip nip nip  # Error - propagate
+      nip nip  # Error - propagate
     else
       eval-ok-value  # -> Env Args FnVal
       dup sclosure? if
@@ -3453,12 +3458,12 @@ union EvalResult {
         swap scdr  # -> Env Closure RestArgs
         dup scar 2 pick eval-with-env  # Eval init -> Env Closure RestArgs EvalResult
         dup eval-err? if
-          nip nip nip nip  # Error - propagate
+          nip nip nip  # Error - propagate (Env Closure RestArgs EvalResult -> 4 items)
         else
           eval-ok-value  # -> Env Closure RestArgs InitVal
           swap scdr scar 3 pick eval-with-env  # Eval list -> Env Closure InitVal EvalResult
           dup eval-err? if
-            nip nip nip nip  # Error - propagate
+            nip nip nip  # Error - propagate (4 items -> need 3 nips)
           else
             eval-ok-value  # -> Env Closure InitVal ListVal
             dup slist? if
@@ -3498,8 +3503,8 @@ union EvalResult {
     apply-closure-2  # -> Env Closure Acc InputList EvalResult
     # Stack: pos 4:Env 3:Closure 2:Acc 1:InputList 0:EvalResult
     dup eval-err? if
-      # Error - need to clean up 4 items below result
-      nip nip nip nip nip
+      # Error - need to clean up 4 items below result (5 items -> need 4 nips)
+      nip nip nip nip
     else
       eval-ok-value  # -> Env Closure Acc InputList NewAcc
       # Replace old Acc with NewAcc, advance InputList
@@ -3553,7 +3558,7 @@ union EvalResult {
     # Stack: Env0 L1 FnExpr ArgsListExpr
     3 pick eval-with-env               # -> Env0 L1 FnExpr EvalResult
     dup eval-err? if
-      nip nip nip nip                  # -> EvalResult (error)
+      nip nip nip                      # -> EvalResult (error) (4 items -> need 3 nips)
     else
       eval-ok-value                    # -> Env0 L1 FnExpr ArgsList(Sexpr)
       dup slist? if
@@ -3580,7 +3585,7 @@ union EvalResult {
           swap                         # -> Env0 ArgsL FnExpr
           2 pick eval-with-env         # -> Env0 ArgsL EvalResult
           dup eval-err? if
-            nip nip nip                # -> EvalResult (error)
+            nip nip                    # -> EvalResult (error) (3 items -> need 2 nips)
           else
             eval-ok-value              # -> Env0 ArgsL FnValue(Sexpr)
             dup sclosure? if
@@ -3797,7 +3802,7 @@ union EvalResult {
   else
     # Stack: A B Depth -> Depth A B (after rot rot)
     rot rot
-    over variant.tag over variant.tag i.= if
+    over variant.tag over variant.tag symbol.= if
       # Same type - compare by type
       over snum? if
         # Stack: Depth A B -> Depth ValB ValA -> Depth Bool -> Bool
@@ -4473,8 +4478,9 @@ union EvalResult {
     eval-collect-rest          # -> ... RestParamName EvalResult
     dup eval-err? if
       # Error during evaluation
-      nip nip nip nip nip  # -> EvalResult... need to fix stack
-      swap drop swap drop swap drop  # -> AccEnv EvalResult
+      # Stack: AccEnv Params Args EvalEnv RestParamName EvalResult (6 items)
+      # Need: AccEnv EvalResult (2 items) - remove 4 middle items
+      nip nip nip nip  # -> AccEnv EvalResult
     else
       eval-ok-value              # -> AccEnv Params Args EvalEnv RestParamName RestList
       # Bind rest param name to the collected list
