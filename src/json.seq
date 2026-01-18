@@ -42,10 +42,10 @@ union JsonResult {
   Make-JErr ;
 
 : json-ok? ( JsonResult -- Bool )
-  variant.tag 0 i.= ;
+  variant.tag :JOk symbol.= ;
 
 : json-err? ( JsonResult -- Bool )
-  variant.tag 1 i.= ;
+  variant.tag :JErr symbol.= ;
 
 : json-ok-value ( JsonResult -- Sexpr )
   0 variant.field-at ;

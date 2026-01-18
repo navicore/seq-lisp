@@ -63,7 +63,7 @@ union TokState {
   rot rot make-token swap tcons-tok ;
 
 : tnil? ( TokenList -- Bool )
-  variant.tag 0 i.= ;
+  variant.tag :TNil symbol.= ;
 
 : tcar ( TokenList -- Token )
   0 variant.field-at ;

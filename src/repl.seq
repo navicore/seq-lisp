@@ -91,7 +91,7 @@ include ffi:libedit
             else
                 # EvalOk result - unwrap and print if not empty list
                 eval-ok-value
-                dup variant.tag 2 i.= if
+                dup variant.tag :SList symbol.= if
                     dup slist-val snil? if
                         drop
                     else

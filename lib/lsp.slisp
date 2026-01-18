@@ -331,37 +331,96 @@
         (let errors (find-all-unmatched-parens text)
           (map paren-error-to-diagnostic errors)))))
 
-; Handle document open - validate and publish diagnostics
-(define (handle-did-open params)
-  (let text-doc (assoc-val 'textDocument params)
-    (if (null? text-doc)
-        '()
-        (let uri (assoc-val 'uri text-doc)
-          (if (null? uri)
-              '()
-              (let text (assoc-val 'text text-doc)
-                (publish-diagnostics uri (validate-document text))))))))
-
-; Handle document change - validate and publish diagnostics
-; Using full document sync (textDocumentSync: 1)
-(define (handle-did-change params)
-  (let text-doc (assoc-val 'textDocument params)
-    (if (null? text-doc)
-        '()
-        (let uri (assoc-val 'uri text-doc)
-          (if (null? uri)
-              '()
-              (let changes (assoc-val 'contentChanges params)
-                ; With full sync, changes is a list with one element containing the full text
-                (if (null? changes)
-                    '()
-                    (let change (car changes)
-                      (let text (assoc-val 'text change)
-                        (publish-diagnostics uri (validate-document text)))))))))))
 
 ; ============================================
 ; Completion Support
 ; ============================================
+
+; String search: find index of substr in str starting at pos, or -1
+(define (string-index-of str substr pos)
+  (let str-len (string-length str)
+    (let sub-len (string-length substr)
+      (string-index-of-loop str substr pos str-len sub-len))))
+
+(define (string-index-of-loop str substr pos str-len sub-len)
+  (if (> (+ pos sub-len) str-len)
+      -1
+      (if (equal? (substring str pos sub-len) substr)
+          pos
+          (string-index-of-loop str substr (+ pos 1) str-len sub-len))))
+
+; Skip whitespace characters, return new position
+(define (skip-whitespace text pos)
+  (if (>= pos (string-length text))
+      pos
+      (let ch (char-at text pos)
+        (if (or (equal? ch " ") (equal? ch "\n") (equal? ch "\t") (equal? ch "\r"))
+            (skip-whitespace text (+ pos 1))
+            pos))))
+
+; Extract a symbol (identifier) starting at pos
+; Returns (symbol . end-pos) or (#f . pos) if no symbol found
+(define (extract-symbol text pos)
+  (extract-symbol-loop text pos ""))
+
+(define (extract-symbol-loop text pos acc)
+  (if (>= pos (string-length text))
+      (if (equal? acc "") (cons #f pos) (cons acc pos))
+      (let ch (char-at text pos)
+        (if (or (equal? ch " ") (equal? ch "\n") (equal? ch "\t") (equal? ch "\r")
+                (equal? ch ")") (equal? ch "("))
+            (if (equal? acc "") (cons #f pos) (cons acc pos))
+            (extract-symbol-loop text (+ pos 1) (string-append acc ch))))))
+
+; Extract symbol name after (define or (defmacro
+; Handles both (define name ...) and (define (name ...) ...)
+(define (extract-defined-symbol text start-pos)
+  (let pos (skip-whitespace text start-pos)
+    (if (>= pos (string-length text))
+        #f
+        (if (equal? (char-at text pos) "(")
+            ; Function form: (define (name args) body)
+            (car (extract-symbol text (skip-whitespace text (+ pos 1))))
+            ; Variable form: (define name value)
+            (car (extract-symbol text pos))))))
+
+; Find all symbols defined with a keyword like "(define " or "(defmacro "
+(define (find-definitions text pattern pattern-len)
+  (find-definitions-loop text pattern pattern-len 0 '()))
+
+(define (find-definitions-loop text pattern pattern-len pos acc)
+  (let idx (string-index-of text pattern pos)
+    (if (< idx 0)
+        acc
+        (let sym (extract-defined-symbol text (+ idx pattern-len))
+          (if (equal? sym #f)
+              (find-definitions-loop text pattern pattern-len (+ idx 1) acc)
+              (find-definitions-loop text pattern pattern-len (+ idx pattern-len)
+                                     (cons sym acc)))))))
+
+; Find all user-defined symbols in text (from define and defmacro)
+(define (find-defined-symbols text)
+  (append (find-definitions text "(define " 8)
+          (find-definitions text "(defmacro " 10)))
+
+; Remove duplicates from a list
+(define (unique lst)
+  (unique-loop lst '()))
+
+(define (unique-loop lst acc)
+  (if (null? lst)
+      (reverse acc)
+      (if (member? (car lst) acc)
+          (unique-loop (cdr lst) acc)
+          (unique-loop (cdr lst) (cons (car lst) acc)))))
+
+; Check if item is in list
+(define (member? item lst)
+  (if (null? lst)
+      #f
+      (if (equal? item (car lst))
+          #t
+          (member? item (cdr lst)))))
 
 ; All SeqLisp builtins for completion
 (define *builtins*
@@ -390,63 +449,134 @@
   (map (lambda (name) (make-completion-item name kind)) names))
 
 ; Handle completion request
-; Returns all builtins - client will do prefix filtering
-(define (handle-completion params)
-  (list (list "isIncomplete" #f)
-        (list "items" (build-completion-items *builtins* 3))))
+; Returns builtins + user-defined symbols from the document
+(define (handle-completion params doc-text)
+  (let user-symbols (if (equal? doc-text #f)
+                        '()
+                        (unique (find-defined-symbols doc-text)))
+    (let all-items (append (build-completion-items *builtins* 3)
+                           (build-completion-items user-symbols 6))
+      (list (list "isIncomplete" #f)
+            (list "items" all-items)))))
+
+; ============================================
+; Document Storage
+; ============================================
+
+; Remove document from list
+(define (doc-remove uri docs)
+  (if (null? docs)
+      '()
+      (if (equal? (car (car docs)) uri)
+          (doc-remove uri (cdr docs))
+          (cons (car docs) (doc-remove uri (cdr docs))))))
+
+; Store or update document in documents list
+; documents is a list of (uri text) pairs
+(define (doc-store uri text docs)
+  (cons (list uri text) (doc-remove uri docs)))
+
+; Get document text by uri, or #f if not found
+(define (doc-get uri docs)
+  (if (null? docs)
+      #f
+      (if (equal? (car (car docs)) uri)
+          (car (cdr (car docs)))
+          (doc-get uri (cdr docs)))))
 
 ; ============================================
 ; LSP Dispatch
 ; ============================================
 
-(define (lsp-dispatch msg)
+; Handle didOpen and store document, returns updated docs
+(define (dispatch-did-open params docs)
+  (let text-doc (assoc-val 'textDocument params)
+    (if (null? text-doc)
+        docs
+        (let uri (assoc-val 'uri text-doc)
+          (if (null? uri)
+              docs
+              (let text (assoc-val 'text text-doc)
+                (begin
+                  (publish-diagnostics uri (validate-document text))
+                  (doc-store uri text docs))))))))
+
+; Handle didChange and update document, returns updated docs
+(define (dispatch-did-change params docs)
+  (let text-doc (assoc-val 'textDocument params)
+    (if (null? text-doc)
+        docs
+        (let uri (assoc-val 'uri text-doc)
+          (if (null? uri)
+              docs
+              (let changes (assoc-val 'contentChanges params)
+                (if (null? changes)
+                    docs
+                    (let change (car changes)
+                      (let text (assoc-val 'text change)
+                        (begin
+                          (publish-diagnostics uri (validate-document text))
+                          (doc-store uri text docs)))))))))))
+
+; Main dispatch - returns updated documents
+(define (lsp-dispatch msg docs)
   (let method (assoc-val 'method msg)
     (let id (assoc-val 'id msg)
       (let params (assoc-val 'params msg)
         (cond
           ((equal? method "initialize")
-           (lsp-send
-             (list (list "jsonrpc" "2.0")
-                   (list "id" id)
-                   (list "result"
-                     (list (list "capabilities"
-                             (list (list "textDocumentSync" 1)
-                                   (list "completionProvider"
-                                     (list (list "triggerCharacters" '("(" " "))
-                                           (list "resolveProvider" #f)))))
-                          (list "serverInfo"
-                            (list (list "name" "seqlisp-lsp")
-                                  (list "version" "0.2.0"))))))))
-          ((equal? method "initialized") '())
+           (begin
+             (lsp-send
+               (list (list "jsonrpc" "2.0")
+                     (list "id" id)
+                     (list "result"
+                       (list (list "capabilities"
+                               (list (list "textDocumentSync" 1)
+                                     (list "completionProvider"
+                                       (list (list "triggerCharacters" '("(" " "))
+                                             (list "resolveProvider" #f)))))
+                            (list "serverInfo"
+                              (list (list "name" "seqlisp-lsp")
+                                    (list "version" "0.3.0")))))))
+             docs))
+          ((equal? method "initialized") docs)
           ((equal? method "shutdown")
-           (lsp-send
-             (list (list "jsonrpc" "2.0")
-                   (list "id" id)
-                   (list "result" '()))))
+           (begin
+             (lsp-send
+               (list (list "jsonrpc" "2.0")
+                     (list "id" id)
+                     (list "result" '())))
+             docs))
           ((equal? method "exit") (exit 0))
           ((equal? method "textDocument/didOpen")
-           (handle-did-open params))
+           (dispatch-did-open params docs))
           ((equal? method "textDocument/didChange")
-           (handle-did-change params))
+           (dispatch-did-change params docs))
           ((equal? method "textDocument/completion")
-           (lsp-send
-             (list (list "jsonrpc" "2.0")
-                   (list "id" id)
-                   (list "result" (handle-completion params)))))
+           (let uri (assoc-val 'uri (assoc-val 'textDocument params))
+             (let doc-text (doc-get uri docs)
+               (begin
+                 (lsp-send
+                   (list (list "jsonrpc" "2.0")
+                         (list "id" id)
+                         (list "result" (handle-completion params doc-text))))
+                 docs))))
           (else
             ; For unknown methods: notifications (no id) are ignored, requests get error
-            (if (null? id)
-                '()
-                (lsp-send-error id -32601 "Method not found"))))))))
+            (begin
+              (if (null? id)
+                  '()
+                  (lsp-send-error id -32601 "Method not found"))
+              docs)))))))
 
 ; ============================================
 ; Main Loop
 ; ============================================
 
-; Main loop with buffer threading
+; Main loop with buffer and document threading
 ; Buffer holds leftover bytes from header reading that belong to body
-; After body reading with read-n, no leftover exists so next message starts fresh
-(define (lsp-loop-with-buffer buffer)
+; Documents is an alist of (uri . text) for open documents
+(define (lsp-loop-with-state buffer docs)
   (let header-result (lsp-read-headers buffer)
     (let cl (car header-result)
       (let header-buffer (car (cdr header-result))
@@ -460,13 +590,12 @@
                         ; Parse error - send error response and continue
                         (begin
                           (lsp-send-error '() -32700 "Parse error")
-                          (lsp-loop-with-buffer ""))
+                          (lsp-loop-with-state "" docs))
                         ; Success - extract value and dispatch
                         (let msg (try-value parse-result)
-                          (begin
-                            (lsp-dispatch msg)
-                            (lsp-loop-with-buffer ""))))))))))))
+                          (let new-docs (lsp-dispatch msg docs)
+                            (lsp-loop-with-state "" new-docs))))))))))))
 
-(define (lsp-loop) (lsp-loop-with-buffer ""))
+(define (lsp-loop) (lsp-loop-with-state "" '()))
 
 (lsp-loop)
