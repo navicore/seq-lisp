@@ -54,6 +54,71 @@
   then then then ;
 
 # ============================================
+# History Management
+# ============================================
+
+# History is stored as an slist of SString values (newest first)
+# We use the sexpr types from the Lisp implementation
+
+# Create empty history
+: history-empty ( -- History )
+  snil ;
+
+# Add entry to history (prepends to front = newest first)
+# Only adds if non-empty and different from most recent
+: history-add ( History String -- History )
+  dup string.empty? if
+    drop  # Don't add empty strings
+  else
+    over snil? if
+      # Empty history, just add
+      sstring scons
+    else
+      # Check if same as most recent
+      over scar sstring-val 2 pick string.equal? if
+        drop  # Same as last, don't add duplicate
+      else
+        sstring scons
+      then
+    then
+  then ;
+
+# Get history length
+: history-length ( History -- Int )
+  0 history-length-loop ;
+
+: history-length-loop ( History Int -- Int )
+  over snil? if
+    nip
+  else
+    1 i.add swap scdr swap history-length-loop
+  then ;
+
+# Get nth history entry (1-indexed, 1 = most recent)
+# Returns empty string if out of bounds
+: history-get ( History Int -- String )
+  # Stack: History N
+  dup 1 i.< if
+    drop drop ""  # Invalid index
+  else
+    history-get-loop
+  then ;
+
+: history-get-loop ( History Int -- String )
+  # Stack: History N
+  over snil? if
+    drop drop ""  # Past end of history
+  else
+    dup 1 i.= if
+      # Found it
+      drop scar sstring-val
+    else
+      # Keep looking
+      1 i.subtract swap scdr swap history-get-loop
+    then
+  then ;
+
+# ============================================
 # Word Motion Helpers
 # ============================================
 
@@ -426,35 +491,104 @@
 # Main Editor
 # ============================================
 
+# Edit result codes
+: edit-done    ( -- Int ) 0 ;  # Normal completion (Enter pressed)
+: edit-hist-up ( -- Int ) 1 ;  # Request history up (k pressed)
+: edit-hist-dn ( -- Int ) 2 ;  # Request history down (j pressed)
+
 # Edit a string with vim keybindings
-# ( Prompt InitialBuffer -- FinalBuffer )
-: vim-edit ( String String -- String )
-  dup string.length mode-normal
-  # Stack: Prompt Buffer Cursor Mode
+# ( History Prompt InitialBuffer -- History FinalBuffer )
+: vim-edit ( Sexpr String String -- Sexpr String )
+  # Stack: History Prompt Buffer
   true terminal.raw-mode
-  vim-edit-loop
+  0 vim-edit-with-histpos  # Start with HistPos=0
   false terminal.raw-mode
-  # Stack: Prompt Buffer Cursor Mode
-  drop drop nip
   "\r\n" io.write ;
 
-: vim-edit-loop ( String String Int Int -- String String Int Int )
-  # Stack: Prompt Buffer Cursor Mode
-  # Render current state
-  3 pick 3 pick 3 pick 3 pick vim-render
+# Inner editor that handles history position
+# ( History Prompt Buffer HistPos -- History FinalBuffer )
+: vim-edit-with-histpos ( Sexpr String String Int -- Sexpr String )
+  # Stack: History Prompt Buffer HistPos
+  rot dup string.length mode-normal
+  # Stack: History Prompt HistPos Buffer Cursor Mode
+  vim-edit-inner
+  # Stack: History Prompt HistPos Buffer ResultCode
+  # Check result code
+  dup edit-hist-up i.= if
+    # Navigate up in history
+    drop  # History Prompt HistPos Buffer
+    # Check if can go up
+    3 pick history-length 2 pick i.> if
+      # Can go up: increment histpos, get history entry
+      swap 1 i.add  # History Prompt Buffer NewHistPos
+      dup 3 pick swap history-get  # History Prompt Buffer NewHistPos HistEntry
+      rot drop swap  # History Prompt HistEntry NewHistPos
+      vim-edit-with-histpos
+    else
+      # Can't go up, restart with same buffer
+      swap vim-edit-with-histpos
+    then
+  else
+    dup edit-hist-dn i.= if
+      # Navigate down in history
+      drop  # History Prompt HistPos Buffer
+      # Check if can go down
+      over 0 i.> if
+        # Can go down: decrement histpos
+        swap 1 i.subtract  # History Prompt Buffer NewHistPos
+        dup 0 i.= if
+          # Back to position 0, use empty buffer
+          rot drop ""  # History Prompt NewHistPos ""
+          swap vim-edit-with-histpos
+        else
+          # Get history entry at new position
+          dup 3 pick swap history-get  # History Prompt Buffer NewHistPos HistEntry
+          rot drop swap  # History Prompt HistEntry NewHistPos
+          vim-edit-with-histpos
+        then
+      else
+        # Already at 0, restart with same buffer
+        swap vim-edit-with-histpos
+      then
+    else
+      # Normal completion (edit-done)
+      drop  # History Prompt HistPos Buffer
+      # Add to history and return
+      swap drop  # History Prompt Buffer
+      rot drop   # History Buffer
+      over over history-add  # History Buffer NewHistory
+      rot drop   # Buffer NewHistory
+      swap       # NewHistory Buffer
+    then
+  then ;
+
+# Core edit loop - returns Buffer and ResultCode
+# ( History Prompt HistPos Buffer Cursor Mode -- History Prompt HistPos Buffer ResultCode )
+: vim-edit-inner ( Sexpr String Int String Int Int -- Sexpr String Int String Int )
+  # Render current state: vim-render(Prompt Buffer Cursor Mode)
+  # Stack: History(5) Prompt(4) HistPos(3) Buffer(2) Cursor(1) Mode(0)
+  4 pick 3 pick 3 pick 3 pick vim-render
   # Read a key
   terminal.read-char
-  # Stack: Prompt Buffer Cursor Mode Key
   dup 0 i.< if
-    # Error reading key, just return
-    drop
+    # Error reading key, return done
+    drop drop drop edit-done
   else
-    # Handle the key: we need to call handle-key(Buffer, Cursor, Mode, Key)
-    # and get back (NewBuffer, NewCursor, NewMode, Continue?)
-    # Stack: Prompt Buffer Cursor Mode Key
-    handle-key
-    # Stack: Prompt NewBuffer NewCursor NewMode Continue?
-    if
-      vim-edit-loop
+    # Check for history navigation (j/k in normal mode)
+    dup 107 i.= 2 pick mode-normal i.= and if  # k in normal mode
+      drop drop drop edit-hist-up
+    else
+      dup 106 i.= 2 pick mode-normal i.= and if  # j in normal mode
+        drop drop drop edit-hist-dn
+      else
+        # Regular key handling
+        handle-key
+        # Stack: History Prompt HistPos NewBuffer NewCursor NewMode Continue?
+        if
+          vim-edit-inner
+        else
+          drop drop edit-done
+        then
+      then
     then
   then ;

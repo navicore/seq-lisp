@@ -184,41 +184,41 @@ include "vim-line"
     then ;
 
 # Handle EOF in REPL
-: repl-handle-eof ( String Env -- )
-    # Stack: Acc Env
+: repl-handle-eof ( Sexpr String Env -- )
+    # Stack: History Acc Env
     over has-content if
         over paren-balance 0 i.= if
             # Balanced - evaluate remaining
             swap tokenize parse-all
-            swap eval-all-print drop
+            swap eval-all-print drop drop
             "Goodbye!" io.write-line
         else
             # Unbalanced at EOF
-            drop drop "Error: unbalanced parentheses" io.write-line
+            drop drop drop "Error: unbalanced parentheses" io.write-line
         then
     else
-        drop drop "Goodbye!" io.write-line
+        drop drop drop "Goodbye!" io.write-line
     then ;
 
 # Handle a line of input
-: repl-handle-line ( String Env String -- )
-    # Stack: Acc Env Line
+: repl-handle-line ( Sexpr String Env String -- )
+    # Stack: History Acc Env Line
     # Build: Acc + Line (Acc already has newlines from previous lines)
     rot swap string.concat
-    # Stack: Env NewAcc
+    # Stack: History Env NewAcc
     swap
-    # Stack: NewAcc Env
+    # Stack: History NewAcc Env
     over paren-balance
-    # Stack: NewAcc Env Balance
+    # Stack: History NewAcc Env Balance
     dup 0 i.< if
         # Negative balance - too many closing parens
         drop "Error: unexpected ')'" io.write-line
         drop "" swap repl-loop
     else
         0 i.=
-        # Stack: NewAcc Env BalancedBool
+        # Stack: History NewAcc Env BalancedBool
         2 pick has-content
-        # Stack: NewAcc Env BalancedBool HasContentBool
+        # Stack: History NewAcc Env BalancedBool HasContentBool
         and if
             # Balanced and has content - evaluate
             swap tokenize parse-all
@@ -231,21 +231,37 @@ include "vim-line"
     then ;
 
 # Interactive REPL loop with multi-line support
-: repl-loop ( String Env -- )
-    # Stack: Accumulator Env
-    over paren-balance get-prompt "" vim-edit
+: repl-loop ( Sexpr String Env -- )
+    # Stack: History(2) Accumulator(1) Env(0)
+    # Get prompt based on paren balance
+    over paren-balance get-prompt
+    # Stack: History(3) Acc(2) Env(1) Prompt(0)
+    # Call vim-edit(History, Prompt, "")
+    3 pick swap "" vim-edit
+    # Stack: History(4) Acc(3) Env(2) NewHistory(1) Line(0)
     dup string.empty? if
         # EOF (Ctrl+D or Ctrl+C)
-        drop repl-handle-eof
+        drop  # History(3) Acc(2) Env(1) NewHistory(0)
+        # Build: NewHistory Acc Env for repl-handle-eof
+        dup 3 pick 3 pick  # ... NewHistory Acc Env
+        # Stack: History Acc Env NewHistory NewHistory Acc Env (7 items)
+        # Drop bottom 4
+        rot drop rot drop rot drop rot drop
+        repl-handle-eof
     else
         # Got a line - add newline since vim-edit doesn't include it
         "\n" string.concat
+        # Stack: History(4) Acc(3) Env(2) NewHistory(1) Line(0)
+        # Build: NewHistory Acc Env Line for repl-handle-line
+        1 pick 4 pick 4 pick 4 pick  # ... NewHistory Acc Env Line
+        # Stack: 9 items, want top 4
+        rot drop rot drop rot drop rot drop rot drop
         repl-handle-line
     then ;
 
 # Start interactive REPL
 : run-repl ( -- )
-    "" env-empty repl-loop ;
+    history-empty "" env-empty repl-loop ;
 
 # ============================================
 # Stdin Mode - Read all lines, then evaluate (for piped input)
