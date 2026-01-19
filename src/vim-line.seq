@@ -38,6 +38,111 @@
   2dup i.divide i.multiply i.subtract ;
 
 # ============================================
+# Character Classification
+# ============================================
+
+# Check if character code is whitespace (space, tab)
+: is-whitespace ( Int -- Bool )
+  dup 32 i.= swap 9 i.= or ;
+
+# Check if character code is a word character (letter, digit, underscore)
+: is-word-char ( Int -- Bool )
+  dup 48 i.>= over 57 i.<= and if drop true else  # 0-9
+  dup 65 i.>= over 90 i.<= and if drop true else  # A-Z
+  dup 97 i.>= over 122 i.<= and if drop true else  # a-z
+  95 i.=  # underscore
+  then then then ;
+
+# ============================================
+# Word Motion Helpers
+# ============================================
+
+# Find next word start position from current position
+# Skips current word (if in one), then skips whitespace
+: find-next-word ( String Int -- Int )
+  # Stack: Str Pos
+  over string.length  # Str Pos Len
+  2dup i.>= if
+    # Already at or past end
+    drop nip  # Return Len (clamped later)
+  else
+    # Skip non-whitespace (current word)
+    find-next-word-skip-word
+  then ;
+
+: find-next-word-skip-word ( String Int Int -- Int )
+  # Stack: Str Pos Len
+  2dup i.>= if
+    drop nip
+  else
+    2 pick 2 pick string.char-at is-whitespace if
+      # Found whitespace, now skip it
+      find-next-word-skip-space
+    else
+      # Still in word, advance
+      swap 1 i.add swap find-next-word-skip-word
+    then
+  then ;
+
+: find-next-word-skip-space ( String Int Int -- Int )
+  # Stack: Str Pos Len
+  2dup i.>= if
+    drop nip
+  else
+    2 pick 2 pick string.char-at is-whitespace if
+      # Still whitespace, advance
+      swap 1 i.add swap find-next-word-skip-space
+    else
+      # Found start of next word
+      drop nip
+    then
+  then ;
+
+# Find previous word start position from current position
+: find-prev-word ( String Int -- Int )
+  # Stack: Str Pos
+  dup 0 i.<= if
+    drop drop 0  # Already at start, return 0
+  else
+    # Move back one first
+    1 i.subtract
+    find-prev-word-skip-space
+  then ;
+
+: find-prev-word-skip-space ( String Int -- Int )
+  # Stack: Str Pos
+  dup 0 i.< if
+    drop drop 0
+  else
+    over over string.char-at is-whitespace if
+      dup 0 i.<= if
+        drop drop 0
+      else
+        1 i.subtract find-prev-word-skip-space
+      then
+    else
+      find-prev-word-skip-word
+    then
+  then ;
+
+: find-prev-word-skip-word ( String Int -- Int )
+  # Stack: Str Pos - we're in a word, find its start
+  dup 0 i.<= if
+    drop drop 0
+  else
+    over over string.char-at is-whitespace not if
+      dup 0 i.<= if
+        drop drop 0
+      else
+        1 i.subtract find-prev-word-skip-word
+      then
+    else
+      # Hit whitespace, the word starts at pos+1
+      nip 1 i.add
+    then
+  then ;
+
+# ============================================
 # String Helpers
 # ============================================
 
@@ -69,7 +174,8 @@
   over string.length over i.subtract  # Stack: CharStr Before Str Pos Len-Pos
   string.substring  # After: Str[Pos..end]
   # Stack: CharStr Before After
-  rot rot string.concat swap string.concat ;
+  # Result: Before + CharStr + After
+  rot swap string.concat string.concat ;
 
 # ============================================
 # Cursor Helpers
@@ -95,8 +201,10 @@
 # Render: clear line, show prompt, show buffer, position cursor
 : vim-render ( String String Int Int -- )
   # Stack: Prompt Buffer Cursor Mode
-  drop  # Don't need mode for rendering -> Prompt Buffer Cursor
-  "\r\x1b[2K" io.write
+  "\r\x1b[2K" io.write  # Clear line first
+  # Show mode indicator
+  dup mode-insert i.= if "● " io.write else "○ " io.write then
+  drop  # Drop mode -> Prompt Buffer Cursor
   rot io.write  # Write prompt -> Buffer Cursor
   over io.write  # Write buffer -> Buffer Cursor
   # Move cursor: we're at end of buffer, need to go back (buflen - cursor) chars
@@ -137,8 +245,9 @@
   swap dup 0 i.> if 1 i.subtract then swap true ;
 
 : normal-key-l ( String Int Int -- String Int Int Bool )
-  over string.length 1 i.subtract
-  2 pick i.< if swap 1 i.add swap then true ;
+  # Move cursor right if not at end (cursor < len-1)
+  2 pick string.length 1 i.subtract  # Stack: ... (len-1)
+  2 pick i.> if swap 1 i.add swap then true ;  # if (len-1) > cursor
 
 : normal-key-0 ( String Int Int -- String Int Int Bool )
   swap drop 0 swap true ;
@@ -150,38 +259,119 @@
   drop mode-insert true ;
 
 : normal-key-a ( String Int Int -- String Int Int Bool )
-  drop
-  over string.length over i.> if swap 1 i.add swap then
+  drop  # Buffer Cursor
+  over string.length over i.> if  # If len > cursor
+    1 i.add  # Increment cursor
+  then
   mode-insert true ;
 
 : normal-key-A ( String Int Int -- String Int Int Bool )
-  drop over string.length mode-insert true ;
+  drop  # Buffer Cursor
+  drop  # Buffer (discard old cursor)
+  dup string.length  # Buffer NewCursor (cursor at end)
+  mode-insert true ;
 
 : normal-key-I ( String Int Int -- String Int Int Bool )
-  drop 0 mode-insert true ;
+  drop  # Buffer Cursor
+  drop  # Buffer (discard old cursor)
+  0 mode-insert true ;  # Buffer 0 Mode true
 
 : normal-key-x ( String Int Int -- String Int Int Bool )
-  over 2 pick string.length i.< if
-    rot rot string-delete-at swap
-    over clamp-cursor-normal
+  # Stack: Buffer Cursor Mode
+  # Check if buffer length > cursor (cursor is within bounds)
+  2 pick string.length 2 pick i.> if
+    # Delete char and clamp cursor
+    rot rot  # Mode Buffer Cursor
+    over over string-delete-at  # Mode Buffer Cursor NewBuffer
+    swap over swap clamp-cursor-normal  # Mode Buffer NewBuffer NewCursor
+    rot drop  # Mode NewBuffer NewCursor
+    rot  # NewBuffer NewCursor Mode
   then
+  true ;
+
+: normal-key-w ( String Int Int -- String Int Int Bool )
+  # Move to next word: Buffer Cursor Mode -> Buffer NewCursor Mode true
+  # Stack: Buffer Cursor Mode
+  drop  # Buffer Cursor (we'll restore mode at the end)
+  over swap find-next-word  # Buffer NewCursor
+  # Clamp to len-1 for normal mode
+  over string.length 1 i.subtract 0 int-max int-min  # Buffer ClampedCursor
   mode-normal true ;
+
+: normal-key-b ( String Int Int -- String Int Int Bool )
+  # Move to previous word: Buffer Cursor Mode -> Buffer NewCursor Mode true
+  # Stack: Buffer Cursor Mode
+  drop  # Buffer Cursor
+  over swap find-prev-word  # Buffer NewCursor
+  mode-normal true ;
+
+: do-replace-char ( String Int Int -- String )
+  # Replace char at position with new char: Buffer Cursor Char -> NewBuffer
+  rot rot  # Char Buffer Cursor
+  over over string-delete-at  # Char Buffer Cursor TmpBuffer
+  rot drop  # Char TmpBuffer Cursor
+  swap rot  # TmpBuffer Cursor Char
+  string-insert-at ;
+
+: normal-key-r ( String Int Int -- String Int Int Bool )
+  # Replace character under cursor
+  # Stack: Buffer Cursor Mode
+  terminal.read-char
+  dup 27 i.= over 0 i.< or if
+    # Escape or error - cancel
+    drop true
+  else
+    # Stack: Buffer Cursor Mode Char
+    3 pick string.length 3 pick i.> if
+      # Cursor valid - do replacement
+      # Stack: Buffer Cursor Mode Char
+      # Drop Mode now, we'll restore it at the end
+      swap drop  # Buffer Cursor Char
+      # Compute NewBuffer: delete then insert
+      2 pick 2 pick string-delete-at  # Buffer Cursor Char TmpBuffer
+      2 pick 2 pick string-insert-at  # Buffer Cursor Char NewBuffer
+      # Stack: Buffer Cursor Char NewBuffer
+      # Get copy of Cursor for result
+      2 pick  # Buffer Cursor Char NewBuffer Cursor2
+      # Drop garbage, keep NewBuffer and Cursor2
+      rot drop rot drop rot drop  # NewBuffer Cursor2
+      # Restore mode and return
+      mode-normal true
+    else
+      drop true
+    then
+  then ;
 
 # ============================================
 # Insert Mode Key Handlers
 # ============================================
 
 : insert-backspace ( String Int Int -- String Int Int Bool )
+  # Input: Buffer Cursor Mode
   over 0 i.> if
-    swap 1 i.subtract swap
-    rot rot string-delete-at swap mode-insert
+    # Cursor > 0, do backspace
+    drop  # Buffer Cursor (drop Mode)
+    1 i.subtract  # Buffer NewCursor
+    over over string-delete-at  # Buffer NewCursor NewBuffer
+    rot drop  # NewCursor NewBuffer
+    swap  # NewBuffer NewCursor
+    mode-insert  # NewBuffer NewCursor mode-insert
   then
   true ;
 
 : insert-char ( String Int Int Int -- String Int Int Bool )
-  rot rot rot
-  2dup swap string-insert-at
-  rot drop swap 1 i.add mode-insert true ;
+  # Input: Buffer Cursor Mode Char
+  # Stack positions: Buffer(3) Cursor(2) Mode(1) Char(0)
+  # We need to call string-insert-at(Buffer, Cursor, Char)
+  3 pick  # ... Buffer  (positions shift: Char now at 1)
+  3 pick  # ... Buffer Cursor  (positions shift: Char now at 2)
+  2 pick  # ... Buffer Cursor Char
+  string-insert-at  # Buffer Cursor Mode Char NewBuffer
+  # Compute NewCursor = Cursor + 1
+  3 pick 1 i.add  # Buffer Cursor Mode Char NewBuffer NewCursor
+  # Drop old values, keep NewBuffer and NewCursor
+  rot drop rot drop rot drop rot drop
+  mode-insert true ;
 
 # ============================================
 # Main Key Dispatch
@@ -196,31 +386,38 @@
   then ;
 
 : handle-normal-key ( String Int Int Int -- String Int Int Bool )
-  dup 104 i.= if drop normal-key-h else
-  dup 108 i.= if drop normal-key-l else
-  dup 48 i.= if drop normal-key-0 else
-  dup 36 i.= if drop normal-key-$ else
-  dup 105 i.= if drop normal-key-i else
-  dup 97 i.= if drop normal-key-a else
-  dup 65 i.= if drop normal-key-A else
-  dup 73 i.= if drop normal-key-I else
-  dup 120 i.= if drop normal-key-x else
+  dup 104 i.= if drop normal-key-h else  # h - left
+  dup 108 i.= if drop normal-key-l else  # l - right
+  dup 119 i.= if drop normal-key-w else  # w - next word
+  dup 98 i.= if drop normal-key-b else   # b - prev word
+  dup 48 i.= if drop normal-key-0 else   # 0 - start of line
+  dup 36 i.= if drop normal-key-$ else   # $ - end of line
+  dup 105 i.= if drop normal-key-i else  # i - insert
+  dup 97 i.= if drop normal-key-a else   # a - append
+  dup 65 i.= if drop normal-key-A else   # A - append at end
+  dup 73 i.= if drop normal-key-I else   # I - insert at start
+  dup 120 i.= if drop normal-key-x else  # x - delete char
+  dup 114 i.= if drop normal-key-r else  # r - replace char
   dup key-enter i.= if drop false else
   dup key-newline i.= if drop false else
   dup key-ctrl-c i.= if drop rot drop "" rot rot false else
   dup key-ctrl-d i.= if drop rot drop "" rot rot false else
   drop true
-  then then then then then then then then then then then then then ;
+  then then then then then then then then then then then then then then then then ;
 
 : handle-insert-key ( String Int Int Int -- String Int Int Bool )
   dup key-escape i.= if
-    drop drop over clamp-cursor-normal mode-normal true
+    # Escape: return to normal mode, clamp cursor
+    drop drop  # Buffer Cursor (dropped Key and Mode)
+    2dup clamp-cursor-normal  # Buffer Cursor NewCursor
+    nip  # Buffer NewCursor
+    mode-normal true
   else
   dup key-enter i.= if drop false else
   dup key-newline i.= if drop false else
   dup key-backspace i.= if drop insert-backspace else
   dup key-ctrl-h i.= if drop insert-backspace else
-  dup key-ctrl-c i.= if drop rot drop "" rot rot mode-normal false else
+  dup key-ctrl-c i.= if drop drop drop drop "" 0 mode-normal false else
   dup 32 i.>= over 126 i.<= and if insert-char else
   drop true
   then then then then then then then ;
@@ -243,17 +440,21 @@
 
 : vim-edit-loop ( String String Int Int -- String String Int Int )
   # Stack: Prompt Buffer Cursor Mode
+  # Render current state
   3 pick 3 pick 3 pick 3 pick vim-render
+  # Read a key
   terminal.read-char
+  # Stack: Prompt Buffer Cursor Mode Key
   dup 0 i.< if
+    # Error reading key, just return
     drop
   else
-    3 pick 3 pick 3 pick rot handle-key
-    # Stack: OldPrompt OldBuf OldCur OldMode NewBuf NewCur NewMode Continue?
+    # Handle the key: we need to call handle-key(Buffer, Cursor, Mode, Key)
+    # and get back (NewBuffer, NewCursor, NewMode, Continue?)
+    # Stack: Prompt Buffer Cursor Mode Key
+    handle-key
+    # Stack: Prompt NewBuffer NewCursor NewMode Continue?
     if
-      rot drop rot drop rot drop
       vim-edit-loop
-    else
-      rot drop rot drop rot drop
     then
   then ;

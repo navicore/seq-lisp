@@ -8,9 +8,10 @@
 #   echo "(+ 1 2)" | ./seqlisp - Piped input
 #
 # REPL features:
-#   - Line editing with arrow keys (via libedit)
-#   - Command history (up/down arrows)
-#   - Persistent history saved to ~/.seqlisp_history
+#   - Vim-style modal editing (Normal/Insert modes)
+#   - Normal mode: h/l (move), 0/$ (line start/end), i/a/I/A (insert), x (delete)
+#   - Insert mode: type text, Escape to return to Normal mode
+#   - Ctrl+C/Ctrl+D to cancel/exit
 #   - Multi-line input (detects incomplete expressions)
 #   - Continuation prompt (...) for multi-line
 #   - Environment persists across expressions
@@ -20,7 +21,7 @@
 
 include "eval"
 include "version"
-include ffi:libedit
+include "vim-line"
 
 # ============================================
 # File Mode - Read file, parse all, evaluate
@@ -174,14 +175,6 @@ include ffi:libedit
 # Interactive REPL Mode
 # ============================================
 
-# History file path - uses os.home-dir to get user's home directory
-: history-file ( -- String )
-    os.home-dir if
-        "/.seqlisp_history" string.concat
-    else
-        drop "/tmp/.seqlisp_history"  # Fallback if os.home-dir fails
-    then ;
-
 # Get prompt string based on whether we're continuing a multi-line expression
 : get-prompt ( Int -- String )
     0 i.= if
@@ -227,8 +220,7 @@ include ffi:libedit
         2 pick has-content
         # Stack: NewAcc Env BalancedBool HasContentBool
         and if
-            # Balanced and has content - i.add to history and evaluate
-            over add-history
+            # Balanced and has content - evaluate
             swap tokenize parse-all
             swap eval-all-print
             "" swap repl-loop
@@ -241,23 +233,19 @@ include ffi:libedit
 # Interactive REPL loop with multi-line support
 : repl-loop ( String Env -- )
     # Stack: Accumulator Env
-    over paren-balance get-prompt readline
+    over paren-balance get-prompt "" vim-edit
     dup string.empty? if
-        # EOF (Ctrl+D or empty input)
+        # EOF (Ctrl+D or Ctrl+C)
         drop repl-handle-eof
     else
-        # Got a line - i.add newline since readline strips it
+        # Got a line - add newline since vim-edit doesn't include it
         "\n" string.concat
         repl-handle-line
     then ;
 
 # Start interactive REPL
 : run-repl ( -- )
-    # Load history from previous sessions (ignore error if file doesn't exist)
-    history-file read-history drop
-    "" env-empty repl-loop
-    # Save history for next session
-    history-file write-history drop ;
+    "" env-empty repl-loop ;
 
 # ============================================
 # Stdin Mode - Read all lines, then evaluate (for piped input)
