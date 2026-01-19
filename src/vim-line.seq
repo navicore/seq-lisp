@@ -1,0 +1,259 @@
+# vim-line.seq - Vim-style line editor for SeqLisp REPL
+#
+# A minimal vim-like editor written in pure Seq, using the terminal FFI.
+# Implements modal editing (Normal/Insert) with basic motions.
+#
+# Usage:
+#   "prompt> " "" vim-edit  # Returns edited string on Enter
+
+# ============================================
+# Constants
+# ============================================
+
+# Editor modes
+: mode-normal ( -- Int ) 0 ;
+: mode-insert ( -- Int ) 1 ;
+
+# Key codes
+: key-escape    ( -- Int ) 27 ;
+: key-enter     ( -- Int ) 13 ;
+: key-newline   ( -- Int ) 10 ;
+: key-backspace ( -- Int ) 127 ;
+: key-ctrl-h    ( -- Int ) 8 ;
+: key-ctrl-c    ( -- Int ) 3 ;
+: key-ctrl-d    ( -- Int ) 4 ;
+
+# ============================================
+# Integer Helpers (missing from Seq stdlib)
+# ============================================
+
+: int-min ( Int Int -- Int )
+  2dup i.< if drop else nip then ;
+
+: int-max ( Int Int -- Int )
+  2dup i.> if drop else nip then ;
+
+: int-mod ( Int Int -- Int )
+  # a b -- a mod b = a - (a / b) * b
+  2dup i.divide i.multiply i.subtract ;
+
+# ============================================
+# String Helpers
+# ============================================
+
+# Delete character at position: ( Str Pos -- NewStr )
+# string.substring takes (Str Start Len -- Substr)
+: string-delete-at ( String Int -- String )
+  over string.length over i.<= if
+    drop  # Position beyond string - return unchanged
+  else
+    # Stack: Str Pos
+    2dup 0 swap string.substring  # Before: Str[0..Pos]
+    # Stack: Str Pos Before
+    rot rot  # Stack: Before Str Pos
+    1 i.add    # Stack: Before Str Pos+1
+    over string.length over i.subtract  # Stack: Before Str Pos+1 Len-Pos-1
+    string.substring  # After: Str[Pos+1..end]
+    # Stack: Before After
+    string.concat
+  then ;
+
+# Insert character at position: ( Str Pos Char -- NewStr )
+: string-insert-at ( String Int Int -- String )
+  # Stack: Str Pos Char
+  char->string  # Stack: Str Pos CharStr
+  rot rot  # Stack: CharStr Str Pos
+  2dup 0 swap string.substring  # Before: Str[0..Pos]
+  # Stack: CharStr Str Pos Before
+  rot rot  # Stack: CharStr Before Str Pos
+  over string.length over i.subtract  # Stack: CharStr Before Str Pos Len-Pos
+  string.substring  # After: Str[Pos..end]
+  # Stack: CharStr Before After
+  rot rot string.concat swap string.concat ;
+
+# ============================================
+# Cursor Helpers
+# ============================================
+
+# Clamp cursor to valid range for normal mode (0 to len-1, or 0 if empty)
+: clamp-cursor-normal ( String Int -- Int )
+  over string.length
+  dup 0 i.= if
+    drop drop drop 0  # Drop Len, Cursor, Str -> push 0
+  else
+    1 i.subtract int-min 0 int-max nip  # Compute clamped cursor, drop Str
+  then ;
+
+# Clamp cursor to valid range for insert mode (0 to len)
+: clamp-cursor-insert ( String Int -- Int )
+  over string.length int-min 0 int-max nip ;
+
+# ============================================
+# Rendering
+# ============================================
+
+# Render: clear line, show prompt, show buffer, position cursor
+: vim-render ( String String Int Int -- )
+  # Stack: Prompt Buffer Cursor Mode
+  drop  # Don't need mode for rendering -> Prompt Buffer Cursor
+  "\r\x1b[2K" io.write
+  rot io.write  # Write prompt -> Buffer Cursor
+  over io.write  # Write buffer -> Buffer Cursor
+  # Move cursor: we're at end of buffer, need to go back (buflen - cursor) chars
+  over string.length swap i.subtract  # -> Buffer Diff
+  dup 0 i.> if
+    "\x1b[" io.write
+    int-to-string io.write
+    "D" io.write
+  else
+    drop
+  then
+  drop  # Drop Buffer
+  terminal.flush ;
+
+# Convert int to string (simple, positive only)
+: int-to-string ( Int -- String )
+  dup 0 i.= if
+    drop "0"
+  else
+    "" swap int-to-string-loop
+  then ;
+
+: int-to-string-loop ( String Int -- String )
+  dup 0 i.= if
+    drop
+  else
+    dup 10 int-mod 48 i.add char->string rot string.concat swap
+    10 i./ int-to-string-loop
+  then ;
+
+# ============================================
+# Normal Mode Key Handlers
+# ============================================
+
+# Each returns: ( Buf Cur Mode -- NewBuf NewCur NewMode Continue? )
+
+: normal-key-h ( String Int Int -- String Int Int Bool )
+  swap dup 0 i.> if 1 i.subtract then swap true ;
+
+: normal-key-l ( String Int Int -- String Int Int Bool )
+  over string.length 1 i.subtract
+  2 pick i.< if swap 1 i.add swap then true ;
+
+: normal-key-0 ( String Int Int -- String Int Int Bool )
+  swap drop 0 swap true ;
+
+: normal-key-$ ( String Int Int -- String Int Int Bool )
+  swap drop over string.length dup 0 i.> if 1 i.subtract then swap true ;
+
+: normal-key-i ( String Int Int -- String Int Int Bool )
+  drop mode-insert true ;
+
+: normal-key-a ( String Int Int -- String Int Int Bool )
+  drop
+  over string.length over i.> if swap 1 i.add swap then
+  mode-insert true ;
+
+: normal-key-A ( String Int Int -- String Int Int Bool )
+  drop over string.length mode-insert true ;
+
+: normal-key-I ( String Int Int -- String Int Int Bool )
+  drop 0 mode-insert true ;
+
+: normal-key-x ( String Int Int -- String Int Int Bool )
+  over 2 pick string.length i.< if
+    rot rot string-delete-at swap
+    over clamp-cursor-normal
+  then
+  mode-normal true ;
+
+# ============================================
+# Insert Mode Key Handlers
+# ============================================
+
+: insert-backspace ( String Int Int -- String Int Int Bool )
+  over 0 i.> if
+    swap 1 i.subtract swap
+    rot rot string-delete-at swap mode-insert
+  then
+  true ;
+
+: insert-char ( String Int Int Int -- String Int Int Bool )
+  rot rot rot
+  2dup swap string-insert-at
+  rot drop swap 1 i.add mode-insert true ;
+
+# ============================================
+# Main Key Dispatch
+# ============================================
+
+: handle-key ( String Int Int Int -- String Int Int Bool )
+  # Stack: Buffer Cursor Mode Key
+  over mode-insert i.= if
+    handle-insert-key
+  else
+    handle-normal-key
+  then ;
+
+: handle-normal-key ( String Int Int Int -- String Int Int Bool )
+  dup 104 i.= if drop normal-key-h else
+  dup 108 i.= if drop normal-key-l else
+  dup 48 i.= if drop normal-key-0 else
+  dup 36 i.= if drop normal-key-$ else
+  dup 105 i.= if drop normal-key-i else
+  dup 97 i.= if drop normal-key-a else
+  dup 65 i.= if drop normal-key-A else
+  dup 73 i.= if drop normal-key-I else
+  dup 120 i.= if drop normal-key-x else
+  dup key-enter i.= if drop false else
+  dup key-newline i.= if drop false else
+  dup key-ctrl-c i.= if drop rot drop "" rot rot false else
+  dup key-ctrl-d i.= if drop rot drop "" rot rot false else
+  drop true
+  then then then then then then then then then then then then then ;
+
+: handle-insert-key ( String Int Int Int -- String Int Int Bool )
+  dup key-escape i.= if
+    drop drop over clamp-cursor-normal mode-normal true
+  else
+  dup key-enter i.= if drop false else
+  dup key-newline i.= if drop false else
+  dup key-backspace i.= if drop insert-backspace else
+  dup key-ctrl-h i.= if drop insert-backspace else
+  dup key-ctrl-c i.= if drop rot drop "" rot rot mode-normal false else
+  dup 32 i.>= over 126 i.<= and if insert-char else
+  drop true
+  then then then then then then then ;
+
+# ============================================
+# Main Editor
+# ============================================
+
+# Edit a string with vim keybindings
+# ( Prompt InitialBuffer -- FinalBuffer )
+: vim-edit ( String String -- String )
+  dup string.length mode-normal
+  # Stack: Prompt Buffer Cursor Mode
+  true terminal.raw-mode
+  vim-edit-loop
+  false terminal.raw-mode
+  # Stack: Prompt Buffer Cursor Mode
+  drop drop nip
+  "\r\n" io.write ;
+
+: vim-edit-loop ( String String Int Int -- String String Int Int )
+  # Stack: Prompt Buffer Cursor Mode
+  3 pick 3 pick 3 pick 3 pick vim-render
+  terminal.read-char
+  dup 0 i.< if
+    drop
+  else
+    3 pick 3 pick 3 pick rot handle-key
+    # Stack: OldPrompt OldBuf OldCur OldMode NewBuf NewCur NewMode Continue?
+    if
+      rot drop rot drop rot drop
+      vim-edit-loop
+    else
+      rot drop rot drop rot drop
+    then
+  then ;
