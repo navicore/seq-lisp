@@ -408,6 +408,72 @@
   then ;
 
 # ============================================
+# Operator Handlers (d, c)
+# ============================================
+
+# D - delete to end of line (same as d$)
+: normal-key-D ( String Int Int -- String Int Int Bool )
+  # Stack: Buffer Cursor Mode
+  drop  # Buffer Cursor
+  swap 0 rot string.substring  # NewBuffer (Buffer[0..Cursor])
+  dup string.length 1 i.subtract 0 int-max  # NewBuffer NewCursor
+  mode-normal true ;
+
+# Operator: d (delete)
+: normal-key-d ( String Int Int -- String Int Int Bool )
+  # Stack: Buffer Cursor Mode
+  terminal.read-char
+  dup 27 i.= over 0 i.< or if
+    # Escape or error - cancel
+    drop true
+  else
+    dup 100 i.= if
+      # dd - delete entire line
+      drop drop drop drop
+      "" 0 mode-normal true
+    else
+      dup 36 i.= if
+        # d$ - delete to end of line
+        drop normal-key-D
+      else
+        # Unknown motion - ignore for now
+        drop true
+      then
+    then
+  then ;
+
+# C - change to end of line (same as c$)
+: normal-key-C ( String Int Int -- String Int Int Bool )
+  # Stack: Buffer Cursor Mode
+  drop  # Buffer Cursor
+  swap 0 rot string.substring  # NewBuffer (Buffer[0..Cursor])
+  dup string.length  # NewBuffer Cursor (cursor at end of truncated string)
+  mode-insert true ;
+
+# Operator: c (change = delete + insert mode)
+: normal-key-c ( String Int Int -- String Int Int Bool )
+  # Stack: Buffer Cursor Mode
+  terminal.read-char
+  dup 27 i.= over 0 i.< or if
+    # Escape or error - cancel
+    drop true
+  else
+    dup 99 i.= if
+      # cc - change entire line
+      drop drop drop drop
+      "" 0 mode-insert true
+    else
+      dup 36 i.= if
+        # c$ - change to end of line
+        drop normal-key-C
+      else
+        # Unknown motion - ignore for now
+        drop true
+      then
+    then
+  then ;
+
+# ============================================
 # Insert Mode Key Handlers
 # ============================================
 
@@ -463,12 +529,16 @@
   dup 73 i.= if drop normal-key-I else   # I - insert at start
   dup 120 i.= if drop normal-key-x else  # x - delete char
   dup 114 i.= if drop normal-key-r else  # r - replace char
+  dup 100 i.= if drop normal-key-d else  # d - delete operator
+  dup 99 i.= if drop normal-key-c else   # c - change operator
+  dup 68 i.= if drop normal-key-D else   # D - delete to end
+  dup 67 i.= if drop normal-key-C else   # C - change to end
   dup key-enter i.= if drop false else
   dup key-newline i.= if drop false else
   dup key-ctrl-c i.= if drop rot drop "" rot rot false else
   dup key-ctrl-d i.= if drop rot drop "" rot rot false else
   drop true
-  then then then then then then then then then then then then then then then then ;
+  then then then then then then then then then then then then then then then then then then then then ;
 
 : handle-insert-key ( String Int Int Int -- String Int Int Bool )
   dup key-escape i.= if
