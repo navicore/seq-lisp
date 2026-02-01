@@ -240,8 +240,8 @@ union UndoEntry {
   else
     # Check last char
     2dup 1 i.subtract string.char-at
-    dup 10 i.= over 13 i.= or over 32 i.= or if
-      # Newline (10), CR (13), or space (32) - trim it
+    dup 10 i.= over 13 i.= or over 32 i.= or over 9 i.= or if
+      # Newline (10), CR (13), space (32), or tab (9) - trim it
       drop 1 i.subtract string-strip-trailing-loop
     else
       # Not whitespace - done, return Str[0..Len]
@@ -431,29 +431,67 @@ union UndoEntry {
 # ============================================
 
 # Find next word start position from current position
-# Skips current word (if in one), then skips whitespace
+# Respects word character boundaries: word chars (alphanumeric/_) vs punctuation
 : find-next-word ( String Int -- Int )
   # Stack: Str Pos
   over string.length  # Str Pos Len
   2dup i.>= if
     # Already at or past end
-    drop nip  # Return Len (clamped later)
+    drop nip  # Return Len
   else
-    # Skip non-whitespace (current word)
-    find-next-word-skip-word
+    # Check what kind of char we're on
+    2 pick 2 pick string.char-at  # Str Pos Len Char
+    dup is-whitespace if
+      # On whitespace - skip it
+      drop find-next-word-skip-space
+    else
+      is-word-char if
+        # On word char - skip word chars
+        find-next-word-skip-wordchars
+      else
+        # On punctuation - skip punctuation
+        find-next-word-skip-punct
+      then
+    then
   then ;
 
-: find-next-word-skip-word ( String Int Int -- Int )
-  # Stack: Str Pos Len
+: find-next-word-skip-wordchars ( String Int Int -- Int )
+  # Stack: Str Pos Len - skip word characters
   2dup i.>= if
     drop nip
   else
-    2 pick 2 pick string.char-at is-whitespace if
-      # Found whitespace, now skip it
-      find-next-word-skip-space
+    2 pick 2 pick string.char-at
+    dup is-whitespace if
+      # Found whitespace, skip it to find next word
+      drop find-next-word-skip-space
     else
-      # Still in word, advance
-      swap 1 i.add swap find-next-word-skip-word
+      is-word-char if
+        # Still on word char, advance
+        swap 1 i.add swap find-next-word-skip-wordchars
+      else
+        # Hit punctuation - this is the boundary, return current pos
+        drop nip
+      then
+    then
+  then ;
+
+: find-next-word-skip-punct ( String Int Int -- Int )
+  # Stack: Str Pos Len - skip punctuation characters
+  2dup i.>= if
+    drop nip
+  else
+    2 pick 2 pick string.char-at
+    dup is-whitespace if
+      # Found whitespace, skip it to find next word
+      drop find-next-word-skip-space
+    else
+      is-word-char if
+        # Hit word char - this is the boundary, return current pos
+        drop nip
+      else
+        # Still on punctuation, advance
+        swap 1 i.add swap find-next-word-skip-punct
+      then
     then
   then ;
 
@@ -968,8 +1006,38 @@ union UndoEntry {
         # c$ - change to end of line
         drop normal-key-C
       else
-        # Unknown motion - ignore for now
-        drop true
+        dup 119 i.= if
+          # cw - change word
+          drop
+          # Stack: EdState
+          # Get values needed
+          dup ed-buffer           # EdState Buffer
+          over ed-cursor          # EdState Buffer Cursor
+          over over find-next-word # EdState Buffer Cursor NextPos
+          # Stack: EdState(3) Buffer(2) Cursor(1) NextPos(0)
+          # Build Before = Buffer[0..Cursor]
+          2 pick                  # EdState Buffer Cursor NextPos Buffer
+          0                       # EdState Buffer Cursor NextPos Buffer 0
+          3 pick                  # EdState Buffer Cursor NextPos Buffer 0 Cursor
+          string.substring        # EdState Buffer Cursor NextPos Before
+          # Build After = Buffer[NextPos..end]
+          3 pick                  # ... Before Buffer
+          2 pick                  # ... Before Buffer NextPos
+          over string.length over i.subtract  # ... Before Buffer NextPos AfterLen
+          string.substring        # EdState Buffer Cursor NextPos Before After
+          # Concatenate Before + After
+          string.concat           # EdState Buffer Cursor NextPos NewBuffer
+          # Stack: EdState(4) Buffer(3) Cursor(2) NextPos(1) NewBuffer(0)
+          # Clean up and prepare for ed-with-buffer-cursor-mode
+          swap drop               # EdState(3) Buffer(2) Cursor(1) NewBuffer(0)
+          rot drop                # EdState(2) Cursor(1) NewBuffer(0)
+          swap                    # EdState(2) NewBuffer(1) Cursor(0)
+          mode-insert             # EdState(3) NewBuffer(2) Cursor(1) Mode(0)
+          ed-with-buffer-cursor-mode true
+        else
+          # Unknown motion - ignore for now
+          drop true
+        then
       then
     then
   then ;
