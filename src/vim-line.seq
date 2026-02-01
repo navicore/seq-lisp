@@ -568,6 +568,156 @@ union UndoEntry {
   over string.length int-min 0 int-max nip ;
 
 # ============================================
+# Bracket Matching (for % motion)
+# ============================================
+
+# Check if character is an opening bracket
+: is-open-bracket ( Int -- Bool )
+  dup 40 i.= if drop true else      # (
+  dup 91 i.= if drop true else      # [
+  dup 123 i.= if drop true else     # {
+  drop false
+  then then then ;
+
+# Check if character is a closing bracket
+: is-close-bracket ( Int -- Bool )
+  dup 41 i.= if drop true else      # )
+  dup 93 i.= if drop true else      # ]
+  dup 125 i.= if drop true else     # }
+  drop false
+  then then then ;
+
+# Get the matching bracket for a given bracket
+# Returns 0 if not a bracket
+: matching-bracket ( Int -- Int )
+  dup 40 i.= if drop 41 else        # ( -> )
+  dup 41 i.= if drop 40 else        # ) -> (
+  dup 91 i.= if drop 93 else        # [ -> ]
+  dup 93 i.= if drop 91 else        # ] -> [
+  dup 123 i.= if drop 125 else      # { -> }
+  dup 125 i.= if drop 123 else      # } -> {
+  drop 0
+  then then then then then then ;
+
+# Find matching bracket position
+# Returns -1 if no match found
+# ( String Int -- Int )  where Int is cursor position
+: find-matching-bracket ( String Int -- Int )
+  # Get char at cursor
+  2dup string.char-at
+  # Stack: Str Pos Char
+  dup is-open-bracket if
+    # Search forward for closing bracket
+    dup matching-bracket
+    # Stack: Str Pos Char MatchChar
+    swap drop
+    # Stack: Str Pos MatchChar
+    swap 1 i.add swap
+    # Stack: Str (Pos+1) MatchChar
+    1
+    # Stack: Str (Pos+1) MatchChar Depth=1
+    find-bracket-forward
+  else
+    dup is-close-bracket if
+      # Search backward for opening bracket
+      dup matching-bracket
+      # Stack: Str Pos Char MatchChar
+      swap drop
+      # Stack: Str Pos MatchChar
+      swap 1 i.subtract swap
+      # Stack: Str (Pos-1) MatchChar
+      1
+      # Stack: Str (Pos-1) MatchChar Depth=1
+      find-bracket-backward
+    else
+      # Not on a bracket - return -1
+      drop drop drop -1
+    then
+  then ;
+
+# Search forward for matching bracket
+# ( String StartPos MatchChar Depth -- MatchPos )
+: find-bracket-forward ( String Int Int Int -- Int )
+  # Stack: Str Pos Match Depth
+  3 pick string.length 3 pick i.<= if
+    # Past end of string - no match
+    drop drop drop drop -1
+  else
+    # Get char at current position
+    3 pick 3 pick string.char-at
+    # Stack: Str(4) Pos(3) Match(2) Depth(1) Char(0)
+    dup 3 pick i.= if
+      # Found matching bracket type (Char == Match)
+      drop
+      # Stack: Str Pos Match Depth
+      1 i.subtract
+      dup 0 i.= if
+        # Depth is 0 - found the match!
+        drop drop nip  # Return Pos
+      else
+        # Keep searching
+        rot 1 i.add rot rot  # Increment Pos
+        find-bracket-forward
+      then
+    else
+      # Check if it's the opening bracket (increases depth)
+      # Stack: Str(4) Pos(3) Match(2) Depth(1) Char(0)
+      2 pick matching-bracket over i.= if
+        drop
+        1 i.add  # Increase depth
+        rot 1 i.add rot rot  # Increment Pos
+        find-bracket-forward
+      else
+        # Some other char - continue
+        drop
+        rot 1 i.add rot rot  # Increment Pos
+        find-bracket-forward
+      then
+    then
+  then ;
+
+# Search backward for matching bracket
+# ( String StartPos MatchChar Depth -- MatchPos )
+: find-bracket-backward ( String Int Int Int -- Int )
+  # Stack: Str Pos Match Depth
+  2 pick 0 i.< if
+    # Before start of string - no match
+    drop drop drop drop -1
+  else
+    # Get char at current position
+    3 pick 3 pick string.char-at
+    # Stack: Str(4) Pos(3) Match(2) Depth(1) Char(0)
+    dup 3 pick i.= if
+      # Found matching bracket type (Char == Match)
+      drop
+      # Stack: Str Pos Match Depth
+      1 i.subtract
+      dup 0 i.= if
+        # Depth is 0 - found the match!
+        drop drop nip  # Return Pos
+      else
+        # Keep searching
+        rot 1 i.subtract rot rot  # Decrement Pos
+        find-bracket-backward
+      then
+    else
+      # Check if it's the closing bracket (increases depth)
+      # Stack: Str(4) Pos(3) Match(2) Depth(1) Char(0)
+      2 pick matching-bracket over i.= if
+        drop
+        1 i.add  # Increase depth
+        rot 1 i.subtract rot rot  # Decrement Pos
+        find-bracket-backward
+      else
+        # Some other char - continue
+        drop
+        rot 1 i.subtract rot rot  # Decrement Pos
+        find-bracket-backward
+      then
+    then
+  then ;
+
+# ============================================
 # Rendering
 # ============================================
 
@@ -649,6 +799,17 @@ union UndoEntry {
   # Move cursor to end of line
   dup ed-buffer string.length dup 0 i.> if 1 i.subtract then
   ed-with-cursor true ;
+
+: normal-key-% ( EditorState -- EditorState Bool )
+  # Move cursor to matching bracket
+  dup ed-buffer over ed-cursor find-matching-bracket
+  # Stack: EdState MatchPos
+  dup 0 i.< if
+    # No match found - stay in place
+    drop true
+  else
+    ed-with-cursor true
+  then ;
 
 : normal-key-i ( EditorState -- EditorState Bool )
   # Enter insert mode at cursor
@@ -748,8 +909,36 @@ union UndoEntry {
         # d$ - delete to end of line
         drop normal-key-D
       else
-        # Unknown motion - ignore for now
-        drop true
+        dup 119 i.= if
+          # dw - delete word
+          drop
+          # Stack: EdState
+          # Get the values we need
+          dup ed-buffer           # EdState Buffer
+          over ed-cursor          # EdState Buffer Cursor
+          over over find-next-word # EdState Buffer Cursor NextPos
+          # Stack: EdState(3) Buffer(2) Cursor(1) NextPos(0)
+          # Build Before = Buffer[0..Cursor] using string.substring(Str Start Len)
+          2 pick                  # EdState Buffer Cursor NextPos Buffer
+          0                       # EdState Buffer Cursor NextPos Buffer 0
+          3 pick                  # EdState Buffer Cursor NextPos Buffer 0 Cursor
+          string.substring        # EdState Buffer Cursor NextPos Before
+          # Stack: EdState(4) Buffer(3) Cursor(2) NextPos(1) Before(0)
+          # Build After = Buffer[NextPos..end]
+          3 pick                  # ... Before Buffer
+          2 pick                  # ... Before Buffer NextPos
+          over string.length over i.subtract  # ... Before Buffer NextPos AfterLen
+          string.substring        # EdState Buffer Cursor NextPos Before After
+          # Concatenate Before + After
+          string.concat           # EdState Buffer Cursor NextPos NewBuffer
+          # Stack: EdState(4) Buffer(3) Cursor(2) NextPos(1) NewBuffer(0)
+          # Clean up: drop Buffer, Cursor, NextPos, keep EdState and NewBuffer
+          nip nip nip             # EdState NewBuffer
+          ed-with-buffer true
+        else
+          # Unknown motion - ignore for now
+          drop true
+        then
       then
     then
   then ;
@@ -836,8 +1025,8 @@ union UndoEntry {
           over ed-cursor
           # Stack: EdState NextPos CurPos
           over over i.subtract
-          # Stack: EdState NextPos CurPos Len
-          2 pick ed-buffer swap rot swap
+          # Stack: EdState(3) NextPos(2) CurPos(1) Len(0)
+          3 pick ed-buffer swap rot swap
           # Stack: EdState NextPos Buffer CurPos Len
           string.substring
           # Stack: EdState NextPos Yanked
@@ -866,7 +1055,7 @@ union UndoEntry {
     string-insert-string-at  # EdState YankStr Buffer InsertPos NewBuffer
     # Update EdState with new buffer and cursor at end of paste
     # New cursor = InsertPos + len(YankStr) - 1
-    4 pick string.length     # EdState YankStr Buffer InsertPos NewBuffer YankLen
+    3 pick string.length     # EdState YankStr Buffer InsertPos NewBuffer YankLen
     2 pick i.add 1 i.subtract  # EdState YankStr Buffer InsertPos NewBuffer NewCursor
     5 pick                   # EdState YankStr Buffer InsertPos NewBuffer NewCursor EdState
     rot ed-with-buffer       # EdState YankStr Buffer InsertPos NewCursor EdState'
@@ -890,7 +1079,7 @@ union UndoEntry {
     string-insert-string-at  # EdState YankStr Buffer InsertPos NewBuffer
     # Update EdState with new buffer and cursor at end of paste
     # New cursor = InsertPos + len(YankStr) - 1
-    4 pick string.length     # EdState YankStr Buffer InsertPos NewBuffer YankLen
+    3 pick string.length     # EdState YankStr Buffer InsertPos NewBuffer YankLen
     2 pick i.add 1 i.subtract  # EdState YankStr Buffer InsertPos NewBuffer NewCursor
     5 pick                   # EdState YankStr Buffer InsertPos NewBuffer NewCursor EdState
     rot ed-with-buffer       # EdState YankStr Buffer InsertPos NewCursor EdState'
@@ -943,6 +1132,7 @@ union UndoEntry {
   dup 98 i.= if drop normal-key-b else   # b - prev word
   dup 48 i.= if drop normal-key-0 else   # 0 - start of line
   dup 36 i.= if drop normal-key-$ else   # $ - end of line
+  dup 37 i.= if drop normal-key-% else   # % - matching bracket
   dup 105 i.= if drop normal-key-i else  # i - insert
   dup 97 i.= if drop normal-key-a else   # a - append
   dup 65 i.= if drop normal-key-A else   # A - append at end
@@ -958,10 +1148,10 @@ union UndoEntry {
   dup 80 i.= if drop normal-key-P else   # P - paste before
   dup key-enter i.= if drop false else
   dup key-newline i.= if drop false else
-  dup key-ctrl-c i.= if drop "" 0 mode-normal ed-with-buffer-cursor-mode false else
-  dup key-ctrl-d i.= if drop "" 0 mode-normal ed-with-buffer-cursor-mode false else
+  dup key-ctrl-c i.= if drop "\x04" 0 mode-normal ed-with-buffer-cursor-mode false else
+  dup key-ctrl-d i.= if drop "\x04" 0 mode-normal ed-with-buffer-cursor-mode false else
   drop true
-  then then then then then then then then then then then then then then then then then then then then then then then ;
+  then then then then then then then then then then then then then then then then then then then then then then then then ;
 
 : handle-insert-key ( EditorState Int -- EditorState Bool )
   dup key-escape i.= if
@@ -990,10 +1180,11 @@ union UndoEntry {
   dup key-newline i.= if drop false else
   dup key-backspace i.= if drop insert-backspace else
   dup key-ctrl-h i.= if drop insert-backspace else
-  dup key-ctrl-c i.= if drop "" 0 mode-normal ed-with-buffer-cursor-mode false else
+  dup key-ctrl-c i.= if drop "\x04" 0 mode-normal ed-with-buffer-cursor-mode false else
+  dup key-ctrl-d i.= if drop "\x04" 0 mode-normal ed-with-buffer-cursor-mode false else
   dup 32 i.>= over 126 i.<= and if insert-char else
   drop true
-  then then then then then then then then then ;
+  then then then then then then then then then then ;
 
 # ============================================
 # Main Editor
