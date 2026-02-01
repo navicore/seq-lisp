@@ -130,9 +130,8 @@ union UndoEntry {
 : undo-empty? ( UndoStack -- Bool ) snil? ;
 
 # Limit undo stack depth (called after push)
-# Temporarily just return unchanged to debug
 : undo-limit ( UndoStack -- UndoStack )
-    ;
+    undo-max-depth undo-limit-loop ;
 
 # Simple recursive limiter: keep first N entries, drop rest
 : undo-limit-loop ( UndoStack Int -- UndoStack )
@@ -1403,13 +1402,18 @@ union UndoEntry {
               # Undo - pop from undo stack
               drop  # Drop key
               # Stack: History(4) Prompt(3) HistPos(2) EdState(1) UndoStack(0)
-              undo-pop  # History Prompt HistPos EdState UndoStack Buffer Cursor
-              rot drop  # Drop old UndoStack: History Prompt HistPos EdState Buffer Cursor
-              # Restore buffer and cursor in EdState
-              rot drop  # Drop old EdState: History Prompt HistPos Buffer Cursor
-              mode-normal "" ed-make  # Create new EdState
-              # Stack: History Prompt HistPos NewEdState
-              undo-empty  # Fresh undo stack after undo
+              undo-pop
+              # Stack: History(6) Prompt(5) HistPos(4) EdState(3) NewUndoStack(2) Buffer(1) Cursor(0)
+              # Build new EdState from restored Buffer and Cursor
+              mode-normal ""
+              # Stack: History(8) Prompt(7) HistPos(6) EdState(5) NewUndoStack(4) Buffer(3) Cursor(2) Mode(1) YankReg(0)
+              ed-make
+              # Stack: History(5) Prompt(4) HistPos(3) EdState(2) NewUndoStack(1) NewEdState(0)
+              # Reorder: drop old EdState, keep NewUndoStack
+              swap
+              # Stack: History(5) Prompt(4) HistPos(3) EdState(2) NewEdState(1) NewUndoStack(0)
+              rot drop
+              # Stack: History(4) Prompt(3) HistPos(2) NewEdState(1) NewUndoStack(0)
               vim-edit-inner
             else
               # Check if we should save undo state before this key
