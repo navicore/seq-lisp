@@ -1332,7 +1332,7 @@ union EvalResult {
         dup 0 i.= if
           drop drop drop drop "/: division by zero" eval-err
         else
-          rot swap i.divide
+          rot swap i.divide drop  # i.divide returns (Int Bool) in Seq 3.0
           swap rot scdr rot rot
           eval-fold-div-int-with-env
         then
@@ -1596,7 +1596,7 @@ union EvalResult {
               # Save B for sign comparison, then compute R = A - (A/B)*B
               # Stack: Env A B
               dup rot rot   # -> Env B A B
-              over over i.divide i.multiply i.subtract  # -> Env B R
+              over over i.divide drop i.multiply i.subtract  # -> Env B R (i.divide returns Bool in Seq 3.0)
               dup 0 i.= if
                 # R is 0, done
                 nip nip snum eval-ok
