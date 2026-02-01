@@ -50,31 +50,36 @@ union EditorState {
     ed-make          # EdState NewEdState
     nip ;            # NewEdState
 
+# NOTE on pick indices: These updaters build ed-make arguments (Buffer Cursor Mode YankReg)
+# by copying values from the stack. The "new" value was passed in, so we copy it from its
+# position. Other values come from the original EdState via accessors. Since each push/copy
+# shifts positions, the indices can be non-obvious. Comments show stack state after each op.
+
 : ed-with-cursor ( EditorState Int -- EditorState )
     # Stack: EdState(1) NewCur(0)
-    over ed-buffer   # EdState NewCur Buffer
-    1 pick           # EdState NewCur Buffer NewCur (copy position 1)
-    3 pick ed-mode   # EdState NewCur Buffer NewCur Mode
-    4 pick ed-yank   # EdState NewCur Buffer NewCur Mode YankReg
-    ed-make          # EdState NewCur NewEdState
+    over ed-buffer   # EdState(2) NewCur(1) Buffer(0)
+    1 pick           # EdState(3) NewCur(2) Buffer(1) NewCur(0)  <- copy NewCur for ed-make
+    3 pick ed-mode   # EdState(4) NewCur(3) Buffer(2) NewCur(1) Mode(0)
+    4 pick ed-yank   # EdState(5) NewCur(4) Buffer(3) NewCur(2) Mode(1) YankReg(0)
+    ed-make          # EdState(2) NewCur(1) NewEdState(0)
     nip nip ;        # NewEdState
 
 : ed-with-mode ( EditorState Int -- EditorState )
     # Stack: EdState(1) NewMode(0)
-    over ed-buffer   # EdState NewMode Buffer
-    2 pick ed-cursor # EdState NewMode Buffer Cursor
-    2 pick           # EdState NewMode Buffer Cursor NewMode (position 2, not 3!)
-    4 pick ed-yank   # EdState NewMode Buffer Cursor NewMode YankReg
-    ed-make          # EdState NewMode NewEdState
+    over ed-buffer   # EdState(2) NewMode(1) Buffer(0)
+    2 pick ed-cursor # EdState(3) NewMode(2) Buffer(1) Cursor(0)
+    2 pick           # EdState(4) NewMode(3) Buffer(2) Cursor(1) NewMode(0)  <- NewMode shifted to pos 3
+    4 pick ed-yank   # EdState(5) NewMode(4) Buffer(3) Cursor(2) NewMode(1) YankReg(0)
+    ed-make          # EdState(2) NewMode(1) NewEdState(0)
     nip nip ;        # NewEdState
 
 : ed-with-yank ( EditorState String -- EditorState )
     # Stack: EdState(1) NewYank(0)
-    over ed-buffer   # EdState NewYank Buffer
-    2 pick ed-cursor # EdState NewYank Buffer Cursor
-    3 pick ed-mode   # EdState NewYank Buffer Cursor Mode
-    3 pick           # EdState NewYank Buffer Cursor Mode NewYank (position 3, not 4!)
-    ed-make          # EdState NewYank NewEdState
+    over ed-buffer   # EdState(2) NewYank(1) Buffer(0)
+    2 pick ed-cursor # EdState(3) NewYank(2) Buffer(1) Cursor(0)
+    3 pick ed-mode   # EdState(4) NewYank(3) Buffer(2) Cursor(1) Mode(0)
+    3 pick           # EdState(5) NewYank(4) Buffer(3) Cursor(2) Mode(1) NewYank(0)  <- NewYank at pos 4
+    ed-make          # EdState(2) NewYank(1) NewEdState(0)
     nip nip ;        # NewEdState
 
 # Multi-field updaters for common patterns
@@ -1415,8 +1420,10 @@ union UndoList {
               # Stack: History(4) Prompt(3) HistPos(2) EdState(1) UndoStack(0)
               undo-pop
               # Stack: History(6) Prompt(5) HistPos(4) EdState(3) NewUndoStack(2) Buffer(1) Cursor(0)
-              # Build new EdState from restored Buffer and Cursor
-              mode-normal ""
+              # Build new EdState from restored Buffer and Cursor, preserving yank register
+              mode-normal
+              # Stack: History(7) Prompt(6) HistPos(5) EdState(4) NewUndoStack(3) Buffer(2) Cursor(1) Mode(0)
+              4 pick ed-yank
               # Stack: History(8) Prompt(7) HistPos(6) EdState(5) NewUndoStack(4) Buffer(3) Cursor(2) Mode(1) YankReg(0)
               ed-make
               # Stack: History(5) Prompt(4) HistPos(3) EdState(2) NewUndoStack(1) NewEdState(0)
