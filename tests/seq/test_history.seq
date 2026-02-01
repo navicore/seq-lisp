@@ -1,0 +1,36 @@
+include "../../src/sexpr"
+include "../../src/vim-line"
+
+: test-history ( -- )
+  "Testing history functions..." io.write-line
+  
+  # Create empty history
+  history-empty
+  dup snil? if "Empty history: OK" io.write-line else "Empty history: FAIL" io.write-line then
+  
+  # Add first entry
+  "(+ 1 2)" history-add
+  dup history-length 
+  1 i.= if "Length after add: OK (1)" io.write-line else "Length after add: FAIL" io.write-line then
+  
+  # Get first entry
+  dup 1 history-get
+  "(+ 1 2)" string.equal? if "Get 1: OK" io.write-line else "Get 1: FAIL" io.write-line then
+  
+  # Add second entry  
+  "(+ 3 4)" history-add
+  dup history-length
+  2 i.= if "Length after 2nd add: OK (2)" io.write-line else "Length after 2nd: FAIL" io.write-line then
+  
+  # Get entries
+  dup 1 history-get
+  "(+ 3 4)" string.equal? if "Get 1 (newest): OK" io.write-line else "Get 1 newest: FAIL" io.write-line then
+  
+  dup 2 history-get
+  "(+ 1 2)" string.equal? if "Get 2 (older): OK" io.write-line else "Get 2 older: FAIL" io.write-line then
+  
+  drop
+  "Done!" io.write-line
+;
+
+: main ( -- ) test-history ;

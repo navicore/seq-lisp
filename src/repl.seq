@@ -186,6 +186,8 @@ include "vim-line"
 # Handle EOF in REPL
 : repl-handle-eof ( Sexpr String Env -- )
     # Stack: History Acc Env
+    # Save history before exiting
+    2 pick history-save
     over has-content if
         over paren-balance 0 i.= if
             # Balanced - evaluate remaining
@@ -202,7 +204,7 @@ include "vim-line"
 
 # Handle a line of input
 : repl-handle-line ( Sexpr String Env String -- )
-    # Stack: History Acc Env Line
+    # Stack: History(3) Acc(2) Env(1) Line(0)
     # Build: Acc + Line (Acc already has newlines from previous lines)
     rot swap string.concat
     # Stack: History Env NewAcc
@@ -220,7 +222,11 @@ include "vim-line"
         2 pick has-content
         # Stack: History NewAcc Env BalancedBool HasContentBool
         and if
-            # Balanced and has content - evaluate
+            # Balanced and has content - evaluate and add to history
+            # Stack: History(2) NewAcc(1) Env(0)
+            # Reorder and call history-add, then restore stack order
+            rot dup 3 pick history-add nip rot rot
+            # Stack: NewHistory(2) NewAcc(1) Env(0)
             swap tokenize parse-all
             swap eval-all-print
             "" swap repl-loop
@@ -238,30 +244,28 @@ include "vim-line"
     # Stack: History(3) Acc(2) Env(1) Prompt(0)
     # Call vim-edit(History, Prompt, "")
     3 pick swap "" vim-edit
-    # Stack: History(4) Acc(3) Env(2) NewHistory(1) Line(0)
+    # Stack: History(4) Acc(3) Env(2) History(1) Buffer(0)
+    # vim-edit returns (History, Buffer) where History is unchanged
     dup string.empty? if
         # EOF (Ctrl+D or Ctrl+C)
-        drop  # History(3) Acc(2) Env(1) NewHistory(0)
-        # Build: NewHistory Acc Env for repl-handle-eof
-        dup 3 pick 3 pick  # ... NewHistory Acc Env
-        # Stack: History Acc Env NewHistory NewHistory Acc Env (7 items)
-        # Drop bottom 4
-        rot drop rot drop rot drop rot drop
+        drop  # History(3) Acc(2) Env(1) History(0)
+        # History(0) is same as History(3), just drop the copy
+        drop  # History(2) Acc(1) Env(0)
         repl-handle-eof
     else
         # Got a line - add newline since vim-edit doesn't include it
         "\n" string.concat
-        # Stack: History(4) Acc(3) Env(2) NewHistory(1) Line(0)
-        # Build: NewHistory Acc Env Line for repl-handle-line
-        1 pick 4 pick 4 pick 4 pick  # ... NewHistory Acc Env Line
-        # Stack: 9 items, want top 4
-        rot drop rot drop rot drop rot drop rot drop
+        # Stack: OldHistory(4) Acc(3) Env(2) History(1) Line(0)
+        # vim-edit returns (History Buffer) where History is unchanged
+        # History(1) is same as OldHistory(4), so nip to remove the copy at position 1
+        nip
+        # Stack: History(3) Acc(2) Env(1) Line(0)
         repl-handle-line
     then ;
 
 # Start interactive REPL
 : run-repl ( -- )
-    history-empty "" env-empty repl-loop ;
+    history-load "" env-empty repl-loop ;
 
 # ============================================
 # Stdin Mode - Read all lines, then evaluate (for piped input)

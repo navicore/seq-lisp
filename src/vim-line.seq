@@ -23,6 +23,39 @@
 : key-ctrl-c    ( -- Int ) 3 ;
 : key-ctrl-d    ( -- Int ) 4 ;
 
+# Arrow key codes (synthetic, outside ASCII range)
+: key-up    ( -- Int ) 1001 ;
+: key-down  ( -- Int ) 1002 ;
+: key-left  ( -- Int ) 1003 ;
+: key-right ( -- Int ) 1004 ;
+
+# Read a key, handling arrow escape sequences
+# Uses non-blocking read after ESC to avoid requiring double-ESC
+: read-key ( -- Int )
+  terminal.read-char
+  dup 27 i.= if
+    # ESC - check for arrow sequence (non-blocking)
+    drop terminal.read-char?
+    dup 0 i.< if
+      # No character available - plain ESC
+      drop 27
+    else
+      dup 91 i.= if
+        # ESC [ - read arrow code
+        drop terminal.read-char
+        dup 65 i.= if drop key-up else     # Up arrow
+        dup 66 i.= if drop key-down else   # Down arrow
+        dup 67 i.= if drop key-right else  # Right arrow
+        dup 68 i.= if drop key-left else   # Left arrow
+        drop 27  # Unknown sequence, return ESC
+        then then then then
+      else
+        # ESC followed by something else, return ESC
+        drop 27
+      then
+    then
+  then ;
+
 # ============================================
 # Integer Helpers (missing from Seq stdlib)
 # ============================================
@@ -35,7 +68,8 @@
 
 : int-mod ( Int Int -- Int )
   # a b -- a mod b = a - (a / b) * b
-  2dup i.divide i.multiply i.subtract ;
+  # Note: i.divide returns (Int Bool) in Seq 3.0, drop the Bool
+  2dup i.divide drop i.multiply i.subtract ;
 
 # ============================================
 # Character Classification
@@ -64,21 +98,49 @@
 : history-empty ( -- History )
   snil ;
 
+# Strip trailing newlines and whitespace from a string
+: string-strip-trailing ( String -- String )
+  dup string.length string-strip-trailing-loop ;
+
+: string-strip-trailing-loop ( String Int -- String )
+  # Stack: Str Len
+  dup 0 i.<= if
+    # Empty - return empty string
+    drop drop ""
+  else
+    # Check last char
+    2dup 1 i.subtract string.char-at
+    dup 10 i.= over 13 i.= or over 32 i.= or if
+      # Newline (10), CR (13), or space (32) - trim it
+      drop 1 i.subtract string-strip-trailing-loop
+    else
+      # Not whitespace - done, return Str[0..Len]
+      drop swap 0 rot string.substring
+    then
+  then ;
+
 # Add entry to history (prepends to front = newest first)
-# Only adds if non-empty and different from most recent
+# Skips empty strings and duplicates of the most recent entry
 : history-add ( History String -- History )
+  # Strip trailing whitespace/newlines first
+  string-strip-trailing
+  # Check if string is empty
   dup string.empty? if
     drop  # Don't add empty strings
   else
+    # Check if duplicate of most recent
     over snil? if
-      # Empty history, just add
-      sstring scons
+      # History empty, just add
+      sstring swap scons
     else
-      # Check if same as most recent
-      over scar sstring-val 2 pick string.equal? if
-        drop  # Same as last, don't add duplicate
+      # Compare with most recent entry
+      # Stack: History(1) NewString(0)
+      over scar sstring-val  # History(2) NewString(1) OldString(0)
+      1 pick                 # History(3) NewString(2) OldString(1) NewString(0)
+      string.equal? if       # History(2) NewString(1) AreEqual(0)
+        drop  # Duplicate, don't add
       else
-        sstring scons
+        sstring swap scons
       then
     then
   then ;
@@ -115,6 +177,122 @@
     else
       # Keep looking
       1 i.subtract swap scdr swap history-get-loop
+    then
+  then ;
+
+# ============================================
+# History Persistence
+# ============================================
+
+# Maximum history entries to keep
+: history-max-entries ( -- Int ) 100 ;
+
+# Get history file path (~/.seqlisp_history)
+: history-file-path ( -- String )
+  "HOME" os.getenv if
+    "/.seqlisp_history" string.concat
+  else
+    drop ".seqlisp_history"  # Fallback to current dir
+  then ;
+
+# Reverse a history list (for saving oldest-first)
+: history-reverse ( History -- History )
+  snil history-reverse-loop ;
+
+: history-reverse-loop ( History Acc -- Acc )
+  over snil? if
+    nip
+  else
+    over scar swap scons  # Prepend current item to acc
+    swap scdr swap        # Move to next item
+    history-reverse-loop
+  then ;
+
+# Convert history to string (one entry per line, oldest first)
+: history-to-string ( History -- String )
+  history-reverse "" history-to-string-loop ;
+
+: history-to-string-loop ( History String -- String )
+  over snil? if
+    nip
+  else
+    over scar sstring-val  # Get entry string
+    "\n" string.concat     # Add newline
+    string.concat          # Append to result
+    swap scdr swap         # Move to next
+    history-to-string-loop
+  then ;
+
+# Save history to file
+: history-save ( History -- )
+  dup snil? if
+    drop  # Nothing to save
+  else
+    history-to-string
+    history-file-path
+    file.spit drop  # Ignore success/failure
+  then ;
+
+# Load history from file (returns history list, newest first)
+: history-load ( -- History )
+  history-file-path
+  dup file.exists? if
+    file.slurp if
+      # Got content, parse lines
+      snil swap history-load-lines
+    else
+      drop snil  # Failed to read, return empty
+    then
+  else
+    drop snil  # File doesn't exist, return empty
+  then ;
+
+# Parse lines from file content into history
+# File has oldest entries first, we prepend each so newest ends up first
+: history-load-lines ( History String -- History )
+  dup string.empty? if
+    drop  # Done, return history
+  else
+    dup "\n" string.find  # History Content Pos
+    dup 0 i.< if
+      # No newline - this is the last entry
+      drop  # History Content
+      string-strip-trailing
+      dup string.empty? if
+        drop  # Empty, just return History
+      else
+        sstring swap scons  # NewHistory
+      then
+    else
+      # Found newline at Pos
+      # Stack: History Content Pos
+      # 1. Extract line = Content[0..Pos]
+      over swap  # History Content Content Pos
+      0 swap     # History Content Content 0 Pos
+      string.substring  # History Content Line
+      string-strip-trailing  # History Content StrippedLine
+
+      # 2. Swap to get: History StrippedLine Content
+      swap  # History StrippedLine Content
+
+      # 3. Find newline again to get rest (simpler than tracking Pos)
+      dup "\n" string.find 1 i.add  # History StrippedLine Content Start
+      over string.length over i.subtract  # History StrippedLine Content Start RestLen
+      string.substring  # History StrippedLine Rest
+
+      # 4. Add StrippedLine to History if not empty
+      # Stack: History StrippedLine Rest
+      swap dup string.empty? if
+        drop  # Empty line, skip: History Rest
+      else
+        sstring  # History Rest SLine
+        rot     # Rest SLine History
+        scons   # Rest NewHistory  (scons takes SLine History, correct order)
+        swap    # NewHistory Rest
+      then
+
+      # Stack: History Rest
+      history-load-lines
     then
   then ;
 
@@ -267,7 +445,7 @@
 : vim-render ( String String Int Int -- )
   # Stack: Prompt Buffer Cursor Mode
   "\r\x1b[2K" io.write  # Clear line first
-  # Show mode indicator
+  # Show mode indicator: ● for insert, ○ for normal
   dup mode-insert i.= if "● " io.write else "○ " io.write then
   drop  # Drop mode -> Prompt Buffer Cursor
   rot io.write  # Write prompt -> Buffer Cursor
@@ -297,7 +475,7 @@
     drop
   else
     dup 10 int-mod 48 i.add char->string rot string.concat swap
-    10 i./ int-to-string-loop
+    10 i./ drop int-to-string-loop
   then ;
 
 # ============================================
@@ -517,8 +695,8 @@
   then ;
 
 : handle-normal-key ( String Int Int Int -- String Int Int Bool )
-  dup 104 i.= if drop normal-key-h else  # h - left
-  dup 108 i.= if drop normal-key-l else  # l - right
+  dup 104 i.= over key-left i.= or if drop normal-key-h else   # h or Left - left
+  dup 108 i.= over key-right i.= or if drop normal-key-l else  # l or Right - right
   dup 119 i.= if drop normal-key-w else  # w - next word
   dup 98 i.= if drop normal-key-b else   # b - prev word
   dup 48 i.= if drop normal-key-0 else   # 0 - start of line
@@ -535,8 +713,8 @@
   dup 67 i.= if drop normal-key-C else   # C - change to end
   dup key-enter i.= if drop false else
   dup key-newline i.= if drop false else
-  dup key-ctrl-c i.= if drop rot drop "" rot rot false else
-  dup key-ctrl-d i.= if drop rot drop "" rot rot false else
+  dup key-ctrl-c i.= if drop rot drop drop "" 0 rot false else
+  dup key-ctrl-d i.= if drop rot drop drop "" 0 rot false else
   drop true
   then then then then then then then then then then then then then then then then then then then then ;
 
@@ -548,6 +726,18 @@
     nip  # Buffer NewCursor
     mode-normal true
   else
+  dup key-left i.= if
+    # Left arrow: move cursor left, stay in insert mode
+    drop drop  # Buffer Cursor
+    dup 0 i.> if 1 i.subtract then
+    mode-insert true
+  else
+  dup key-right i.= if
+    # Right arrow: move cursor right, stay in insert mode
+    drop drop  # Buffer Cursor
+    over string.length over i.> if 1 i.add then
+    mode-insert true
+  else
   dup key-enter i.= if drop false else
   dup key-newline i.= if drop false else
   dup key-backspace i.= if drop insert-backspace else
@@ -555,7 +745,7 @@
   dup key-ctrl-c i.= if drop drop drop drop "" 0 mode-normal false else
   dup 32 i.>= over 126 i.<= and if insert-char else
   drop true
-  then then then then then then then ;
+  then then then then then then then then then ;
 
 # ============================================
 # Main Editor
@@ -579,7 +769,7 @@
 # ( History Prompt Buffer HistPos -- History FinalBuffer )
 : vim-edit-with-histpos ( Sexpr String String Int -- Sexpr String )
   # Stack: History Prompt Buffer HistPos
-  rot dup string.length mode-normal
+  swap dup string.length mode-normal
   # Stack: History Prompt HistPos Buffer Cursor Mode
   vim-edit-inner
   # Stack: History Prompt HistPos Buffer ResultCode
@@ -587,11 +777,11 @@
   dup edit-hist-up i.= if
     # Navigate up in history
     drop  # History Prompt HistPos Buffer
-    # Check if can go up
+    # Stack: History(3) Prompt(2) HistPos(1) Buffer(0)
     3 pick history-length 2 pick i.> if
       # Can go up: increment histpos, get history entry
       swap 1 i.add  # History Prompt Buffer NewHistPos
-      dup 3 pick swap history-get  # History Prompt Buffer NewHistPos HistEntry
+      dup 4 pick swap history-get  # History Prompt Buffer NewHistPos HistEntry
       rot drop swap  # History Prompt HistEntry NewHistPos
       vim-edit-with-histpos
     else
@@ -608,11 +798,11 @@
         swap 1 i.subtract  # History Prompt Buffer NewHistPos
         dup 0 i.= if
           # Back to position 0, use empty buffer
-          rot drop ""  # History Prompt NewHistPos ""
-          swap vim-edit-with-histpos
+          swap drop "" swap  # History Prompt "" NewHistPos
+          vim-edit-with-histpos
         else
           # Get history entry at new position
-          dup 3 pick swap history-get  # History Prompt Buffer NewHistPos HistEntry
+          dup 4 pick swap history-get  # History Prompt Buffer NewHistPos HistEntry
           rot drop swap  # History Prompt HistEntry NewHistPos
           vim-edit-with-histpos
         then
@@ -622,13 +812,11 @@
       then
     else
       # Normal completion (edit-done)
-      drop  # History Prompt HistPos Buffer
-      # Add to history and return
-      swap drop  # History Prompt Buffer
-      rot drop   # History Buffer
-      over over history-add  # History Buffer NewHistory
-      rot drop   # Buffer NewHistory
-      swap       # NewHistory Buffer
+      drop  # History(3) Prompt(2) HistPos(1) Buffer(0)
+      # Keep History and Buffer, drop Prompt and HistPos
+      # Don't add to history here - caller will do it when expression is complete
+      3 pick 1 pick  # ... History Buffer
+      rot drop rot drop rot drop rot drop  # History Buffer
     then
   then ;
 
@@ -638,26 +826,39 @@
   # Render current state: vim-render(Prompt Buffer Cursor Mode)
   # Stack: History(5) Prompt(4) HistPos(3) Buffer(2) Cursor(1) Mode(0)
   4 pick 3 pick 3 pick 3 pick vim-render
-  # Read a key
-  terminal.read-char
+  # Read a key (handles arrow key escape sequences)
+  read-key
   dup 0 i.< if
     # Error reading key, return done
     drop drop drop edit-done
   else
-    # Check for history navigation (j/k in normal mode)
-    dup 107 i.= 2 pick mode-normal i.= and if  # k in normal mode
+    # Check for history navigation
+    # Stack: History(6) Prompt(5) HistPos(4) Buffer(3) Cursor(2) Mode(1) Key(0)
+    # Up arrow always navigates history
+    dup key-up i.= if
       drop drop drop edit-hist-up
     else
-      dup 106 i.= 2 pick mode-normal i.= and if  # j in normal mode
-        drop drop drop edit-hist-dn
+      # k navigates history in normal mode
+      dup 107 i.= 2 pick mode-normal i.= and if
+        drop drop drop edit-hist-up
       else
-        # Regular key handling
-        handle-key
-        # Stack: History Prompt HistPos NewBuffer NewCursor NewMode Continue?
-        if
-          vim-edit-inner
+        # Down arrow always navigates history
+        dup key-down i.= if
+          drop drop drop edit-hist-dn
         else
-          drop drop edit-done
+          # j navigates history in normal mode
+          dup 106 i.= 2 pick mode-normal i.= and if
+            drop drop drop edit-hist-dn
+          else
+            # Regular key handling
+            handle-key
+            # Stack: History Prompt HistPos NewBuffer NewCursor NewMode Continue?
+            if
+              vim-edit-inner
+            else
+              drop drop edit-done
+            then
+          then
         then
       then
     then
