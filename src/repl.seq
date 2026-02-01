@@ -246,7 +246,7 @@ include "vim-line"
     3 pick swap "" vim-edit
     # Stack: History(4) Acc(3) Env(2) History(1) Buffer(0)
     # vim-edit returns (History, Buffer) where History is unchanged
-    dup string.empty? if
+    dup "\x04" string.equal? if
         # EOF (Ctrl+D or Ctrl+C)
         drop  # History(3) Acc(2) Env(1) History(0)
         # History(0) is same as History(3), just drop the copy

@@ -23,6 +23,151 @@
 : key-ctrl-c    ( -- Int ) 3 ;
 : key-ctrl-d    ( -- Int ) 4 ;
 
+# ============================================
+# EditorState Type
+# ============================================
+# Encapsulates editor state in a single value to simplify stack threading
+
+union EditorState {
+    EdState { buffer: String, cursor: Int, mode: Int, yank_reg: String }
+}
+
+# Constructor
+: ed-make ( String Int Int String -- EditorState ) Make-EdState ;
+
+# Accessors
+: ed-buffer ( EditorState -- String ) 0 variant.field-at ;
+: ed-cursor ( EditorState -- Int ) 1 variant.field-at ;
+: ed-mode ( EditorState -- Int ) 2 variant.field-at ;
+: ed-yank ( EditorState -- String ) 3 variant.field-at ;
+
+# Updaters - return new EditorState with one field changed
+: ed-with-buffer ( EditorState String -- EditorState )
+    # Stack: EdState(1) NewBuf(0)
+    over ed-cursor   # EdState NewBuf Cursor
+    2 pick ed-mode   # EdState NewBuf Cursor Mode
+    3 pick ed-yank   # EdState NewBuf Cursor Mode YankReg
+    ed-make          # EdState NewEdState
+    nip ;            # NewEdState
+
+# NOTE on pick indices: These updaters build ed-make arguments (Buffer Cursor Mode YankReg)
+# by copying values from the stack. The "new" value was passed in, so we copy it from its
+# position. Other values come from the original EdState via accessors. Since each push/copy
+# shifts positions, the indices can be non-obvious. Comments show stack state after each op.
+
+: ed-with-cursor ( EditorState Int -- EditorState )
+    # Stack: EdState(1) NewCur(0)
+    over ed-buffer   # EdState(2) NewCur(1) Buffer(0)
+    1 pick           # EdState(3) NewCur(2) Buffer(1) NewCur(0)  <- copy NewCur for ed-make
+    3 pick ed-mode   # EdState(4) NewCur(3) Buffer(2) NewCur(1) Mode(0)
+    4 pick ed-yank   # EdState(5) NewCur(4) Buffer(3) NewCur(2) Mode(1) YankReg(0)
+    ed-make          # EdState(2) NewCur(1) NewEdState(0)
+    nip nip ;        # NewEdState
+
+: ed-with-mode ( EditorState Int -- EditorState )
+    # Stack: EdState(1) NewMode(0)
+    over ed-buffer   # EdState(2) NewMode(1) Buffer(0)
+    2 pick ed-cursor # EdState(3) NewMode(2) Buffer(1) Cursor(0)
+    2 pick           # EdState(4) NewMode(3) Buffer(2) Cursor(1) NewMode(0)  <- NewMode shifted to pos 3
+    4 pick ed-yank   # EdState(5) NewMode(4) Buffer(3) Cursor(2) NewMode(1) YankReg(0)
+    ed-make          # EdState(2) NewMode(1) NewEdState(0)
+    nip nip ;        # NewEdState
+
+: ed-with-yank ( EditorState String -- EditorState )
+    # Stack: EdState(1) NewYank(0)
+    over ed-buffer   # EdState(2) NewYank(1) Buffer(0)
+    2 pick ed-cursor # EdState(3) NewYank(2) Buffer(1) Cursor(0)
+    3 pick ed-mode   # EdState(4) NewYank(3) Buffer(2) Cursor(1) Mode(0)
+    3 pick           # EdState(5) NewYank(4) Buffer(3) Cursor(2) Mode(1) NewYank(0)  <- NewYank at pos 4
+    ed-make          # EdState(2) NewYank(1) NewEdState(0)
+    nip nip ;        # NewEdState
+
+# Multi-field updaters for common patterns
+: ed-with-buffer-cursor ( EditorState String Int -- EditorState )
+    # Stack: EdState(2) NewBuf(1) NewCur(0)
+    2 pick ed-mode   # EdState NewBuf NewCur Mode
+    3 pick ed-yank   # EdState NewBuf NewCur Mode YankReg
+    ed-make          # EdState NewEdState
+    nip ;            # NewEdState
+
+: ed-with-buffer-cursor-mode ( EditorState String Int Int -- EditorState )
+    # Stack: EdState(3) NewBuf(2) NewCur(1) NewMode(0)
+    3 pick ed-yank   # EdState NewBuf NewCur NewMode YankReg
+    ed-make          # EdState NewEdState
+    nip ;            # NewEdState
+
+# Create initial EditorState from buffer string
+: ed-initial ( String -- EditorState )
+    dup string.length mode-normal "" ed-make ;
+
+# ============================================
+# UndoEntry and UndoStack Types
+# ============================================
+# Undo stack stores previous buffer/cursor states
+# Uses its own list type (not sexpr lists) to avoid type confusion
+
+union UndoList {
+    UndoNil { }
+    UndoCons { buffer: String, cursor: Int, tail: UndoList }
+}
+
+# Maximum undo entries to keep
+: undo-max-depth ( -- Int ) 50 ;
+
+# Create empty undo stack
+: undo-empty ( -- UndoStack ) Make-UndoNil ;
+
+# Push current state onto undo stack
+: undo-push ( UndoStack String Int -- UndoStack )
+    # Stack: Tail Buffer Cursor
+    rot  # Buffer Cursor Tail
+    Make-UndoCons ;
+
+# Check if undo stack is empty
+: undo-empty? ( UndoStack -- Bool )
+    variant.tag :UndoNil symbol.= ;
+
+# Pop from undo stack - returns UndoStack Buffer Cursor
+# If stack is empty, returns empty string and 0
+: undo-pop ( UndoStack -- UndoStack String Int )
+    dup undo-empty? if
+        "" 0  # Empty stack returns empty state
+    else
+        # UndoCons has fields: buffer(0), cursor(1), tail(2)
+        dup 2 variant.field-at  # Stack Tail
+        swap dup 0 variant.field-at  # Tail Stack Buffer
+        swap 1 variant.field-at  # Tail Buffer Cursor
+    then ;
+
+# Limit undo stack depth (called after push)
+: undo-limit ( UndoStack -- UndoStack )
+    undo-max-depth undo-limit-loop ;
+
+# Simple recursive limiter: keep first N entries, drop rest
+: undo-limit-loop ( UndoStack Int -- UndoStack )
+    # Base case 1: limit reached, return empty
+    dup 0 i.<= if
+        drop drop undo-empty
+    else
+        # Base case 2: stack empty, return empty
+        over undo-empty? if
+            drop
+        else
+            # Recursive case: keep this entry, limit tail
+            # Stack: UndoStack(1) Remaining(0)
+            # Get tail and recurse first
+            over 2 variant.field-at  # Stack Remaining Tail
+            over 1 i.subtract        # Stack Remaining Tail Remaining-1
+            undo-limit-loop          # Stack Remaining LimitedTail
+            # Now build new node: need Buffer Cursor LimitedTail for Make-UndoCons
+            2 pick 0 variant.field-at  # Stack Remaining LimitedTail Buffer
+            3 pick 1 variant.field-at  # Stack Remaining LimitedTail Buffer Cursor
+            rot                        # Stack Remaining Buffer Cursor LimitedTail
+            Make-UndoCons              # Stack Remaining NewUndoStack
+            nip nip                    # NewUndoStack (drop Remaining and old UndoStack)
+        then
+    then ;
+
 # Arrow key codes (synthetic, outside ASCII range)
 : key-up    ( -- Int ) 1001 ;
 : key-down  ( -- Int ) 1002 ;
@@ -110,8 +255,8 @@
   else
     # Check last char
     2dup 1 i.subtract string.char-at
-    dup 10 i.= over 13 i.= or over 32 i.= or if
-      # Newline (10), CR (13), or space (32) - trim it
+    dup 10 i.= over 13 i.= or over 32 i.= or over 9 i.= or if
+      # Newline (10), CR (13), space (32), or tab (9) - trim it
       drop 1 i.subtract string-strip-trailing-loop
     else
       # Not whitespace - done, return Str[0..Len]
@@ -301,29 +446,67 @@
 # ============================================
 
 # Find next word start position from current position
-# Skips current word (if in one), then skips whitespace
+# Respects word character boundaries: word chars (alphanumeric/_) vs punctuation
 : find-next-word ( String Int -- Int )
   # Stack: Str Pos
   over string.length  # Str Pos Len
   2dup i.>= if
     # Already at or past end
-    drop nip  # Return Len (clamped later)
+    drop nip  # Return Len
   else
-    # Skip non-whitespace (current word)
-    find-next-word-skip-word
+    # Check what kind of char we're on
+    2 pick 2 pick string.char-at  # Str Pos Len Char
+    dup is-whitespace if
+      # On whitespace - skip it
+      drop find-next-word-skip-space
+    else
+      is-word-char if
+        # On word char - skip word chars
+        find-next-word-skip-wordchars
+      else
+        # On punctuation - skip punctuation
+        find-next-word-skip-punct
+      then
+    then
   then ;
 
-: find-next-word-skip-word ( String Int Int -- Int )
-  # Stack: Str Pos Len
+: find-next-word-skip-wordchars ( String Int Int -- Int )
+  # Stack: Str Pos Len - skip word characters
   2dup i.>= if
     drop nip
   else
-    2 pick 2 pick string.char-at is-whitespace if
-      # Found whitespace, now skip it
-      find-next-word-skip-space
+    2 pick 2 pick string.char-at
+    dup is-whitespace if
+      # Found whitespace, skip it to find next word
+      drop find-next-word-skip-space
     else
-      # Still in word, advance
-      swap 1 i.add swap find-next-word-skip-word
+      is-word-char if
+        # Still on word char, advance
+        swap 1 i.add swap find-next-word-skip-wordchars
+      else
+        # Hit punctuation - this is the boundary, return current pos
+        drop nip
+      then
+    then
+  then ;
+
+: find-next-word-skip-punct ( String Int Int -- Int )
+  # Stack: Str Pos Len - skip punctuation characters
+  2dup i.>= if
+    drop nip
+  else
+    2 pick 2 pick string.char-at
+    dup is-whitespace if
+      # Found whitespace, skip it to find next word
+      drop find-next-word-skip-space
+    else
+      is-word-char if
+        # Hit word char - this is the boundary, return current pos
+        drop nip
+      else
+        # Still on punctuation, advance
+        swap 1 i.add swap find-next-word-skip-punct
+      then
     then
   then ;
 
@@ -438,10 +621,161 @@
   over string.length int-min 0 int-max nip ;
 
 # ============================================
+# Bracket Matching (for % motion)
+# ============================================
+
+# Check if character is an opening bracket
+: is-open-bracket ( Int -- Bool )
+  dup 40 i.= if drop true else      # (
+  dup 91 i.= if drop true else      # [
+  dup 123 i.= if drop true else     # {
+  drop false
+  then then then ;
+
+# Check if character is a closing bracket
+: is-close-bracket ( Int -- Bool )
+  dup 41 i.= if drop true else      # )
+  dup 93 i.= if drop true else      # ]
+  dup 125 i.= if drop true else     # }
+  drop false
+  then then then ;
+
+# Get the matching bracket for a given bracket
+# Returns 0 if not a bracket
+: matching-bracket ( Int -- Int )
+  dup 40 i.= if drop 41 else        # ( -> )
+  dup 41 i.= if drop 40 else        # ) -> (
+  dup 91 i.= if drop 93 else        # [ -> ]
+  dup 93 i.= if drop 91 else        # ] -> [
+  dup 123 i.= if drop 125 else      # { -> }
+  dup 125 i.= if drop 123 else      # } -> {
+  drop 0
+  then then then then then then ;
+
+# Find matching bracket position
+# Returns -1 if no match found
+# ( String Int -- Int )  where Int is cursor position
+: find-matching-bracket ( String Int -- Int )
+  # Get char at cursor
+  2dup string.char-at
+  # Stack: Str Pos Char
+  dup is-open-bracket if
+    # Search forward for closing bracket
+    dup matching-bracket
+    # Stack: Str Pos Char MatchChar
+    swap drop
+    # Stack: Str Pos MatchChar
+    swap 1 i.add swap
+    # Stack: Str (Pos+1) MatchChar
+    1
+    # Stack: Str (Pos+1) MatchChar Depth=1
+    find-bracket-forward
+  else
+    dup is-close-bracket if
+      # Search backward for opening bracket
+      dup matching-bracket
+      # Stack: Str Pos Char MatchChar
+      swap drop
+      # Stack: Str Pos MatchChar
+      swap 1 i.subtract swap
+      # Stack: Str (Pos-1) MatchChar
+      1
+      # Stack: Str (Pos-1) MatchChar Depth=1
+      find-bracket-backward
+    else
+      # Not on a bracket - return -1
+      drop drop drop -1
+    then
+  then ;
+
+# Search forward for matching bracket
+# ( String StartPos MatchChar Depth -- MatchPos )
+: find-bracket-forward ( String Int Int Int -- Int )
+  # Stack: Str Pos Match Depth
+  3 pick string.length 3 pick i.<= if
+    # Past end of string - no match
+    drop drop drop drop -1
+  else
+    # Get char at current position
+    3 pick 3 pick string.char-at
+    # Stack: Str(4) Pos(3) Match(2) Depth(1) Char(0)
+    dup 3 pick i.= if
+      # Found matching bracket type (Char == Match)
+      drop
+      # Stack: Str Pos Match Depth
+      1 i.subtract
+      dup 0 i.= if
+        # Depth is 0 - found the match!
+        drop drop nip  # Return Pos
+      else
+        # Keep searching
+        rot 1 i.add rot rot  # Increment Pos
+        find-bracket-forward
+      then
+    else
+      # Check if it's the opening bracket (increases depth)
+      # Stack: Str(4) Pos(3) Match(2) Depth(1) Char(0)
+      2 pick matching-bracket over i.= if
+        drop
+        1 i.add  # Increase depth
+        rot 1 i.add rot rot  # Increment Pos
+        find-bracket-forward
+      else
+        # Some other char - continue
+        drop
+        rot 1 i.add rot rot  # Increment Pos
+        find-bracket-forward
+      then
+    then
+  then ;
+
+# Search backward for matching bracket
+# ( String StartPos MatchChar Depth -- MatchPos )
+: find-bracket-backward ( String Int Int Int -- Int )
+  # Stack: Str Pos Match Depth
+  2 pick 0 i.< if
+    # Before start of string - no match
+    drop drop drop drop -1
+  else
+    # Get char at current position
+    3 pick 3 pick string.char-at
+    # Stack: Str(4) Pos(3) Match(2) Depth(1) Char(0)
+    dup 3 pick i.= if
+      # Found matching bracket type (Char == Match)
+      drop
+      # Stack: Str Pos Match Depth
+      1 i.subtract
+      dup 0 i.= if
+        # Depth is 0 - found the match!
+        drop drop nip  # Return Pos
+      else
+        # Keep searching
+        rot 1 i.subtract rot rot  # Decrement Pos
+        find-bracket-backward
+      then
+    else
+      # Check if it's the closing bracket (increases depth)
+      # Stack: Str(4) Pos(3) Match(2) Depth(1) Char(0)
+      2 pick matching-bracket over i.= if
+        drop
+        1 i.add  # Increase depth
+        rot 1 i.subtract rot rot  # Decrement Pos
+        find-bracket-backward
+      else
+        # Some other char - continue
+        drop
+        rot 1 i.subtract rot rot  # Decrement Pos
+        find-bracket-backward
+      then
+    then
+  then ;
+
+# ============================================
 # Rendering
 # ============================================
 
 # Render: clear line, show prompt, show buffer, position cursor
+# Original signature - called with extracted values from EdState
 : vim-render ( String String Int Int -- )
   # Stack: Prompt Buffer Cursor Mode
   "\r\x1b[2K" io.write  # Clear line first
@@ -461,6 +795,17 @@
   then
   drop  # Drop Buffer
   terminal.flush ;
+
+# Helper to call vim-render with EditorState
+: vim-render-ed ( String EditorState -- )
+  # Stack: Prompt(1) EdState(0)
+  dup ed-buffer         # Prompt EdState Buffer
+  over ed-cursor        # Prompt EdState Buffer Cursor
+  2 pick ed-mode        # Prompt EdState Buffer Cursor Mode
+  # Stack: Prompt(4) EdState(3) Buffer(2) Cursor(1) Mode(0)
+  # Move EdState to top and drop it to get: Prompt Buffer Cursor Mode
+  3 roll drop           # Prompt Buffer Cursor Mode
+  vim-render ;
 
 # Convert int to string (simple, positive only)
 : int-to-string ( Int -- String )
@@ -482,104 +827,107 @@
 # Normal Mode Key Handlers
 # ============================================
 
-# Each returns: ( Buf Cur Mode -- NewBuf NewCur NewMode Continue? )
+# Each returns: ( EditorState -- EditorState Bool )
 
-: normal-key-h ( String Int Int -- String Int Int Bool )
-  swap dup 0 i.> if 1 i.subtract then swap true ;
-
-: normal-key-l ( String Int Int -- String Int Int Bool )
-  # Move cursor right if not at end (cursor < len-1)
-  2 pick string.length 1 i.subtract  # Stack: ... (len-1)
-  2 pick i.> if swap 1 i.add swap then true ;  # if (len-1) > cursor
-
-: normal-key-0 ( String Int Int -- String Int Int Bool )
-  swap drop 0 swap true ;
-
-: normal-key-$ ( String Int Int -- String Int Int Bool )
-  swap drop over string.length dup 0 i.> if 1 i.subtract then swap true ;
-
-: normal-key-i ( String Int Int -- String Int Int Bool )
-  drop mode-insert true ;
-
-: normal-key-a ( String Int Int -- String Int Int Bool )
-  drop  # Buffer Cursor
-  over string.length over i.> if  # If len > cursor
-    1 i.add  # Increment cursor
-  then
-  mode-insert true ;
-
-: normal-key-A ( String Int Int -- String Int Int Bool )
-  drop  # Buffer Cursor
-  drop  # Buffer (discard old cursor)
-  dup string.length  # Buffer NewCursor (cursor at end)
-  mode-insert true ;
-
-: normal-key-I ( String Int Int -- String Int Int Bool )
-  drop  # Buffer Cursor
-  drop  # Buffer (discard old cursor)
-  0 mode-insert true ;  # Buffer 0 Mode true
-
-: normal-key-x ( String Int Int -- String Int Int Bool )
-  # Stack: Buffer Cursor Mode
-  # Check if buffer length > cursor (cursor is within bounds)
-  2 pick string.length 2 pick i.> if
-    # Delete char and clamp cursor
-    rot rot  # Mode Buffer Cursor
-    over over string-delete-at  # Mode Buffer Cursor NewBuffer
-    swap over swap clamp-cursor-normal  # Mode Buffer NewBuffer NewCursor
-    rot drop  # Mode NewBuffer NewCursor
-    rot  # NewBuffer NewCursor Mode
+: normal-key-h ( EditorState -- EditorState Bool )
+  # Move cursor left
+  dup ed-cursor 0 i.> if
+    dup ed-cursor 1 i.subtract ed-with-cursor
   then
   true ;
 
-: normal-key-w ( String Int Int -- String Int Int Bool )
-  # Move to next word: Buffer Cursor Mode -> Buffer NewCursor Mode true
-  # Stack: Buffer Cursor Mode
-  drop  # Buffer Cursor (we'll restore mode at the end)
-  over swap find-next-word  # Buffer NewCursor
+: normal-key-l ( EditorState -- EditorState Bool )
+  # Move cursor right if not at end (cursor < len-1)
+  dup ed-buffer string.length 1 i.subtract  # EdState (len-1)
+  over ed-cursor i.> if
+    dup ed-cursor 1 i.add ed-with-cursor
+  then
+  true ;
+
+: normal-key-0 ( EditorState -- EditorState Bool )
+  # Move cursor to start of line
+  0 ed-with-cursor true ;
+
+: normal-key-$ ( EditorState -- EditorState Bool )
+  # Move cursor to end of line
+  dup ed-buffer string.length dup 0 i.> if 1 i.subtract then
+  ed-with-cursor true ;
+
+: normal-key-% ( EditorState -- EditorState Bool )
+  # Move cursor to matching bracket
+  dup ed-buffer over ed-cursor find-matching-bracket
+  # Stack: EdState MatchPos
+  dup 0 i.< if
+    # No match found - stay in place
+    drop true
+  else
+    ed-with-cursor true
+  then ;
+
+: normal-key-i ( EditorState -- EditorState Bool )
+  # Enter insert mode at cursor
+  mode-insert ed-with-mode true ;
+
+: normal-key-a ( EditorState -- EditorState Bool )
+  # Enter insert mode after cursor (append)
+  dup ed-buffer string.length over ed-cursor i.> if
+    dup ed-cursor 1 i.add ed-with-cursor
+  then
+  mode-insert ed-with-mode true ;
+
+: normal-key-A ( EditorState -- EditorState Bool )
+  # Enter insert mode at end of line (Append)
+  dup ed-buffer string.length ed-with-cursor
+  mode-insert ed-with-mode true ;
+
+: normal-key-I ( EditorState -- EditorState Bool )
+  # Enter insert mode at start of line (Insert)
+  0 ed-with-cursor
+  mode-insert ed-with-mode true ;
+
+: normal-key-x ( EditorState -- EditorState Bool )
+  # Delete character under cursor
+  dup ed-buffer string.length over ed-cursor i.> if
+    # Cursor is valid, delete char
+    dup ed-buffer over ed-cursor string-delete-at
+    # Stack: EdState(1) NewBuffer(0)
+    dup 2 pick ed-cursor clamp-cursor-normal
+    # Stack: EdState(2) NewBuffer(1) NewCursor(0)
+    ed-with-buffer-cursor
+  then
+  true ;
+
+: normal-key-w ( EditorState -- EditorState Bool )
+  # Move to next word
+  dup ed-buffer over ed-cursor find-next-word
+  # Stack: EdState NewCursor
   # Clamp to len-1 for normal mode
-  over string.length 1 i.subtract 0 int-max int-min  # Buffer ClampedCursor
-  mode-normal true ;
+  over ed-buffer string.length 1 i.subtract 0 int-max int-min
+  ed-with-cursor true ;
 
-: normal-key-b ( String Int Int -- String Int Int Bool )
-  # Move to previous word: Buffer Cursor Mode -> Buffer NewCursor Mode true
-  # Stack: Buffer Cursor Mode
-  drop  # Buffer Cursor
-  over swap find-prev-word  # Buffer NewCursor
-  mode-normal true ;
+: normal-key-b ( EditorState -- EditorState Bool )
+  # Move to previous word
+  dup ed-buffer over ed-cursor find-prev-word
+  ed-with-cursor true ;
 
-: do-replace-char ( String Int Int -- String )
-  # Replace char at position with new char: Buffer Cursor Char -> NewBuffer
-  rot rot  # Char Buffer Cursor
-  over over string-delete-at  # Char Buffer Cursor TmpBuffer
-  rot drop  # Char TmpBuffer Cursor
-  swap rot  # TmpBuffer Cursor Char
-  string-insert-at ;
-
-: normal-key-r ( String Int Int -- String Int Int Bool )
+: normal-key-r ( EditorState -- EditorState Bool )
   # Replace character under cursor
-  # Stack: Buffer Cursor Mode
   terminal.read-char
   dup 27 i.= over 0 i.< or if
     # Escape or error - cancel
     drop true
   else
-    # Stack: Buffer Cursor Mode Char
-    3 pick string.length 3 pick i.> if
+    # Stack: EdState(1) Char(0)
+    over ed-buffer string.length 2 pick ed-cursor i.> if
       # Cursor valid - do replacement
-      # Stack: Buffer Cursor Mode Char
-      # Drop Mode now, we'll restore it at the end
-      swap drop  # Buffer Cursor Char
-      # Compute NewBuffer: delete then insert
-      2 pick 2 pick string-delete-at  # Buffer Cursor Char TmpBuffer
-      2 pick 2 pick string-insert-at  # Buffer Cursor Char NewBuffer
-      # Stack: Buffer Cursor Char NewBuffer
-      # Get copy of Cursor for result
-      2 pick  # Buffer Cursor Char NewBuffer Cursor2
-      # Drop garbage, keep NewBuffer and Cursor2
-      rot drop rot drop rot drop  # NewBuffer Cursor2
-      # Restore mode and return
-      mode-normal true
+      # Get buffer and cursor from EdState
+      over ed-buffer   # EdState Char Buffer
+      2 pick ed-cursor # EdState Char Buffer Cursor
+      string-delete-at # EdState Char TmpBuffer
+      2 pick ed-cursor # EdState Char TmpBuffer Cursor
+      rot              # EdState TmpBuffer Cursor Char
+      string-insert-at # EdState NewBuffer
+      ed-with-buffer true
     else
       drop true
     then
@@ -590,16 +938,16 @@
 # ============================================
 
 # D - delete to end of line (same as d$)
-: normal-key-D ( String Int Int -- String Int Int Bool )
-  # Stack: Buffer Cursor Mode
-  drop  # Buffer Cursor
-  swap 0 rot string.substring  # NewBuffer (Buffer[0..Cursor])
-  dup string.length 1 i.subtract 0 int-max  # NewBuffer NewCursor
-  mode-normal true ;
+: normal-key-D ( EditorState -- EditorState Bool )
+  # Delete from cursor to end of line
+  dup ed-buffer 0 2 pick ed-cursor string.substring
+  # Stack: EdState NewBuffer
+  dup string.length 1 i.subtract 0 int-max
+  # Stack: EdState NewBuffer NewCursor
+  mode-normal ed-with-buffer-cursor-mode true ;
 
 # Operator: d (delete)
-: normal-key-d ( String Int Int -- String Int Int Bool )
-  # Stack: Buffer Cursor Mode
+: normal-key-d ( EditorState -- EditorState Bool )
   terminal.read-char
   dup 27 i.= over 0 i.< or if
     # Escape or error - cancel
@@ -607,30 +955,58 @@
   else
     dup 100 i.= if
       # dd - delete entire line
-      drop drop drop drop
-      "" 0 mode-normal true
+      drop
+      "" 0 mode-normal ed-with-buffer-cursor-mode true
     else
       dup 36 i.= if
         # d$ - delete to end of line
         drop normal-key-D
       else
-        # Unknown motion - ignore for now
-        drop true
+        dup 119 i.= if
+          # dw - delete word
+          drop
+          # Stack: EdState
+          # Get the values we need
+          dup ed-buffer           # EdState Buffer
+          over ed-cursor          # EdState Buffer Cursor
+          over over find-next-word # EdState Buffer Cursor NextPos
+          # Stack: EdState(3) Buffer(2) Cursor(1) NextPos(0)
+          # Build Before = Buffer[0..Cursor] using string.substring(Str Start Len)
+          2 pick                  # EdState Buffer Cursor NextPos Buffer
+          0                       # EdState Buffer Cursor NextPos Buffer 0
+          3 pick                  # EdState Buffer Cursor NextPos Buffer 0 Cursor
+          string.substring        # EdState Buffer Cursor NextPos Before
+          # Stack: EdState(4) Buffer(3) Cursor(2) NextPos(1) Before(0)
+          # Build After = Buffer[NextPos..end]
+          3 pick                  # ... Before Buffer
+          2 pick                  # ... Before Buffer NextPos
+          over string.length over i.subtract  # ... Before Buffer NextPos AfterLen
+          string.substring        # EdState Buffer Cursor NextPos Before After
+          # Concatenate Before + After
+          string.concat           # EdState Buffer Cursor NextPos NewBuffer
+          # Stack: EdState(4) Buffer(3) Cursor(2) NextPos(1) NewBuffer(0)
+          # Clean up: drop Buffer, Cursor, NextPos, keep EdState and NewBuffer
+          nip nip nip             # EdState NewBuffer
+          ed-with-buffer true
+        else
+          # Unknown motion - ignore for now
+          drop true
+        then
       then
     then
   then ;
 
 # C - change to end of line (same as c$)
-: normal-key-C ( String Int Int -- String Int Int Bool )
-  # Stack: Buffer Cursor Mode
-  drop  # Buffer Cursor
-  swap 0 rot string.substring  # NewBuffer (Buffer[0..Cursor])
-  dup string.length  # NewBuffer Cursor (cursor at end of truncated string)
-  mode-insert true ;
+: normal-key-C ( EditorState -- EditorState Bool )
+  # Delete from cursor to end, enter insert mode
+  dup ed-buffer 0 2 pick ed-cursor string.substring
+  # Stack: EdState NewBuffer
+  dup string.length
+  # Stack: EdState NewBuffer NewCursor
+  mode-insert ed-with-buffer-cursor-mode true ;
 
 # Operator: c (change = delete + insert mode)
-: normal-key-c ( String Int Int -- String Int Int Bool )
-  # Stack: Buffer Cursor Mode
+: normal-key-c ( EditorState -- EditorState Bool )
   terminal.read-char
   dup 27 i.= over 0 i.< or if
     # Escape or error - cancel
@@ -638,69 +1014,208 @@
   else
     dup 99 i.= if
       # cc - change entire line
-      drop drop drop drop
-      "" 0 mode-insert true
+      drop
+      "" 0 mode-insert ed-with-buffer-cursor-mode true
     else
       dup 36 i.= if
         # c$ - change to end of line
         drop normal-key-C
       else
-        # Unknown motion - ignore for now
-        drop true
+        dup 119 i.= if
+          # cw - change word
+          drop
+          # Stack: EdState
+          # Get values needed
+          dup ed-buffer           # EdState Buffer
+          over ed-cursor          # EdState Buffer Cursor
+          over over find-next-word # EdState Buffer Cursor NextPos
+          # Stack: EdState(3) Buffer(2) Cursor(1) NextPos(0)
+          # Build Before = Buffer[0..Cursor]
+          2 pick                  # EdState Buffer Cursor NextPos Buffer
+          0                       # EdState Buffer Cursor NextPos Buffer 0
+          3 pick                  # EdState Buffer Cursor NextPos Buffer 0 Cursor
+          string.substring        # EdState Buffer Cursor NextPos Before
+          # Build After = Buffer[NextPos..end]
+          3 pick                  # ... Before Buffer
+          2 pick                  # ... Before Buffer NextPos
+          over string.length over i.subtract  # ... Before Buffer NextPos AfterLen
+          string.substring        # EdState Buffer Cursor NextPos Before After
+          # Concatenate Before + After
+          string.concat           # EdState Buffer Cursor NextPos NewBuffer
+          # Stack: EdState(4) Buffer(3) Cursor(2) NextPos(1) NewBuffer(0)
+          # Clean up and prepare for ed-with-buffer-cursor-mode
+          swap drop               # EdState(3) Buffer(2) Cursor(1) NewBuffer(0)
+          rot drop                # EdState(2) Cursor(1) NewBuffer(0)
+          swap                    # EdState(2) NewBuffer(1) Cursor(0)
+          mode-insert             # EdState(3) NewBuffer(2) Cursor(1) Mode(0)
+          ed-with-buffer-cursor-mode true
+        else
+          # Unknown motion - ignore for now
+          drop true
+        then
       then
     then
+  then ;
+
+# ============================================
+# Yank/Paste Handlers
+# ============================================
+
+# Helper to insert string at position
+: string-insert-string-at ( String Int String -- String )
+  # Stack: Buffer(2) Pos(1) InsertStr(0)
+  # Result: Buffer[0..Pos] + InsertStr + Buffer[Pos..]
+  2 pick 2 pick       # Buffer Pos InsertStr Buffer Pos
+  0 swap              # Buffer Pos InsertStr Buffer 0 Pos
+  string.substring    # Buffer Pos InsertStr Before
+  3 pick 3 pick       # Buffer Pos InsertStr Before Buffer Pos
+  over string.length  # Buffer Pos InsertStr Before Buffer Pos BufLen
+  over i.subtract     # Buffer Pos InsertStr Before Buffer Pos AfterLen
+  string.substring    # Buffer Pos InsertStr Before After
+  # Stack: Buffer Pos InsertStr Before After
+  rot                 # Buffer Pos Before After InsertStr
+  swap                # Buffer Pos Before InsertStr After
+  string.concat       # Buffer Pos Before InsertStrAfter
+  string.concat       # Buffer Pos Result
+  nip nip ;           # Result
+
+# y - yank operator
+: normal-key-y ( EditorState -- EditorState Bool )
+  terminal.read-char
+  dup 27 i.= over 0 i.< or if
+    # Escape or error - cancel
+    drop true
+  else
+    dup 121 i.= if  # yy - yank entire line
+      drop
+      dup ed-buffer ed-with-yank true
+    else
+      dup 36 i.= if  # y$ - yank to end of line
+        drop
+        dup ed-buffer over ed-cursor
+        # Stack: EdState Buffer Cursor
+        over string.length over i.subtract
+        # Stack: EdState Buffer Cursor Len
+        string.substring
+        # Stack: EdState Yanked
+        ed-with-yank true
+      else
+        dup 119 i.= if  # yw - yank word
+          drop
+          # Find next word position
+          dup ed-buffer over ed-cursor find-next-word
+          # Stack: EdState NextPos
+          over ed-cursor
+          # Stack: EdState NextPos CurPos
+          over over i.subtract
+          # Stack: EdState(3) NextPos(2) CurPos(1) Len(0)
+          3 pick ed-buffer swap rot swap
+          # Stack: EdState NextPos Buffer CurPos Len
+          string.substring
+          # Stack: EdState NextPos Yanked
+          nip ed-with-yank true
+        else
+          # Unknown motion - ignore
+          drop true
+        then
+      then
+    then
+  then ;
+
+# p - paste after cursor
+: normal-key-p ( EditorState -- EditorState Bool )
+  dup ed-yank dup string.empty? if
+    drop true  # Nothing to paste
+  else
+    # Stack: EdState(1) YankStr(0)
+    # Get all needed values first
+    over ed-buffer           # EdState YankStr Buffer
+    2 pick ed-cursor 1 i.add # EdState YankStr Buffer InsertPos
+    # Build args for string-insert-string-at: (Buffer Pos InsertStr)
+    2 pick                   # EdState YankStr Buffer InsertPos Buffer
+    over                     # EdState YankStr Buffer InsertPos Buffer InsertPos
+    4 pick                   # EdState YankStr Buffer InsertPos Buffer InsertPos YankStr
+    string-insert-string-at  # EdState YankStr Buffer InsertPos NewBuffer
+    # Update EdState with new buffer and cursor at end of paste
+    # New cursor = InsertPos + len(YankStr) - 1
+    3 pick string.length     # EdState YankStr Buffer InsertPos NewBuffer YankLen
+    2 pick i.add 1 i.subtract  # EdState YankStr Buffer InsertPos NewBuffer NewCursor
+    5 pick                   # EdState YankStr Buffer InsertPos NewBuffer NewCursor EdState
+    rot ed-with-buffer       # EdState YankStr Buffer InsertPos NewCursor EdState'
+    swap ed-with-cursor      # EdState YankStr Buffer InsertPos EdState''
+    nip nip nip nip true
+  then ;
+
+# P - paste before cursor
+: normal-key-P ( EditorState -- EditorState Bool )
+  dup ed-yank dup string.empty? if
+    drop true  # Nothing to paste
+  else
+    # Stack: EdState(1) YankStr(0)
+    # Get all needed values first
+    over ed-buffer           # EdState YankStr Buffer
+    2 pick ed-cursor         # EdState YankStr Buffer InsertPos
+    # Build args for string-insert-string-at: (Buffer Pos InsertStr)
+    2 pick                   # EdState YankStr Buffer InsertPos Buffer
+    over                     # EdState YankStr Buffer InsertPos Buffer InsertPos
+    4 pick                   # EdState YankStr Buffer InsertPos Buffer InsertPos YankStr
+    string-insert-string-at  # EdState YankStr Buffer InsertPos NewBuffer
+    # Update EdState with new buffer and cursor at end of paste
+    # New cursor = InsertPos + len(YankStr) - 1
+    3 pick string.length     # EdState YankStr Buffer InsertPos NewBuffer YankLen
+    2 pick i.add 1 i.subtract  # EdState YankStr Buffer InsertPos NewBuffer NewCursor
+    5 pick                   # EdState YankStr Buffer InsertPos NewBuffer NewCursor EdState
+    rot ed-with-buffer       # EdState YankStr Buffer InsertPos NewCursor EdState'
+    swap ed-with-cursor      # EdState YankStr Buffer InsertPos EdState''
+    nip nip nip nip true
   then ;
 
 # ============================================
 # Insert Mode Key Handlers
 # ============================================
 
-: insert-backspace ( String Int Int -- String Int Int Bool )
-  # Input: Buffer Cursor Mode
-  over 0 i.> if
-    # Cursor > 0, do backspace
-    drop  # Buffer Cursor (drop Mode)
-    1 i.subtract  # Buffer NewCursor
-    over over string-delete-at  # Buffer NewCursor NewBuffer
-    rot drop  # NewCursor NewBuffer
-    swap  # NewBuffer NewCursor
-    mode-insert  # NewBuffer NewCursor mode-insert
+: insert-backspace ( EditorState -- EditorState Bool )
+  # Delete character before cursor
+  dup ed-cursor 0 i.> if
+    dup ed-cursor 1 i.subtract
+    # Stack: EdState NewCursor
+    over ed-buffer over string-delete-at
+    # Stack: EdState NewCursor NewBuffer
+    swap ed-with-buffer-cursor
   then
   true ;
 
-: insert-char ( String Int Int Int -- String Int Int Bool )
-  # Input: Buffer Cursor Mode Char
-  # Stack positions: Buffer(3) Cursor(2) Mode(1) Char(0)
-  # We need to call string-insert-at(Buffer, Cursor, Char)
-  3 pick  # ... Buffer  (positions shift: Char now at 1)
-  3 pick  # ... Buffer Cursor  (positions shift: Char now at 2)
-  2 pick  # ... Buffer Cursor Char
-  string-insert-at  # Buffer Cursor Mode Char NewBuffer
-  # Compute NewCursor = Cursor + 1
-  3 pick 1 i.add  # Buffer Cursor Mode Char NewBuffer NewCursor
-  # Drop old values, keep NewBuffer and NewCursor
-  rot drop rot drop rot drop rot drop
-  mode-insert true ;
+: insert-char ( EditorState Int -- EditorState Bool )
+  # Insert character at cursor position
+  # Stack: EdState(1) Char(0)
+  over ed-buffer       # EdState Char Buffer
+  2 pick ed-cursor     # EdState Char Buffer Cursor
+  rot                  # EdState Buffer Cursor Char
+  string-insert-at     # EdState NewBuffer
+  over ed-cursor 1 i.add
+  # Stack: EdState NewBuffer NewCursor
+  ed-with-buffer-cursor true ;
 
 # ============================================
 # Main Key Dispatch
 # ============================================
 
-: handle-key ( String Int Int Int -- String Int Int Bool )
-  # Stack: Buffer Cursor Mode Key
-  over mode-insert i.= if
+: handle-key ( EditorState Int -- EditorState Bool )
+  # Stack: EdState Key
+  over ed-mode mode-insert i.= if
     handle-insert-key
   else
     handle-normal-key
   then ;
 
-: handle-normal-key ( String Int Int Int -- String Int Int Bool )
+: handle-normal-key ( EditorState Int -- EditorState Bool )
   dup 104 i.= over key-left i.= or if drop normal-key-h else   # h or Left - left
   dup 108 i.= over key-right i.= or if drop normal-key-l else  # l or Right - right
   dup 119 i.= if drop normal-key-w else  # w - next word
   dup 98 i.= if drop normal-key-b else   # b - prev word
   dup 48 i.= if drop normal-key-0 else   # 0 - start of line
   dup 36 i.= if drop normal-key-$ else   # $ - end of line
+  dup 37 i.= if drop normal-key-% else   # % - matching bracket
   dup 105 i.= if drop normal-key-i else  # i - insert
   dup 97 i.= if drop normal-key-a else   # a - append
   dup 65 i.= if drop normal-key-A else   # A - append at end
@@ -711,41 +1226,48 @@
   dup 99 i.= if drop normal-key-c else   # c - change operator
   dup 68 i.= if drop normal-key-D else   # D - delete to end
   dup 67 i.= if drop normal-key-C else   # C - change to end
+  dup 121 i.= if drop normal-key-y else  # y - yank operator
+  dup 112 i.= if drop normal-key-p else  # p - paste after
+  dup 80 i.= if drop normal-key-P else   # P - paste before
   dup key-enter i.= if drop false else
   dup key-newline i.= if drop false else
-  dup key-ctrl-c i.= if drop rot drop drop "" 0 rot false else
-  dup key-ctrl-d i.= if drop rot drop drop "" 0 rot false else
+  dup key-ctrl-c i.= if drop "\x04" 0 mode-normal ed-with-buffer-cursor-mode false else
+  dup key-ctrl-d i.= if drop "\x04" 0 mode-normal ed-with-buffer-cursor-mode false else
   drop true
-  then then then then then then then then then then then then then then then then then then then then ;
+  then then then then then then then then then then then then then then then then then then then then then then then then ;
 
-: handle-insert-key ( String Int Int Int -- String Int Int Bool )
+: handle-insert-key ( EditorState Int -- EditorState Bool )
   dup key-escape i.= if
     # Escape: return to normal mode, clamp cursor
-    drop drop  # Buffer Cursor (dropped Key and Mode)
-    2dup clamp-cursor-normal  # Buffer Cursor NewCursor
-    nip  # Buffer NewCursor
-    mode-normal true
+    drop
+    dup ed-buffer over ed-cursor clamp-cursor-normal ed-with-cursor
+    mode-normal ed-with-mode true
   else
   dup key-left i.= if
     # Left arrow: move cursor left, stay in insert mode
-    drop drop  # Buffer Cursor
-    dup 0 i.> if 1 i.subtract then
-    mode-insert true
+    drop
+    dup ed-cursor 0 i.> if
+      dup ed-cursor 1 i.subtract ed-with-cursor
+    then
+    true
   else
   dup key-right i.= if
     # Right arrow: move cursor right, stay in insert mode
-    drop drop  # Buffer Cursor
-    over string.length over i.> if 1 i.add then
-    mode-insert true
+    drop
+    dup ed-buffer string.length over ed-cursor i.> if
+      dup ed-cursor 1 i.add ed-with-cursor
+    then
+    true
   else
   dup key-enter i.= if drop false else
   dup key-newline i.= if drop false else
   dup key-backspace i.= if drop insert-backspace else
   dup key-ctrl-h i.= if drop insert-backspace else
-  dup key-ctrl-c i.= if drop drop drop drop "" 0 mode-normal false else
+  dup key-ctrl-c i.= if drop "\x04" 0 mode-normal ed-with-buffer-cursor-mode false else
+  dup key-ctrl-d i.= if drop "\x04" 0 mode-normal ed-with-buffer-cursor-mode false else
   dup 32 i.>= over 126 i.<= and if insert-char else
   drop true
-  then then then then then then then then then ;
+  then then then then then then then then then then ;
 
 # ============================================
 # Main Editor
@@ -769,94 +1291,178 @@
 # ( History Prompt Buffer HistPos -- History FinalBuffer )
 : vim-edit-with-histpos ( Sexpr String String Int -- Sexpr String )
   # Stack: History Prompt Buffer HistPos
-  swap dup string.length mode-normal
-  # Stack: History Prompt HistPos Buffer Cursor Mode
+  # Create EditorState from buffer
+  swap dup string.length mode-normal "" ed-make
+  # Stack: History Prompt HistPos EdState
+  undo-empty  # Add empty undo stack
+  # Stack: History Prompt HistPos EdState UndoStack
   vim-edit-inner
-  # Stack: History Prompt HistPos Buffer ResultCode
+  # Stack: History Prompt HistPos EdState UndoStack ResultCode
+  # Drop undo stack for result processing
+  swap drop
+  # Stack: History Prompt HistPos EdState ResultCode
   # Check result code
   dup edit-hist-up i.= if
     # Navigate up in history
-    drop  # History Prompt HistPos Buffer
-    # Stack: History(3) Prompt(2) HistPos(1) Buffer(0)
-    3 pick history-length 2 pick i.> if
+    drop  # History Prompt HistPos EdState
+    # Stack: History(3) Prompt(2) HistPos(1) EdState(0)
+    dup ed-buffer  # Get buffer for potential fallback
+    # Stack: History(4) Prompt(3) HistPos(2) EdState(1) Buffer(0)
+    4 pick history-length 3 pick i.> if
       # Can go up: increment histpos, get history entry
-      swap 1 i.add  # History Prompt Buffer NewHistPos
-      dup 4 pick swap history-get  # History Prompt Buffer NewHistPos HistEntry
-      rot drop swap  # History Prompt HistEntry NewHistPos
+      nip drop  # Drop EdState and Buffer -> History Prompt HistPos
+      1 i.add  # History Prompt NewHistPos
+      dup 3 pick swap history-get  # History Prompt NewHistPos HistEntry
+      swap  # History Prompt HistEntry NewHistPos
       vim-edit-with-histpos
     else
       # Can't go up, restart with same buffer
+      nip  # Drop EdState, keep Buffer
       swap vim-edit-with-histpos
     then
   else
     dup edit-hist-dn i.= if
       # Navigate down in history
-      drop  # History Prompt HistPos Buffer
-      # Check if can go down
-      over 0 i.> if
+      drop  # History Prompt HistPos EdState
+      dup ed-buffer  # Get buffer
+      # Stack: History(4) Prompt(3) HistPos(2) EdState(1) Buffer(0)
+      # Check if can go down (HistPos > 0)
+      2 pick 0 i.> if
         # Can go down: decrement histpos
-        swap 1 i.subtract  # History Prompt Buffer NewHistPos
+        nip drop  # Drop EdState and Buffer -> History Prompt HistPos
+        1 i.subtract  # History Prompt NewHistPos
         dup 0 i.= if
           # Back to position 0, use empty buffer
-          swap drop "" swap  # History Prompt "" NewHistPos
+          "" swap  # History Prompt "" NewHistPos
           vim-edit-with-histpos
         else
           # Get history entry at new position
-          dup 4 pick swap history-get  # History Prompt Buffer NewHistPos HistEntry
-          rot drop swap  # History Prompt HistEntry NewHistPos
+          dup 3 pick swap history-get  # History Prompt NewHistPos HistEntry
+          swap  # History Prompt HistEntry NewHistPos
           vim-edit-with-histpos
         then
       else
         # Already at 0, restart with same buffer
+        nip  # Drop EdState, keep Buffer
         swap vim-edit-with-histpos
       then
     else
       # Normal completion (edit-done)
-      drop  # History(3) Prompt(2) HistPos(1) Buffer(0)
+      drop  # History(3) Prompt(2) HistPos(1) EdState(0)
+      # Extract buffer from EdState
+      ed-buffer
+      # Stack: History(3) Prompt(2) HistPos(1) Buffer(0)
       # Keep History and Buffer, drop Prompt and HistPos
-      # Don't add to history here - caller will do it when expression is complete
-      3 pick 1 pick  # ... History Buffer
-      rot drop rot drop rot drop rot drop  # History Buffer
+      3 pick swap  # History Prompt HistPos History Buffer
+      rot drop rot drop rot drop  # History Buffer
     then
   then ;
 
-# Core edit loop - returns Buffer and ResultCode
-# ( History Prompt HistPos Buffer Cursor Mode -- History Prompt HistPos Buffer ResultCode )
-: vim-edit-inner ( Sexpr String Int String Int Int -- Sexpr String Int String Int )
-  # Render current state: vim-render(Prompt Buffer Cursor Mode)
-  # Stack: History(5) Prompt(4) HistPos(3) Buffer(2) Cursor(1) Mode(0)
-  4 pick 3 pick 3 pick 3 pick vim-render
+# Check if a key (in normal mode) is a modifying key that should trigger undo save
+: is-modifying-key ( Int -- Bool )
+  dup 120 i.= if drop true else  # x - delete char
+  dup 114 i.= if drop true else  # r - replace char
+  dup 100 i.= if drop true else  # d - delete operator
+  dup 99 i.= if drop true else   # c - change operator
+  dup 68 i.= if drop true else   # D - delete to end
+  dup 67 i.= if drop true else   # C - change to end
+  dup 112 i.= if drop true else  # p - paste after
+  dup 80 i.= if drop true else   # P - paste before
+  drop false
+  then then then then then then then then ;
+
+# Check if a key (in insert mode) is a modifying key
+: is-insert-modifying-key ( Int -- Bool )
+  dup key-backspace i.= if drop true else
+  dup key-ctrl-h i.= if drop true else
+  dup 32 i.>= over 126 i.<= and if drop true else
+  drop false
+  then then then ;
+
+# Core edit loop - returns EdState and ResultCode
+# ( History Prompt HistPos EdState UndoStack -- History Prompt HistPos EdState UndoStack ResultCode )
+: vim-edit-inner ( Sexpr String Int EditorState UndoStack -- Sexpr String Int EditorState UndoStack Int )
+  # Render current state: vim-render-ed(Prompt EdState)
+  # Stack: History(4) Prompt(3) HistPos(2) EdState(1) UndoStack(0)
+  3 pick 2 pick vim-render-ed
   # Read a key (handles arrow key escape sequences)
   read-key
   dup 0 i.< if
     # Error reading key, return done
-    drop drop drop edit-done
+    drop edit-done
   else
     # Check for history navigation
-    # Stack: History(6) Prompt(5) HistPos(4) Buffer(3) Cursor(2) Mode(1) Key(0)
+    # Stack: History(5) Prompt(4) HistPos(3) EdState(2) UndoStack(1) Key(0)
     # Up arrow always navigates history
     dup key-up i.= if
-      drop drop drop edit-hist-up
+      drop edit-hist-up
     else
       # k navigates history in normal mode
-      dup 107 i.= 2 pick mode-normal i.= and if
-        drop drop drop edit-hist-up
+      # After dup+i.=: History(6) Prompt(5) HistPos(4) EdState(3) UndoStack(2) Key(1) Bool(0)
+      dup 107 i.= 3 pick ed-mode mode-normal i.= and if
+        drop edit-hist-up
       else
         # Down arrow always navigates history
         dup key-down i.= if
-          drop drop drop edit-hist-dn
+          drop edit-hist-dn
         else
           # j navigates history in normal mode
-          dup 106 i.= 2 pick mode-normal i.= and if
-            drop drop drop edit-hist-dn
+          # Stack after dup+i.=: History(6) Prompt(5) HistPos(4) EdState(3) UndoStack(2) Key(1) Bool(0)
+          dup 106 i.= 3 pick ed-mode mode-normal i.= and if
+            drop edit-hist-dn
           else
-            # Regular key handling
-            handle-key
-            # Stack: History Prompt HistPos NewBuffer NewCursor NewMode Continue?
-            if
+            # Check for undo (u in normal mode)
+            # Stack: History(5) Prompt(4) HistPos(3) EdState(2) UndoStack(1) Key(0)
+            # After dup+i.=: History(6) Prompt(5) HistPos(4) EdState(3) UndoStack(2) Key(1) Bool(0)
+            dup 117 i.= 3 pick ed-mode mode-normal i.= and if
+              # Undo - pop from undo stack
+              drop  # Drop key
+              # Stack: History(4) Prompt(3) HistPos(2) EdState(1) UndoStack(0)
+              undo-pop
+              # Stack: History(6) Prompt(5) HistPos(4) EdState(3) NewUndoStack(2) Buffer(1) Cursor(0)
+              # Build new EdState from restored Buffer and Cursor, preserving yank register
+              mode-normal
+              # Stack: History(7) Prompt(6) HistPos(5) EdState(4) NewUndoStack(3) Buffer(2) Cursor(1) Mode(0)
+              4 pick ed-yank
+              # Stack: History(8) Prompt(7) HistPos(6) EdState(5) NewUndoStack(4) Buffer(3) Cursor(2) Mode(1) YankReg(0)
+              ed-make
+              # Stack: History(5) Prompt(4) HistPos(3) EdState(2) NewUndoStack(1) NewEdState(0)
+              # Reorder: drop old EdState, keep NewUndoStack
+              swap
+              # Stack: History(5) Prompt(4) HistPos(3) EdState(2) NewEdState(1) NewUndoStack(0)
+              rot drop
+              # Stack: History(4) Prompt(3) HistPos(2) NewEdState(1) NewUndoStack(0)
               vim-edit-inner
             else
-              drop drop edit-done
+              # Check if we should save undo state before this key
+              # Stack: History(5) Prompt(4) HistPos(3) EdState(2) UndoStack(1) Key(0)
+              # After dup: History(6) Prompt(5) HistPos(4) EdState(3) UndoStack(2) Key(1) Key(0)
+              dup 3 pick ed-mode mode-normal i.= if
+                is-modifying-key
+              else
+                is-insert-modifying-key
+              then
+              # Stack: History(5) Prompt(4) HistPos(3) EdState(2) UndoStack(1) Key(0) ShouldSaveUndo
+              if
+                # Save undo state before modification
+                # Stack: History(5) Prompt(4) HistPos(3) EdState(2) UndoStack(1) Key(0)
+                swap  # History Prompt HistPos EdState Key UndoStack
+                2 pick ed-buffer 3 pick ed-cursor undo-push undo-limit
+                # Stack: History Prompt HistPos EdState Key NewUndoStack
+                swap  # History Prompt HistPos EdState NewUndoStack Key
+              then
+              # Regular key handling
+              # Stack: History(5) Prompt(4) HistPos(3) EdState(2) UndoStack(1) Key(0)
+              # Need EdState Key on top for handle-key
+              rot swap      # History Prompt HistPos UndoStack EdState Key
+              handle-key    # History Prompt HistPos UndoStack NewEdState Continue?
+              # Need NewEdState UndoStack Continue? for vim-edit-inner
+              rot swap      # History Prompt HistPos NewEdState UndoStack Continue?
+              if
+                vim-edit-inner
+              else
+                edit-done
+              then
             then
           then
         then
