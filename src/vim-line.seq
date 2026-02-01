@@ -99,35 +99,40 @@ union EditorState {
 # UndoEntry and UndoStack Types
 # ============================================
 # Undo stack stores previous buffer/cursor states
+# Uses its own list type (not sexpr lists) to avoid type confusion
 
-union UndoEntry {
-    UndoState { buffer: String, cursor: Int }
+union UndoList {
+    UndoNil { }
+    UndoCons { buffer: String, cursor: Int, tail: UndoList }
 }
 
 # Maximum undo entries to keep
 : undo-max-depth ( -- Int ) 50 ;
 
-# Create empty undo stack (uses slist)
-: undo-empty ( -- UndoStack ) snil ;
+# Create empty undo stack
+: undo-empty ( -- UndoStack ) Make-UndoNil ;
 
 # Push current state onto undo stack
 : undo-push ( UndoStack String Int -- UndoStack )
-    Make-UndoState swap scons ;
+    # Stack: Tail Buffer Cursor
+    rot  # Buffer Cursor Tail
+    Make-UndoCons ;
+
+# Check if undo stack is empty
+: undo-empty? ( UndoStack -- Bool )
+    variant.tag :UndoNil symbol.= ;
 
 # Pop from undo stack - returns UndoStack Buffer Cursor
 # If stack is empty, returns empty string and 0
 : undo-pop ( UndoStack -- UndoStack String Int )
-    dup snil? if
+    dup undo-empty? if
         "" 0  # Empty stack returns empty state
     else
-        dup scar swap scdr swap
-        # Stack: Cdr UndoEntry
-        dup 0 variant.field-at swap 1 variant.field-at
-        # Stack: NewStack Buffer Cursor
+        # UndoCons has fields: buffer(0), cursor(1), tail(2)
+        dup 2 variant.field-at  # Stack Tail
+        swap dup 0 variant.field-at  # Tail Stack Buffer
+        swap 1 variant.field-at  # Tail Buffer Cursor
     then ;
-
-# Check if undo stack is empty
-: undo-empty? ( UndoStack -- Bool ) snil? ;
 
 # Limit undo stack depth (called after push)
 : undo-limit ( UndoStack -- UndoStack )
@@ -137,18 +142,24 @@ union UndoEntry {
 : undo-limit-loop ( UndoStack Int -- UndoStack )
     # Base case 1: limit reached, return empty
     dup 0 i.<= if
-        drop drop snil
+        drop drop undo-empty
     else
         # Base case 2: stack empty, return empty
-        over snil? if
+        over undo-empty? if
             drop
         else
-            # Recursive case: keep head, limit tail
-            over scar         # Stack Remaining Head
-            rot scdr          # Remaining Head Tail
-            rot 1 i.subtract  # Head Tail Remaining-1
-            undo-limit-loop   # Head LimitedTail
-            swap scons        # NewStack
+            # Recursive case: keep this entry, limit tail
+            # Stack: UndoStack(1) Remaining(0)
+            # Get tail and recurse first
+            over 2 variant.field-at  # Stack Remaining Tail
+            over 1 i.subtract        # Stack Remaining Tail Remaining-1
+            undo-limit-loop          # Stack Remaining LimitedTail
+            # Now build new node: need Buffer Cursor LimitedTail for Make-UndoCons
+            2 pick 0 variant.field-at  # Stack Remaining LimitedTail Buffer
+            3 pick 1 variant.field-at  # Stack Remaining LimitedTail Buffer Cursor
+            rot                        # Stack Remaining Buffer Cursor LimitedTail
+            Make-UndoCons              # Stack Remaining NewUndoStack
+            nip nip                    # NewUndoStack (drop Remaining and old UndoStack)
         then
     then ;
 
@@ -874,9 +885,9 @@ union UndoEntry {
   dup ed-buffer string.length over ed-cursor i.> if
     # Cursor is valid, delete char
     dup ed-buffer over ed-cursor string-delete-at
-    # Stack: EdState NewBuffer
-    dup over ed-cursor clamp-cursor-normal
-    # Stack: EdState NewBuffer NewCursor
+    # Stack: EdState(1) NewBuffer(0)
+    dup 2 pick ed-cursor clamp-cursor-normal
+    # Stack: EdState(2) NewBuffer(1) NewCursor(0)
     ed-with-buffer-cursor
   then
   true ;
