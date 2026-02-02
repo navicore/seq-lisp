@@ -36,10 +36,10 @@ union EditorState {
 : ed-make ( String Int Int String -- EditorState ) Make-EdState ;
 
 # Accessors
-: ed-buffer ( EditorState -- String ) 0 variant.field-at ;
-: ed-cursor ( EditorState -- Int ) 1 variant.field-at ;
-: ed-mode ( EditorState -- Int ) 2 variant.field-at ;
-: ed-yank ( EditorState -- String ) 3 variant.field-at ;
+: ed-buffer ( EditorState -- String ) EdState-buffer ;
+: ed-cursor ( EditorState -- Int ) EdState-cursor ;
+: ed-mode ( EditorState -- Int ) EdState-mode ;
+: ed-yank ( EditorState -- String ) EdState-yank_reg ;
 
 # Updaters - return new EditorState with one field changed
 : ed-with-buffer ( EditorState String -- EditorState )
@@ -125,7 +125,7 @@ union UndoList {
 
 # Check if undo stack is empty
 : undo-empty? ( UndoStack -- Bool )
-    variant.tag :UndoNil symbol.= ;
+    is-UndoNil? ;
 
 # Pop from undo stack - returns UndoStack Buffer Cursor
 # If stack is empty, returns empty string and 0
@@ -133,10 +133,10 @@ union UndoList {
     dup undo-empty? if
         "" 0  # Empty stack returns empty state
     else
-        # UndoCons has fields: buffer(0), cursor(1), tail(2)
-        dup 2 variant.field-at  # Stack Tail
-        swap dup 0 variant.field-at  # Tail Stack Buffer
-        swap 1 variant.field-at  # Tail Buffer Cursor
+        # UndoCons has fields: buffer, cursor, tail
+        dup UndoCons-tail    # Stack Tail
+        swap dup UndoCons-buffer  # Tail Stack Buffer
+        swap UndoCons-cursor # Tail Buffer Cursor
     then ;
 
 # Limit undo stack depth (called after push)
@@ -156,15 +156,15 @@ union UndoList {
             # Recursive case: keep this entry, limit tail
             # Stack: UndoStack(1) Remaining(0)
             # Get tail and recurse first
-            over 2 variant.field-at  # Stack Remaining Tail
+            over UndoCons-tail       # Stack Remaining Tail
             over 1 i.subtract        # Stack Remaining Tail Remaining-1
             undo-limit-loop          # Stack Remaining LimitedTail
             # Now build new node: need Buffer Cursor LimitedTail for Make-UndoCons
-            2 pick 0 variant.field-at  # Stack Remaining LimitedTail Buffer
-            3 pick 1 variant.field-at  # Stack Remaining LimitedTail Buffer Cursor
-            rot                        # Stack Remaining Buffer Cursor LimitedTail
-            Make-UndoCons              # Stack Remaining NewUndoStack
-            nip nip                    # NewUndoStack (drop Remaining and old UndoStack)
+            2 pick UndoCons-buffer   # Stack Remaining LimitedTail Buffer
+            3 pick UndoCons-cursor   # Stack Remaining LimitedTail Buffer Cursor
+            rot                      # Stack Remaining Buffer Cursor LimitedTail
+            Make-UndoCons            # Stack Remaining NewUndoStack
+            nip nip                  # NewUndoStack (drop Remaining and old UndoStack)
         then
     then ;
 
