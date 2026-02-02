@@ -22,10 +22,10 @@ union ParseResult {
   Make-PResult ;
 
 : result-expr ( ParseResult -- Sexpr )
-  0 variant.field-at ;
+  PResult-expr ;
 
 : result-tokens ( ParseResult -- TokenList )
-  1 variant.field-at ;
+  PResult-remaining ;
 
 # ============================================
 # Span Helpers
@@ -326,7 +326,10 @@ union ParseResult {
 ;
 
 : parse-list-items ( SexprList TokenList -- ParseResult )
-  no-span rot rot parse-list-items-with-span ;
+  # Stack: SexprList TokenList
+  # Need: SexprList SourceSpan TokenList for parse-list-items-with-span
+  no-span swap     # SexprList SourceSpan TokenList
+  parse-list-items-with-span ;
 
 : parse-list-items-with-span ( SexprList SourceSpan TokenList -- ParseResult )
   # Stack: Acc LparenSpan Tokens (Tokens on top)

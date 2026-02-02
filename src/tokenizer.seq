@@ -42,10 +42,10 @@ union TokState {
   Make-Tok ;
 
 : tok-text ( Token -- String )
-  0 variant.field-at ;
+  Tok-text ;
 
 : tok-span ( Token -- SourceSpan )
-  1 variant.field-at ;
+  Tok-span ;
 
 # ============================================
 # Token List Constructors and Accessors
@@ -63,13 +63,13 @@ union TokState {
   rot rot make-token swap tcons-tok ;
 
 : tnil? ( TokenList -- Bool )
-  variant.tag :TNil symbol.= ;
+  is-TNil? ;
 
 : tcar ( TokenList -- Token )
-  0 variant.field-at ;
+  TCons-token ;
 
 : tcdr ( TokenList -- TokenList )
-  1 variant.field-at ;
+  TCons-rest ;
 
 # Reverse token list (preserving spans)
 : trev ( TokenList -- TokenList )
@@ -93,13 +93,13 @@ union TokState {
   Make-Pos ;
 
 : pos-pos ( TokPos -- Int )
-  0 variant.field-at ;
+  Pos-pos ;
 
 : pos-line ( TokPos -- Int )
-  1 variant.field-at ;
+  Pos-line ;
 
 : pos-col ( TokPos -- Int )
-  2 variant.field-at ;
+  Pos-col ;
 
 # ============================================
 # TokAccum Constructors and Accessors
@@ -113,13 +113,13 @@ union TokState {
   "" rot rot make-accum ;
 
 : accum-text ( TokAccum -- String )
-  0 variant.field-at ;
+  Accum-text ;
 
 : accum-start-line ( TokAccum -- Int )
-  1 variant.field-at ;
+  Accum-start_line ;
 
 : accum-start-col ( TokAccum -- Int )
-  2 variant.field-at ;
+  Accum-start_col ;
 
 # ============================================
 # TokState Constructors and Accessors
@@ -129,16 +129,16 @@ union TokState {
   Make-TState ;
 
 : state-input ( TokState -- String )
-  0 variant.field-at ;
+  TState-input ;
 
 : state-current ( TokState -- TokPos )
-  1 variant.field-at ;
+  TState-current ;
 
 : state-accum ( TokState -- TokAccum )
-  2 variant.field-at ;
+  TState-accum ;
 
 : state-tokens ( TokState -- TokenList )
-  3 variant.field-at ;
+  TState-tokens ;
 
 # Convenience accessors that unwrap nested types
 : state-pos ( TokState -- Int )

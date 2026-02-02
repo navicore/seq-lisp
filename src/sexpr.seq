@@ -146,83 +146,85 @@ union SexprList {
 # ============================================
 
 : snum? ( Sexpr -- Bool )
-  variant.tag :SNum symbol.= ;
+  is-SNum? ;
 
 : ssym? ( Sexpr -- Bool )
-  variant.tag :SSym symbol.= ;
+  is-SSym? ;
 
 : slist? ( Sexpr -- Bool )
-  variant.tag :SList symbol.= ;
+  is-SList? ;
 
 : sclosure? ( Sexpr -- Bool )
-  variant.tag :SClosure symbol.= ;
+  is-SClosure? ;
 
 : smacro? ( Sexpr -- Bool )
-  variant.tag :SMacro symbol.= ;
+  is-SMacro? ;
 
 : sstring? ( Sexpr -- Bool )
-  variant.tag :SString symbol.= ;
+  is-SString? ;
 
 : sfloat? ( Sexpr -- Bool )
-  variant.tag :SFloat symbol.= ;
+  is-SFloat? ;
 
 : snil? ( SexprList -- Bool )
-  variant.tag :SNil symbol.= ;
+  is-SNil? ;
 
 # Closure type predicates
 : named-closure? ( LispClosure -- Bool )
-  variant.tag :NamedClos symbol.= ;
+  is-NamedClos? ;
 
 # SourceSpan predicates
 : span? ( SourceSpan -- Bool )
-  variant.tag :Span symbol.= ;
+  is-Span? ;
 
 : no-span? ( SourceSpan -- Bool )
-  variant.tag :NoSpan symbol.= ;
+  is-NoSpan? ;
 
 # ============================================
 # Accessors
 # ============================================
 
 : snum-val ( Sexpr -- Int )
-  0 variant.field-at ;
+  SNum-value ;
 
 : ssym-val ( Sexpr -- String )
-  0 variant.field-at ;
+  SSym-name ;
 
 : slist-val ( Sexpr -- SexprList )
-  0 variant.field-at ;
+  SList-items ;
 
 : sclosure-val ( Sexpr -- LispClosure )
-  0 variant.field-at ;
+  SClosure-closure ;
 
 : smacro-val ( Sexpr -- LispClosure )
-  0 variant.field-at ;
+  SMacro-macro ;
 
 : sstring-val ( Sexpr -- String )
-  0 variant.field-at ;
+  SString-value ;
 
 : sfloat-val ( Sexpr -- Float )
-  0 variant.field-at ;
+  SFloat-value ;
 
 # Get the span from any Sexpr (span is always field 1)
+# Note: using variant.field-at for polymorphic access across all Sexpr variants
 : sexpr-span ( Sexpr -- SourceSpan )
   1 variant.field-at ;
 
 : scar ( SexprList -- Sexpr )
-  0 variant.field-at ;
+  SCons-head ;
 
 : scdr ( SexprList -- SexprList )
-  1 variant.field-at ;
+  SCons-tail ;
 
 # Binding accessors
 : binding-name ( Binding -- String )
-  0 variant.field-at ;
+  Bind-name ;
 
 : binding-value ( Binding -- Sexpr )
-  1 variant.field-at ;
+  Bind-value ;
 
 # Closure accessors (work for both Clos and NamedClos)
+# Note: using variant.field-at for polymorphic access across Clos and NamedClos
 : closure-params ( LispClosure -- Sexpr )
   0 variant.field-at ;
 
@@ -231,23 +233,23 @@ union SexprList {
 
 # Only valid for NamedClos - use named-closure? to check first
 : closure-self-name ( LispClosure -- String )
-  3 variant.field-at ;
+  NamedClos-self_name ;
 
 : closure-env ( LispClosure -- Env )
   2 variant.field-at ;
 
 # SourceSpan accessors (only valid when span? is true)
 : span-start-line ( SourceSpan -- Int )
-  0 variant.field-at ;
+  Span-start_line ;
 
 : span-start-col ( SourceSpan -- Int )
-  1 variant.field-at ;
+  Span-start_col ;
 
 : span-end-line ( SourceSpan -- Int )
-  2 variant.field-at ;
+  Span-end_line ;
 
 : span-end-col ( SourceSpan -- Int )
-  3 variant.field-at ;
+  Span-end_col ;
 
 # ============================================
 # Pretty Printing

@@ -215,7 +215,7 @@ include "vim-line"
     dup 0 i.< if
         # Negative balance - too many closing parens
         drop "Error: unexpected ')'" io.write-line
-        drop "" swap repl-loop
+        swap drop "" swap repl-loop
     else
         0 i.=
         # Stack: History NewAcc Env BalancedBool

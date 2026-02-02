@@ -42,21 +42,21 @@ union CallStack {
 
 # CallFrame accessors
 : frame-name ( CallFrame -- String )
-  0 variant.field-at ;
+  Frame-name ;
 
 : frame-span ( CallFrame -- SourceSpan )
-  1 variant.field-at ;
+  Frame-span ;
 
 # CallStack predicates
 : stack-empty? ( CallStack -- Bool )
-  variant.tag :StackEmpty symbol.= ;
+  is-StackEmpty? ;
 
 # CallStack accessors
 : stack-top ( CallStack -- CallFrame )
-  0 variant.field-at ;
+  StackFrame-frame ;
 
 : stack-rest ( CallStack -- CallStack )
-  1 variant.field-at ;
+  StackFrame-rest ;
 
 # ============================================
 # EvalResult Union Type
@@ -92,26 +92,26 @@ union EvalResult {
 
 # Predicates
 : eval-ok? ( EvalResult -- Bool )
-  variant.tag :EvalOk symbol.= ;
+  is-EvalOk? ;
 
 : eval-err? ( EvalResult -- Bool )
-  variant.tag :EvalErr symbol.= ;
+  is-EvalErr? ;
 
 : eval-define? ( EvalResult -- Bool )
-  variant.tag :EvalDefine symbol.= ;
+  is-EvalDefine? ;
 
 # Accessors
 : eval-ok-value ( EvalResult -- Sexpr )
-  0 variant.field-at ;
+  EvalOk-value ;
 
 : eval-err-message ( EvalResult -- String )
-  0 variant.field-at ;
+  EvalErr-message ;
 
 : eval-err-span ( EvalResult -- SourceSpan )
-  1 variant.field-at ;
+  EvalErr-span ;
 
 : eval-err-stack ( EvalResult -- CallStack )
-  2 variant.field-at ;
+  EvalErr-stack ;
 
 # Create error at the location of a Sexpr
 : eval-err-from ( String Sexpr -- EvalResult )
@@ -162,10 +162,10 @@ union EvalResult {
 ;
 
 : eval-define-name ( EvalResult -- String )
-  0 variant.field-at ;
+  EvalDefine-name ;
 
 : eval-define-value ( EvalResult -- Sexpr )
-  1 variant.field-at ;
+  EvalDefine-def_value ;
 
 # Format a span as "line:col"
 : format-span ( SourceSpan -- String )
@@ -501,12 +501,12 @@ union EvalResult {
 # Stack: target env -> best_name best_dist
 : find-best-in-env ( String Env -- String Int )
   # Stack: target env
-  dup variant.tag :EnvEmpty symbol.= if
+  dup is-EnvEmpty? if
     # EnvEmpty - no match found in env
     drop drop "" 999
   else
     # EnvExtend - check this binding and recurse
-    dup 0 variant.field-at   # target env binding
+    dup EnvExtend-binding    # target env binding
     binding-name             # target env binding_name
     2 pick over              # target env binding_name target binding_name
     simple-similarity        # target env binding_name dist
@@ -514,7 +514,7 @@ union EvalResult {
     # Recurse to check rest of environment
     # Stack: target env binding_name dist
     3 pick                   # target env binding_name dist target
-    3 pick 1 variant.field-at  # target env binding_name dist target parent
+    3 pick EnvExtend-parent  # target env binding_name dist target parent
     find-best-in-env         # target env binding_name dist rest_name rest_dist
 
     # Compare: keep the better one
@@ -623,12 +623,12 @@ union EvalResult {
 : env-lookup-raw ( String Env -- EvalResult )
   # Stack: Name Env
   # Returns EvalOk with the value, or EvalErr if not found
-  dup variant.tag :EnvEmpty symbol.= if
+  dup is-EnvEmpty? if
     # EnvEmpty - not found, return error
     drop "undefined symbol: " swap string.concat eval-err
   else
     # EnvExtend - extract binding and parent
-    dup 0 variant.field-at  # Name Env Binding
+    dup EnvExtend-binding   # Name Env Binding
     dup binding-name        # Name Env Binding BindingName
     3 pick string.equal? if
       # Found it
@@ -638,7 +638,7 @@ union EvalResult {
     else
       # Keep looking
       drop                  # Name Env
-      1 variant.field-at    # Name Parent
+      EnvExtend-parent      # Name Parent
       env-lookup-raw
     then
   then ;
@@ -647,13 +647,13 @@ union EvalResult {
 : env-concat ( Env Env -- Env )
   # Stack: Env1 Env2 -> Result where Env1 bindings come first
   swap  # Env2 Env1
-  dup variant.tag :EnvEmpty symbol.= if
+  dup is-EnvEmpty? if
     # EnvEmpty - just return Env2
     drop
   else
     # EnvExtend - extract binding and parent
-    dup 0 variant.field-at  # Env2 Env1 Binding
-    swap 1 variant.field-at # Env2 Binding Parent
+    dup EnvExtend-binding   # Env2 Env1 Binding
+    swap EnvExtend-parent   # Env2 Binding Parent
     rot                     # Binding Parent Env2
     env-concat              # Binding ConcatResult
     Make-EnvExtend          # Result
@@ -677,14 +677,13 @@ union EvalResult {
 # Returns: EvalResult (EvalOk, EvalErr, or EvalDefine)
 : eval-with-env ( Sexpr Env -- EvalResult )
   # Stack: Expr Env
-  over variant.tag
-  dup :SNum symbol.= if
+  over snum? if
     # SNum - return as-is wrapped in EvalOk
-    drop drop eval-ok
+    drop eval-ok
   else
-    dup :SSym symbol.= if
+    over ssym? if
       # SSym - check for self-evaluating symbols (#t, #f) or lookup
-      drop swap dup ssym-val
+      swap dup ssym-val
       dup "#t" string.equal? over "#f" string.equal? or if
         # Boolean literal - return as-is
         drop nip eval-ok
@@ -698,7 +697,7 @@ union EvalResult {
         swap eval-result-add-span  # Add span to any error
       then
     else
-      :SList symbol.= if
+      over slist? if
         # SList - function application
         eval-list-with-env
       else
@@ -2442,11 +2441,11 @@ union EvalResult {
             dup eval-define-name    # Exprs Env LastValue EvalDef Name
             swap eval-define-value  # Exprs Env LastValue Name Value
             3 pick env-extend       # Exprs Env LastValue Name Value Env -> Exprs Env LastValue NewEnv
-            # Now need: RestExprs NewEnv snil
+            # Now need: RestExprs NewEnv empty-sexpr
             # Stack: Exprs Env LastValue NewEnv
             nip nip                 # Exprs NewEnv (drop LastValue and old Env)
             swap scdr               # NewEnv RestExprs
-            swap snil               # RestExprs NewEnv snil
+            swap snil slist         # RestExprs NewEnv (empty-list Sexpr)
             eval-all-with-errors-loop
         then then
     then
@@ -2470,10 +2469,10 @@ union EvalResult {
         tokenize parse-all-for-lsp  # Parse all expressions -> SexprList
         dup snil? if
           # Empty - return (ok ())
-          drop snil make-ok-result eval-ok
+          drop snil slist make-ok-result eval-ok
         else
           # Evaluate all with empty initial env
-          env-empty snil eval-all-with-errors-loop
+          env-empty snil slist eval-all-with-errors-loop
         then
       else
         drop "eval-all-with-errors: argument must be a string" eval-err
@@ -3456,7 +3455,7 @@ union EvalResult {
       dup sclosure? if
         sclosure-val  # -> Env Args Closure (unwrap from Sexpr)
         swap scdr  # -> Env Closure RestArgs
-        dup scar 2 pick eval-with-env  # Eval init -> Env Closure RestArgs EvalResult
+        dup scar 3 pick eval-with-env  # Eval init -> Env Closure RestArgs EvalResult
         dup eval-err? if
           nip nip nip  # Error - propagate (Env Closure RestArgs EvalResult -> 4 items)
         else
@@ -4356,10 +4355,9 @@ union EvalResult {
     dup eval-err? if
       # Error - clean up and return
       # Stack: AccEnv Params Args EvalEnv EvalResult (4,3,2,1,0)
-      swap drop    # -> AccEnv Params Args EvalResult
-      swap drop    # -> AccEnv Params EvalResult
-      swap drop    # -> AccEnv EvalResult
-      swap snil swap  # -> AccEnv () EvalResult
+      # Need to produce: Env SexprList EvalResult
+      nip nip nip   # -> AccEnv EvalResult (drop EvalEnv, Args, Params)
+      snil swap     # -> AccEnv snil EvalResult (insert empty param list)
     else
       eval-ok-value  # -> AccEnv Params Args EvalEnv ArgVal
       # Rearrange to get AccEnv to top for env-extend
@@ -4473,8 +4471,8 @@ union EvalResult {
     # Get rest param name (param after the dot)
     2 pick scdr scar ssym-val  # -> ... EvalEnv RestParamName
     # Evaluate all remaining args and collect as list
-    2 pick                     # -> ... RestParamName Args
-    3 pick                     # -> ... RestParamName Args EvalEnv
+    2 pick                     # -> ... RestParamName Args (pos 0=Args)
+    2 pick                     # -> ... RestParamName Args EvalEnv (EvalEnv was at pos 2)
     eval-collect-rest          # -> ... RestParamName EvalResult
     dup eval-err? if
       # Error during evaluation

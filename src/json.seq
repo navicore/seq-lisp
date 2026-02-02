@@ -29,10 +29,10 @@ union JsonResult {
   Make-JState ;
 
 : jstate-input ( JsonState -- String )
-  0 variant.field-at ;
+  JState-input ;
 
 : jstate-pos ( JsonState -- Int )
-  1 variant.field-at ;
+  JState-pos ;
 
 # Result constructors and accessors
 : json-ok ( Sexpr JsonState -- JsonResult )
@@ -42,19 +42,19 @@ union JsonResult {
   Make-JErr ;
 
 : json-ok? ( JsonResult -- Bool )
-  variant.tag :JOk symbol.= ;
+  is-JOk? ;
 
 : json-err? ( JsonResult -- Bool )
-  variant.tag :JErr symbol.= ;
+  is-JErr? ;
 
 : json-ok-value ( JsonResult -- Sexpr )
-  0 variant.field-at ;
+  JOk-value ;
 
 : json-ok-state ( JsonResult -- JsonState )
-  1 variant.field-at ;
+  JOk-state ;
 
 : json-err-msg ( JsonResult -- String )
-  0 variant.field-at ;
+  JErr-message ;
 
 # ============================================
 # Helper Functions
