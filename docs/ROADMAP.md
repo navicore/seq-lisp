@@ -106,7 +106,7 @@ The current architecture is sound for adding comprehensive error handling. No fu
 - [x] `compose` - implemented as macro (see examples/macros.slisp)
 - [x] Higher-order functions: `apply`
 - [x] Numeric: `abs`, `min`, `max`, `modulo`
-- [x] String operations - Lisp wrappers for Seq builtins
+- [x] String operations - Lisp wrappers for Seq builtins (40 tests in `tests/lisp/core/strings.slisp`)
   - `string-length`, `substring`, `string-append` (already existed)
   - `string-split`, `string-trim`, `string-upcase`, `string-downcase`
   - `string-contains?`, `string-starts-with?`, `string-find`, `string-chomp`
