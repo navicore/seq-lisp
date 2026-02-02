@@ -24,6 +24,7 @@ A working interpreter with:
 - [x] Test suite
 - [x] CI/CD
 - [x] ADT unions for type-safe data structures (Sexpr, SexprList, Env, Binding, LispClosure)
+- [x] Seq 4.0 migration - compile-time type safety via auto-generated predicates/accessors
 
 ## Short Term
 
@@ -90,7 +91,10 @@ The current architecture is sound for adding comprehensive error handling. No fu
   - Format: `Error [line:col]: message` when span is available
   - Falls back to `Error: message` when no span
   - File mode shows correct multi-line positions
-- [ ] Stack traces showing call chain
+- [x] Stack traces showing call chain
+  - CallStack type tracks function call frames
+  - Errors include full stack trace with function names and locations
+  - Format: `Error [line:col]: message` followed by `  at funcname (line:col)` entries
 - [ ] Error recovery suggestions
 
 ## Medium Term
@@ -102,7 +106,10 @@ The current architecture is sound for adding comprehensive error handling. No fu
 - [x] `compose` - implemented as macro (see examples/macros.slisp)
 - [x] Higher-order functions: `apply`
 - [x] Numeric: `abs`, `min`, `max`, `modulo`
-- [ ] String operations (when Seq strings are richer)
+- [x] String operations - Lisp wrappers for Seq builtins
+  - `string-length`, `substring`, `string-append` (already existed)
+  - `string-split`, `string-trim`, `string-upcase`, `string-downcase`
+  - `string-contains?`, `string-starts-with?`, `string-find`, `string-chomp`
 
 ### Language Features
 - [x] `define` at top-level for global definitions
@@ -139,9 +146,11 @@ The current architecture is sound for adding comprehensive error handling. No fu
   - `equal?` - structural equality comparison
   - `exit` - process exit with code for CI/CD
   - `try` - error handling (returns `(ok value)` or `(error message)`)
+- [x] CI integration with clear pass/fail reporting
+  - `just ci` runs full test suite (Seq tests, Lisp tests, LSP tests)
+  - Non-zero exit on any failure
 - [ ] Future enhancements:
   - Reorganize test suites by feature
-  - CI integration with clear pass/fail reporting
 
 ### Tooling
 
@@ -158,25 +167,28 @@ The current architecture is sound for adding comprehensive error handling. No fu
 - [ ] Consistent indentation based on nesting
 - [ ] Preserve comments
 
-### Vim-Style REPL Editor ([#52](https://github.com/navicore/seq-lisp/issues/52))
+### Vim-Style REPL Editor ✓ ([#52](https://github.com/navicore/seq-lisp/issues/52))
 
-Replace libedit with a vim-style line editor written in pure Seq, using the new terminal FFI (patch-seq v1.0.5+):
+Replaced libedit with a vim-style line editor written in pure Seq (`src/vim-line.seq`), using the terminal FFI:
 
-**Phase 1: Basic Modal Editing**
-- [ ] Normal/Insert modes with `i`, `a`, `Escape`
-- [ ] Basic cursor movement (`h`, `l`, `0`, `$`)
-- [ ] Backspace, delete (`x`), Enter to submit
+**Phase 1: Basic Modal Editing** ✓
+- [x] Normal/Insert modes with `i`, `a`, `I`, `A`, `Escape`
+- [x] Basic cursor movement (`h`, `l`, `0`, `$`, `%` for bracket matching)
+- [x] Backspace, delete (`x`), replace (`r`), Enter to submit
 
-**Phase 2: Vim Motions**
-- [ ] Word motions (`w`, `b`, `e`)
-- [ ] Character find (`f`, `F`, `t`, `T`)
+**Phase 2: Vim Motions** ✓
+- [x] Word motions (`w`, `b`)
+- [ ] Character find (`f`, `F`, `t`, `T`) - not yet implemented
 
-**Phase 3: Operators**
-- [ ] Delete/change with motion (`d`, `c` + motion)
-- [ ] Yank and paste (`y`, `p`, `P`)
+**Phase 3: Operators** ✓
+- [x] Delete/change with motion (`d`, `c` + `d`, `w`, `$`)
+- [x] Yank and paste (`y`, `p`, `P`)
+- [x] `D`, `C` for delete/change to end of line
 
-**Phase 4: Polish**
-- [ ] Visual mode, command history, undo
+**Phase 4: Polish** ✓
+- [x] Command history with `j`/`k` and arrow keys
+- [x] Undo with `u`
+- [ ] Visual mode - not yet implemented
 
 ### Seq Code Quality ([#51](https://github.com/navicore/seq-lisp/issues/51))
 
