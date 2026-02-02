@@ -486,6 +486,14 @@ union EvalResult {
   "string-length" check-candidate
   "substring" check-candidate
   "string-append" check-candidate
+  "string-split" check-candidate
+  "string-trim" check-candidate
+  "string-upcase" check-candidate
+  "string-downcase" check-candidate
+  "string-contains?" check-candidate
+  "string-starts-with?" check-candidate
+  "string-find" check-candidate
+  "string-chomp" check-candidate
   "exit" check-candidate
   "try" check-candidate
   "quasiquote" check-candidate
@@ -941,9 +949,25 @@ union EvalResult {
     drop eval-substring-with-env
   else dup "string-append" string.equal? if
     drop eval-string-append-with-env
+  else dup "string-split" string.equal? if
+    drop eval-string-split-with-env
+  else dup "string-trim" string.equal? if
+    drop eval-string-trim-with-env
+  else dup "string-upcase" string.equal? if
+    drop eval-string-upcase-with-env
+  else dup "string-downcase" string.equal? if
+    drop eval-string-downcase-with-env
+  else dup "string-contains?" string.equal? if
+    drop eval-string-contains-with-env
+  else dup "string-starts-with?" string.equal? if
+    drop eval-string-starts-with-env
+  else dup "string-find" string.equal? if
+    drop eval-string-find-with-env
+  else dup "string-chomp" string.equal? if
+    drop eval-string-chomp-with-env
   else
     dispatch-io
-  then then then
+  then then then then then then then then then then then
 ;
 
 # ----------------------------------------
@@ -2037,6 +2061,263 @@ union EvalResult {
         eval-string-append-loop
       else
         drop drop drop drop "string-append: all arguments must be strings" eval-err
+      then
+    then
+  then
+;
+
+# (string-split str delimiter) - split string by delimiter, returns list of strings
+: eval-string-split-with-env ( SexprList Env -- EvalResult )
+  over 2 "string-split" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop
+    swap scdr  # Skip function name -> Env Args
+    dup scar swap scdr scar  # -> Env StrExpr DelimExpr
+    rot  # -> StrExpr DelimExpr Env
+    dup rot swap  # -> StrExpr Env DelimExpr Env
+    eval-with-env  # -> StrExpr Env DelimResult
+    dup eval-err? if
+      nip nip
+    else
+      eval-ok-value  # -> StrExpr Env DelimVal
+      dup sstring? not if
+        drop drop drop "string-split: delimiter must be a string" eval-err
+      else
+        sstring-val  # -> StrExpr Env DelimStr
+        rot rot      # -> DelimStr StrExpr Env
+        eval-with-env  # -> DelimStr StrResult
+        dup eval-err? if
+          nip
+        else
+          eval-ok-value  # -> DelimStr StrVal
+          dup sstring? not if
+            drop drop "string-split: first argument must be a string" eval-err
+          else
+            sstring-val  # -> DelimStr Str
+            swap string.split  # -> List (Seq List of strings)
+            string-list-to-sexpr-list eval-ok
+          then
+        then
+      then
+    then
+  then
+;
+
+# Helper: convert Seq List of strings to SexprList of SStrings
+: string-list-to-sexpr-list ( List -- Sexpr )
+  snil swap 0 string-list-to-sexpr-loop list-reverse slist ;
+
+: string-list-to-sexpr-loop ( SexprList List Int -- SexprList )
+  # Stack: Acc SeqList Idx
+  over list.length over i.<= if
+    drop drop  # Done, return Acc
+  else
+    2dup list.get drop  # -> Acc SeqList Idx Str
+    sstring              # -> Acc SeqList Idx SString
+    3 roll scons         # -> SeqList Idx NewAcc
+    rot rot 1 i.add      # -> NewAcc SeqList Idx+1
+    string-list-to-sexpr-loop
+  then
+;
+
+# (string-trim str) - remove leading and trailing whitespace
+: eval-string-trim-with-env ( SexprList Env -- EvalResult )
+  over 1 "string-trim" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop
+    swap scdr scar  # -> Env Arg
+    swap eval-with-env
+    dup eval-err? if
+    else
+      eval-ok-value
+      dup sstring? if
+        sstring-val string.trim sstring eval-ok
+      else
+        drop "string-trim: argument must be a string" eval-err
+      then
+    then
+  then
+;
+
+# (string-upcase str) - convert to uppercase
+: eval-string-upcase-with-env ( SexprList Env -- EvalResult )
+  over 1 "string-upcase" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop
+    swap scdr scar  # -> Env Arg
+    swap eval-with-env
+    dup eval-err? if
+    else
+      eval-ok-value
+      dup sstring? if
+        sstring-val string.to-upper sstring eval-ok
+      else
+        drop "string-upcase: argument must be a string" eval-err
+      then
+    then
+  then
+;
+
+# (string-downcase str) - convert to lowercase
+: eval-string-downcase-with-env ( SexprList Env -- EvalResult )
+  over 1 "string-downcase" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop
+    swap scdr scar  # -> Env Arg
+    swap eval-with-env
+    dup eval-err? if
+    else
+      eval-ok-value
+      dup sstring? if
+        sstring-val string.to-lower sstring eval-ok
+      else
+        drop "string-downcase: argument must be a string" eval-err
+      then
+    then
+  then
+;
+
+# (string-contains? str substr) - check if str contains substr
+: eval-string-contains-with-env ( SexprList Env -- EvalResult )
+  over 2 "string-contains?" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop
+    swap scdr  # -> Env Args
+    dup scar swap scdr scar  # -> Env StrExpr SubstrExpr
+    rot  # -> StrExpr SubstrExpr Env
+    dup rot swap  # -> StrExpr Env SubstrExpr Env
+    eval-with-env  # -> StrExpr Env SubstrResult
+    dup eval-err? if
+      nip nip
+    else
+      eval-ok-value  # -> StrExpr Env SubstrVal
+      dup sstring? not if
+        drop drop drop "string-contains?: second argument must be a string" eval-err
+      else
+        sstring-val  # -> StrExpr Env SubstrStr
+        rot rot      # -> SubstrStr StrExpr Env
+        eval-with-env  # -> SubstrStr StrResult
+        dup eval-err? if
+          nip
+        else
+          eval-ok-value  # -> SubstrStr StrVal
+          dup sstring? not if
+            drop drop "string-contains?: first argument must be a string" eval-err
+          else
+            sstring-val  # -> SubstrStr Str
+            swap string.contains  # -> Bool
+            if "#t" else "#f" then ssym eval-ok
+          then
+        then
+      then
+    then
+  then
+;
+
+# (string-starts-with? str prefix) - check if str starts with prefix
+: eval-string-starts-with-env ( SexprList Env -- EvalResult )
+  over 2 "string-starts-with?" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop
+    swap scdr  # -> Env Args
+    dup scar swap scdr scar  # -> Env StrExpr PrefixExpr
+    rot  # -> StrExpr PrefixExpr Env
+    dup rot swap  # -> StrExpr Env PrefixExpr Env
+    eval-with-env  # -> StrExpr Env PrefixResult
+    dup eval-err? if
+      nip nip
+    else
+      eval-ok-value  # -> StrExpr Env PrefixVal
+      dup sstring? not if
+        drop drop drop "string-starts-with?: second argument must be a string" eval-err
+      else
+        sstring-val  # -> StrExpr Env PrefixStr
+        rot rot      # -> PrefixStr StrExpr Env
+        eval-with-env  # -> PrefixStr StrResult
+        dup eval-err? if
+          nip
+        else
+          eval-ok-value  # -> PrefixStr StrVal
+          dup sstring? not if
+            drop drop "string-starts-with?: first argument must be a string" eval-err
+          else
+            sstring-val  # -> PrefixStr Str
+            swap string.starts-with  # -> Bool
+            if "#t" else "#f" then ssym eval-ok
+          then
+        then
+      then
+    then
+  then
+;
+
+# (string-find str substr) - find index of substr in str, returns -1 if not found
+: eval-string-find-with-env ( SexprList Env -- EvalResult )
+  over 2 "string-find" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop
+    swap scdr  # -> Env Args
+    dup scar swap scdr scar  # -> Env StrExpr SubstrExpr
+    rot  # -> StrExpr SubstrExpr Env
+    dup rot swap  # -> StrExpr Env SubstrExpr Env
+    eval-with-env  # -> StrExpr Env SubstrResult
+    dup eval-err? if
+      nip nip
+    else
+      eval-ok-value  # -> StrExpr Env SubstrVal
+      dup sstring? not if
+        drop drop drop "string-find: second argument must be a string" eval-err
+      else
+        sstring-val  # -> StrExpr Env SubstrStr
+        rot rot      # -> SubstrStr StrExpr Env
+        eval-with-env  # -> SubstrStr StrResult
+        dup eval-err? if
+          nip
+        else
+          eval-ok-value  # -> SubstrStr StrVal
+          dup sstring? not if
+            drop drop "string-find: first argument must be a string" eval-err
+          else
+            sstring-val  # -> SubstrStr Str
+            swap string.find  # -> Int
+            snum eval-ok
+          then
+        then
+      then
+    then
+  then
+;
+
+# (string-chomp str) - remove trailing newline
+: eval-string-chomp-with-env ( SexprList Env -- EvalResult )
+  over 1 "string-chomp" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop
+    swap scdr scar  # -> Env Arg
+    swap eval-with-env
+    dup eval-err? if
+    else
+      eval-ok-value
+      dup sstring? if
+        sstring-val string.chomp sstring eval-ok
+      else
+        drop "string-chomp: argument must be a string" eval-err
       then
     then
   then

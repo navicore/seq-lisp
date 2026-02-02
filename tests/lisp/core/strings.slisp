@@ -58,4 +58,60 @@
   (test 'string-append-empty-right (assert-eq "hello" (string-append "hello" "")))
   (test 'string-append-three (assert-eq "abc" (string-append "a" "b" "c")))
   (test 'string-append-one (assert-eq "hello" (string-append "hello")))
-  (test 'string-append-zero (assert-eq "" (string-append)))))
+  (test 'string-append-zero (assert-eq "" (string-append)))
+
+  ;; string-upcase
+  (test 'string-upcase-basic (assert-eq "HELLO" (string-upcase "hello")))
+  (test 'string-upcase-mixed (assert-eq "HELLO WORLD" (string-upcase "Hello World")))
+  (test 'string-upcase-empty (assert-eq "" (string-upcase "")))
+  (test 'string-upcase-already (assert-eq "ABC" (string-upcase "ABC")))
+
+  ;; string-downcase
+  (test 'string-downcase-basic (assert-eq "hello" (string-downcase "HELLO")))
+  (test 'string-downcase-mixed (assert-eq "hello world" (string-downcase "Hello World")))
+  (test 'string-downcase-empty (assert-eq "" (string-downcase "")))
+  (test 'string-downcase-already (assert-eq "abc" (string-downcase "abc")))
+
+  ;; string-trim
+  (test 'string-trim-both (assert-eq "hello" (string-trim "  hello  ")))
+  (test 'string-trim-left (assert-eq "hello" (string-trim "   hello")))
+  (test 'string-trim-right (assert-eq "hello" (string-trim "hello   ")))
+  (test 'string-trim-none (assert-eq "hello" (string-trim "hello")))
+  (test 'string-trim-empty (assert-eq "" (string-trim "")))
+  (test 'string-trim-all-space (assert-eq "" (string-trim "   ")))
+
+  ;; string-split
+  (test 'string-split-comma (assert-eq '("a" "b" "c") (string-split "a,b,c" ",")))
+  (test 'string-split-space (assert-eq '("hello" "world") (string-split "hello world" " ")))
+  (test 'string-split-no-delim (assert-eq '("hello") (string-split "hello" ",")))
+  (test 'string-split-empty (assert-eq '("") (string-split "" ",")))
+  (test 'string-split-multi-char (assert-eq '("a" "b") (string-split "a::b" "::")))
+
+  ;; string-contains?
+  (test 'string-contains-yes (assert-true (string-contains? "hello world" "world")))
+  (test 'string-contains-no (assert-false (string-contains? "hello world" "xyz")))
+  (test 'string-contains-start (assert-true (string-contains? "hello" "hel")))
+  (test 'string-contains-end (assert-true (string-contains? "hello" "llo")))
+  (test 'string-contains-empty (assert-true (string-contains? "hello" "")))
+  (test 'string-contains-self (assert-true (string-contains? "hello" "hello")))
+
+  ;; string-starts-with?
+  (test 'string-starts-yes (assert-true (string-starts-with? "hello world" "hello")))
+  (test 'string-starts-no (assert-false (string-starts-with? "hello world" "world")))
+  (test 'string-starts-empty (assert-true (string-starts-with? "hello" "")))
+  (test 'string-starts-full (assert-true (string-starts-with? "hello" "hello")))
+  (test 'string-starts-longer (assert-false (string-starts-with? "hi" "hello")))
+
+  ;; string-find
+  (test 'string-find-middle (assert-eq 6 (string-find "hello world" "world")))
+  (test 'string-find-start (assert-eq 0 (string-find "hello world" "hello")))
+  (test 'string-find-not-found (assert-eq -1 (string-find "hello world" "xyz")))
+  (test 'string-find-empty (assert-eq 0 (string-find "hello" "")))
+  (test 'string-find-char (assert-eq 2 (string-find "hello" "l")))
+
+  ;; string-chomp
+  (test 'string-chomp-newline (assert-eq "hello" (string-chomp "hello\n")))
+  (test 'string-chomp-crlf (assert-eq "hello" (string-chomp "hello\r\n")))
+  (test 'string-chomp-none (assert-eq "hello" (string-chomp "hello")))
+  (test 'string-chomp-empty (assert-eq "" (string-chomp "")))
+  (test 'string-chomp-multi (assert-eq "hello\n" (string-chomp "hello\n\n")))))
