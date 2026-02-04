@@ -186,6 +186,18 @@ lsp-test: build
         failed=1
     fi
 
+    # Test 7: Diagnostics include error details
+    echo -n "  test_diagnostics... "
+    output=$(cat tests/lsp/test_diagnostics.txt | ./target/seqlisp lib/lsp.slisp 2>&1)
+    # Should publish diagnostics with undefined symbol error
+    if echo "$output" | grep -q 'undefined symbol' && echo "$output" | grep -q '"severity":1'; then
+        echo "PASS"
+    else
+        echo "FAIL"
+        echo "Output: $output"
+        failed=1
+    fi
+
     if [ "$failed" -eq 0 ]; then
         echo "All LSP tests passed!"
     else

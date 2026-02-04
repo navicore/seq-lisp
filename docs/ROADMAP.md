@@ -158,7 +158,7 @@ The current architecture is sound for adding comprehensive error handling. No fu
 - [x] Basic LSP server (written in SeqLisp itself)
 - [x] `textDocument/didOpen` and `textDocument/didChange`
 - [x] `textDocument/completion` for builtins and keywords
-- [ ] Diagnostics (parse errors, undefined symbols)
+- [x] Diagnostics (parse errors, undefined symbols) via `textDocument/publishDiagnostics`
 - [ ] Hover (builtin docs, function info)
 - [ ] Go to Definition
 - [ ] Document Symbols
