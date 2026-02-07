@@ -198,6 +198,17 @@ lsp-test: build
         failed=1
     fi
 
+    # Test 8: Document symbols returns definitions
+    echo -n "  test_documentsymbols... "
+    output=$(cat tests/lsp/test_documentsymbols.txt | ./target/seqlisp lib/lsp.slisp 2>&1)
+    if echo "$output" | grep -q '"name":"foo"' && echo "$output" | grep -q '"name":"bar"'; then
+        echo "PASS"
+    else
+        echo "FAIL"
+        echo "Output: $output"
+        failed=1
+    fi
+
     if [ "$failed" -eq 0 ]; then
         echo "All LSP tests passed!"
     else
