@@ -351,22 +351,34 @@
     (let sub-len (string-length substr)
       (string-index-of-loop str substr pos str-len sub-len))))
 
+; Character classification helpers
+(define (whitespace? ch)
+  (if (equal? ch " ") #t
+    (if (equal? ch "\n") #t
+      (if (equal? ch "\t") #t
+        (equal? ch "\r")))))
+
+(define (delimiter? ch)
+  (if (whitespace? ch) #t
+    (if (equal? ch ")") #t
+      (equal? ch "("))))
+
 ; Skip whitespace characters, return new position
 (define (skip-whitespace text pos)
   (if (>= pos (string-length text))
       pos
       (let ch (char-at text pos)
-        (if (if (equal? ch " ") #t (if (equal? ch "\n") #t (if (equal? ch "\t") #t (equal? ch "\r"))))
+        (if (whitespace? ch)
             (skip-whitespace text (+ pos 1))
             pos))))
 
 ; Extract a symbol (identifier) starting at pos
-; Returns (symbol . end-pos) or (#f . pos) if no symbol found
+; Returns (symbol end-pos) or (#f pos) if no symbol found
 (define (extract-symbol-loop text pos acc)
   (if (>= pos (string-length text))
       (if (equal? acc "") (list #f pos) (list acc pos))
       (let ch (char-at text pos)
-        (if (if (equal? ch " ") #t (if (equal? ch "\n") #t (if (equal? ch "\t") #t (if (equal? ch "\r") #t (if (equal? ch ")") #t (equal? ch "("))))))
+        (if (delimiter? ch)
             (if (equal? acc "") (list #f pos) (list acc pos))
             (extract-symbol-loop text (+ pos 1) (string-append acc ch))))))
 
@@ -375,6 +387,7 @@
 
 ; Extract symbol name after (define or (defmacro
 ; Handles both (define name ...) and (define (name ...) ...)
+; Returns just the name string, or #f if not found
 (define (extract-defined-symbol text start-pos)
   (let pos (skip-whitespace text start-pos)
     (if (>= pos (string-length text))
@@ -384,6 +397,22 @@
             (car (extract-symbol text (skip-whitespace text (+ pos 1))))
             ; Variable form: (define name value)
             (car (extract-symbol text pos))))))
+
+; Extract symbol info after (define or (defmacro
+; Returns (name name-offset kind) or #f if not found
+; kind: 12 = Function, 13 = Variable
+(define (extract-defined-symbol-info text start-pos)
+  (let pos (skip-whitespace text start-pos)
+    (if (>= pos (string-length text))
+        #f
+        (if (equal? (char-at text pos) "(")
+            ; Function form: (define (name args) body)
+            (let name-pos (skip-whitespace text (+ pos 1))
+              (let name (car (extract-symbol text name-pos))
+                (if (equal? name #f) #f (list name name-pos 12))))
+            ; Variable form: (define name value)
+            (let name (car (extract-symbol text pos))
+              (if (equal? name #f) #f (list name pos 13)))))))
 
 ; Find all symbols defined with a keyword like "(define " or "(defmacro "
 (define (find-definitions-loop text pattern pattern-len pos acc)
@@ -421,17 +450,21 @@
 (define (offset-to-position text offset)
   (offset-to-position-loop text 0 0 0 offset))
 
-; Find definitions with positions: returns list of (name line col)
+; Find definitions with positions: returns list of (name line col kind)
+; Uses extract-defined-symbol-info to get the symbol name's actual position and kind
 (define (find-definitions-pos-loop text pattern pattern-len pos acc)
   (let idx (string-index-of text pattern pos)
     (if (< idx 0)
         acc
-        (let sym (extract-defined-symbol text (+ idx pattern-len))
-          (if (equal? sym #f)
+        (let info (extract-defined-symbol-info text (+ idx pattern-len))
+          (if (equal? info #f)
               (find-definitions-pos-loop text pattern pattern-len (+ idx 1) acc)
-              (let position (offset-to-position text idx)
-                (find-definitions-pos-loop text pattern pattern-len (+ idx pattern-len)
-                  (cons (list sym (car position) (car (cdr position))) acc))))))))
+              (let name (car info)
+                (let name-offset (car (cdr info))
+                  (let kind (car (cdr (cdr info)))
+                    (let position (offset-to-position text name-offset)
+                      (find-definitions-pos-loop text pattern pattern-len (+ idx pattern-len)
+                        (cons (list name (car position) (car (cdr position)) kind) acc)))))))))))
 
 (define (find-definitions-with-pos text pattern pattern-len)
   (find-definitions-pos-loop text pattern pattern-len 0 '()))
@@ -456,7 +489,11 @@
       '()
       (let symbols (find-defined-symbols-with-pos doc-text)
         (map (lambda (sym)
-               (make-symbol-info (car sym) 12 uri (car (cdr sym)) (car (cdr (cdr sym)))))
+               (let name (car sym)
+                 (let line (car (cdr sym))
+                   (let col (car (cdr (cdr sym)))
+                     (let kind (car (cdr (cdr (cdr sym))))
+                       (make-symbol-info name kind uri line col))))))
              symbols))))
 
 ; Remove duplicates from a list
