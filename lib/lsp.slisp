@@ -5,12 +5,14 @@
 ;   initialize, initialized, shutdown, exit
 ;   textDocument/didOpen, textDocument/didChange
 ;   textDocument/completion
+;   textDocument/documentSymbol
 ;
 ; Features:
 ;   - Real-time diagnostics with line/column positions
 ;   - Paren balance checking (detects ALL unmatched parens)
 ;   - Uses eval-all-with-errors for semantic validation of ALL expressions
 ;   - Code completion for all builtins
+;   - Document symbols for outline/navigation (Ctrl+Shift+O in VSCode)
 ;
 ; Limitations:
 ;   - Evaluation runs without timeout or resource limits.
@@ -337,11 +339,6 @@
 ; ============================================
 
 ; String search: find index of substr in str starting at pos, or -1
-(define (string-index-of str substr pos)
-  (let str-len (string-length str)
-    (let sub-len (string-length substr)
-      (string-index-of-loop str substr pos str-len sub-len))))
-
 (define (string-index-of-loop str substr pos str-len sub-len)
   (if (> (+ pos sub-len) str-len)
       -1
@@ -349,31 +346,48 @@
           pos
           (string-index-of-loop str substr (+ pos 1) str-len sub-len))))
 
+(define (string-index-of str substr pos)
+  (let str-len (string-length str)
+    (let sub-len (string-length substr)
+      (string-index-of-loop str substr pos str-len sub-len))))
+
+; Character classification helpers
+(define (whitespace? ch)
+  (if (equal? ch " ") #t
+    (if (equal? ch "\n") #t
+      (if (equal? ch "\t") #t
+        (equal? ch "\r")))))
+
+(define (delimiter? ch)
+  (if (whitespace? ch) #t
+    (if (equal? ch ")") #t
+      (equal? ch "("))))
+
 ; Skip whitespace characters, return new position
 (define (skip-whitespace text pos)
   (if (>= pos (string-length text))
       pos
       (let ch (char-at text pos)
-        (if (or (equal? ch " ") (equal? ch "\n") (equal? ch "\t") (equal? ch "\r"))
+        (if (whitespace? ch)
             (skip-whitespace text (+ pos 1))
             pos))))
 
 ; Extract a symbol (identifier) starting at pos
-; Returns (symbol . end-pos) or (#f . pos) if no symbol found
+; Returns (symbol end-pos) or (#f pos) if no symbol found
+(define (extract-symbol-loop text pos acc)
+  (if (>= pos (string-length text))
+      (if (equal? acc "") (list #f pos) (list acc pos))
+      (let ch (char-at text pos)
+        (if (delimiter? ch)
+            (if (equal? acc "") (list #f pos) (list acc pos))
+            (extract-symbol-loop text (+ pos 1) (string-append acc ch))))))
+
 (define (extract-symbol text pos)
   (extract-symbol-loop text pos ""))
 
-(define (extract-symbol-loop text pos acc)
-  (if (>= pos (string-length text))
-      (if (equal? acc "") (cons #f pos) (cons acc pos))
-      (let ch (char-at text pos)
-        (if (or (equal? ch " ") (equal? ch "\n") (equal? ch "\t") (equal? ch "\r")
-                (equal? ch ")") (equal? ch "("))
-            (if (equal? acc "") (cons #f pos) (cons acc pos))
-            (extract-symbol-loop text (+ pos 1) (string-append acc ch))))))
-
 ; Extract symbol name after (define or (defmacro
 ; Handles both (define name ...) and (define (name ...) ...)
+; Returns just the name string, or #f if not found
 (define (extract-defined-symbol text start-pos)
   (let pos (skip-whitespace text start-pos)
     (if (>= pos (string-length text))
@@ -384,10 +398,23 @@
             ; Variable form: (define name value)
             (car (extract-symbol text pos))))))
 
-; Find all symbols defined with a keyword like "(define " or "(defmacro "
-(define (find-definitions text pattern pattern-len)
-  (find-definitions-loop text pattern pattern-len 0 '()))
+; Extract symbol info after (define or (defmacro
+; Returns (name name-offset kind) or #f if not found
+; kind: 12 = Function, 13 = Variable
+(define (extract-defined-symbol-info text start-pos)
+  (let pos (skip-whitespace text start-pos)
+    (if (>= pos (string-length text))
+        #f
+        (if (equal? (char-at text pos) "(")
+            ; Function form: (define (name args) body)
+            (let name-pos (skip-whitespace text (+ pos 1))
+              (let name (car (extract-symbol text name-pos))
+                (if (equal? name #f) #f (list name name-pos 12))))
+            ; Variable form: (define name value)
+            (let name (car (extract-symbol text pos))
+              (if (equal? name #f) #f (list name pos 13)))))))
 
+; Find all symbols defined with a keyword like "(define " or "(defmacro "
 (define (find-definitions-loop text pattern pattern-len pos acc)
   (let idx (string-index-of text pattern pos)
     (if (< idx 0)
@@ -398,10 +425,76 @@
               (find-definitions-loop text pattern pattern-len (+ idx pattern-len)
                                      (cons sym acc)))))))
 
+(define (find-definitions text pattern pattern-len)
+  (find-definitions-loop text pattern pattern-len 0 '()))
+
 ; Find all user-defined symbols in text (from define and defmacro)
 (define (find-defined-symbols text)
   (append (find-definitions text "(define " 8)
           (find-definitions text "(defmacro " 10)))
+
+; ============================================
+; Document Symbols Support
+; ============================================
+
+; Convert byte offset to (line . col) - 0-based for LSP
+(define (offset-to-position-loop text pos line col target)
+  (if (>= pos target)
+      (list line col)
+      (if (>= pos (string-length text))
+          (list line col)
+          (if (equal? (char-at text pos) "\n")
+              (offset-to-position-loop text (+ pos 1) (+ line 1) 0 target)
+              (offset-to-position-loop text (+ pos 1) line (+ col 1) target)))))
+
+(define (offset-to-position text offset)
+  (offset-to-position-loop text 0 0 0 offset))
+
+; Find definitions with positions: returns list of (name line col kind)
+; Uses extract-defined-symbol-info to get the symbol name's actual position and kind
+(define (find-definitions-pos-loop text pattern pattern-len pos acc)
+  (let idx (string-index-of text pattern pos)
+    (if (< idx 0)
+        acc
+        (let info (extract-defined-symbol-info text (+ idx pattern-len))
+          (if (equal? info #f)
+              (find-definitions-pos-loop text pattern pattern-len (+ idx 1) acc)
+              (let name (car info)
+                (let name-offset (car (cdr info))
+                  (let kind (car (cdr (cdr info)))
+                    (let position (offset-to-position text name-offset)
+                      (find-definitions-pos-loop text pattern pattern-len (+ idx pattern-len)
+                        (cons (list name (car position) (car (cdr position)) kind) acc)))))))))))
+
+(define (find-definitions-with-pos text pattern pattern-len)
+  (find-definitions-pos-loop text pattern pattern-len 0 '()))
+
+(define (find-defined-symbols-with-pos text)
+  (append (find-definitions-with-pos text "(define " 8)
+          (find-definitions-with-pos text "(defmacro " 10)))
+
+; Make a symbol information object for LSP
+; SymbolKind: 12 = Function, 13 = Variable
+(define (make-symbol-info name kind uri line col)
+  (list (list "name" name)
+        (list "kind" kind)
+        (list "location"
+          (list (list "uri" uri)
+                (list "range" (make-range line col line (+ col (string-length name))))))))
+
+; Handle document symbols request
+; Returns list of SymbolInformation objects
+(define (handle-document-symbols uri doc-text)
+  (if (equal? doc-text #f)
+      '()
+      (let symbols (find-defined-symbols-with-pos doc-text)
+        (map (lambda (sym)
+               (let name (car sym)
+                 (let line (car (cdr sym))
+                   (let col (car (cdr (cdr sym)))
+                     (let kind (car (cdr (cdr (cdr sym))))
+                       (make-symbol-info name kind uri line col))))))
+             symbols))))
 
 ; Remove duplicates from a list
 (define (unique lst)
@@ -534,7 +627,8 @@
                                (list (list "textDocumentSync" 1)
                                      (list "completionProvider"
                                        (list (list "triggerCharacters" '("(" " "))
-                                             (list "resolveProvider" #f)))))
+                                             (list "resolveProvider" #f)))
+                                     (list "documentSymbolProvider" #t)))
                             (list "serverInfo"
                               (list (list "name" "seqlisp-lsp")
                                     (list "version" "0.3.0")))))))
@@ -560,6 +654,15 @@
                    (list (list "jsonrpc" "2.0")
                          (list "id" id)
                          (list "result" (handle-completion params doc-text))))
+                 docs))))
+          ((equal? method "textDocument/documentSymbol")
+           (let uri (assoc-val 'uri (assoc-val 'textDocument params))
+             (let doc-text (doc-get uri docs)
+               (begin
+                 (lsp-send
+                   (list (list "jsonrpc" "2.0")
+                         (list "id" id)
+                         (list "result" (handle-document-symbols uri doc-text))))
                  docs))))
           (else
             ; For unknown methods: notifications (no id) are ignored, requests get error
