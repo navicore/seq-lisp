@@ -4,6 +4,7 @@ repl
 test_eval
 test_errors
 seqlisp
+/.claude/
 /target/
 ./test*
 # Editor
