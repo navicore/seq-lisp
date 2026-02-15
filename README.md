@@ -32,7 +32,7 @@ This installs:
 
 ## Learning SeqLisp
 
-New to SeqLisp? Try [Lisplings](https://github.com/navicore/lisplings) — interactive exercises that teach Lisp concepts through hands-on practice with instant feedback.
+New to Lisp? Try [Lisplings](https://github.com/navicore/lisplings) — interactive exercises that teach Lisp concepts through hands-on practice with instant feedback.
 
 ```bash
 cargo install lisplings
