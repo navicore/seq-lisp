@@ -2331,9 +2331,26 @@ union EvalResult {
 #   (exit 1)  ; Exit with failure
 # ============================================
 
+# Check if an EvalResult is an exit signal (preserves the EvalResult)
+: is-exit-signal? ( EvalResult -- EvalResult Bool )
+  dup eval-err-message
+  dup "__exit:0__" string.equal? if
+    drop true
+  else
+    "__exit:1__" string.equal?
+  then
+;
+
+# Extract the exit code from an exit signal EvalResult (consumes it)
+: exit-signal-code ( EvalResult -- Int )
+  eval-err-message "__exit:0__" string.equal? if 0 else 1 then
+;
+
 : eval-exit-with-env ( SexprList Env -- EvalResult )
   # Stack: List Env
-  # (exit n) - exit process with code n
+  # (exit n) - returns a special error signal instead of terminating
+  # Callers (REPL, file runner) are responsible for calling os.exit
+  # LSP eval-all-with-errors treats exit signals as normal completion
   over 1 "exit" check-arity
   dup eval-err? if
     nip nip nip
@@ -2346,9 +2363,12 @@ union EvalResult {
     else
       eval-ok-value
       dup snum? if
-        snum-val os.exit
-        # Never reaches here - os.exit terminates process
-        snil slist eval-ok
+        snum-val
+        dup 0 i.= if
+          drop "__exit:0__" eval-err
+        else
+          drop "__exit:1__" eval-err
+        then
       else
         drop "exit: argument must be a number" eval-err
       then
@@ -2711,11 +2731,18 @@ union EvalResult {
             rot rot        # RestExprs Env NewValue
             eval-all-with-errors-loop
         else dup eval-err? if
-            # Error - extract and return it
-            dup eval-err-message  # Exprs Env LastValue EvalResult Msg
-            swap eval-err-span    # Exprs Env LastValue Msg Span
-            make-error-result eval-ok  # Exprs Env LastValue ErrorResult
-            nip nip nip  # Drop Exprs Env LastValue
+            # Check for exit signal - treat as normal completion for LSP
+            is-exit-signal? if
+                drop  # Drop EvalResult (exit signal)
+                nip nip  # Drop Exprs Env, keep LastValue
+                make-ok-result eval-ok
+            else
+                # Real error - extract and return it
+                dup eval-err-message  # Exprs Env LastValue EvalResult Msg
+                swap eval-err-span    # Exprs Env LastValue Msg Span
+                make-error-result eval-ok  # Exprs Env LastValue ErrorResult
+                nip nip nip  # Drop Exprs Env LastValue
+            then
         else
             # EvalDefine - update env and continue
             # Stack: Exprs Env LastValue EvalResult

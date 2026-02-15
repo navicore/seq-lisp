@@ -58,10 +58,17 @@ include "vim-line"
             eval-all-quiet
         else
             dup eval-err? if
-                # Print error but continue
-                format-eval-error io.write-line
-                scdr swap
-                eval-all-quiet
+                # Check for exit signal
+                is-exit-signal? if
+                    exit-signal-code os.exit
+                    # Never reaches here - stack shaping for compiler
+                    drop
+                else
+                    # Print error but continue
+                    format-eval-error io.write-line
+                    scdr swap
+                    eval-all-quiet
+                then
             else
                 # EvalOk - drop result
                 drop scdr swap
@@ -85,10 +92,17 @@ include "vim-line"
             eval-all-print
         else
             dup eval-err? if
-                # Print error and continue
-                format-eval-error io.write-line
-                scdr swap
-                eval-all-print
+                # Check for exit signal
+                is-exit-signal? if
+                    exit-signal-code os.exit
+                    # Never reaches here - stack shaping for compiler
+                    drop
+                else
+                    # Print error and continue
+                    format-eval-error io.write-line
+                    scdr swap
+                    eval-all-print
+                then
             else
                 # EvalOk result - unwrap and print if not empty list
                 eval-ok-value
