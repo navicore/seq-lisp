@@ -102,7 +102,7 @@ The evaluator is a tree-walker that pattern-matches on S-expression types:
 1. **Numbers**: Return as-is (self-evaluating)
 2. **Symbols**: Look up in environment
 3. **Lists**: Check if car is special form or function:
-   - Special forms: `if`, `let`, `lambda`, `define`
+   - Special forms: `if`, `let`, `lambda`, `define`, `cond`, `begin`, `quote`, `defmacro`, `try`
    - Otherwise: evaluate car (must be closure), evaluate args, apply
 
 ### Special Forms
@@ -113,6 +113,12 @@ The evaluator is a tree-walker that pattern-matches on S-expression types:
 | `let` | `(let name value body)` | Bind name=value, evaluate body in extended env |
 | `lambda` | `(lambda (params) body)` | Create closure capturing current environment |
 | `define` | `(define name value)` | Bind name globally (at top level) |
+| `cond` | `(cond (test expr...)...)` | Multi-way conditional; first true test wins |
+| `begin` | `(begin expr...)` | Sequence expressions, return last |
+| `quote` | `(quote x)` or `'x` | Return x unevaluated |
+| `defmacro` | `(defmacro (name params) body)` | Define a syntactic macro |
+| `try` | `(try expr)` | Returns `(ok value)` or `(error message)` |
+| `` ` `` | `` `(expr ,x ,@xs) `` | Quasiquote with unquote and splice |
 
 ## Key Design Decisions
 
@@ -235,7 +241,5 @@ SeqLisp leverages Seq's native TCO by ensuring that tail calls in Lisp map to ta
 
 ### Future Improvements
 
-- Source location tracking through tokenizer/parser/evaluator
-- Stack traces showing call chain
-- "Did you mean X?" suggestions for undefined symbols
 - Explicit recursion depth limits
+- Error recovery suggestions

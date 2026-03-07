@@ -161,7 +161,7 @@ The current architecture is sound for adding comprehensive error handling. No fu
 - [x] Diagnostics (parse errors, undefined symbols) via `textDocument/publishDiagnostics`
 - [ ] Hover (builtin docs, function info)
 - [ ] Go to Definition
-- [ ] Document Symbols
+- [x] Document Symbols
 
 **Code Formatter**
 - [ ] Consistent indentation based on nesting
@@ -251,7 +251,7 @@ Things we're explicitly not trying to do:
 
 - **Full Scheme/CL compatibility**: We cherry-pick features
 - **Performance parity with C**: Educational clarity over speed
-- **Complex numeric tower**: Integers are enough for now
+- **Complex numeric tower**: Integers and floats (`SFloat`) are supported; no rationals/complex
 - **Continuations**: Seq's execution model doesn't support them easily
 
 ## Contributing

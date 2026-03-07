@@ -23,7 +23,7 @@ programming and symbolic expression evaluation.
 
 ```bash
 just build
-just run
+just repl
 ```
 
 Or directly:
@@ -33,14 +33,18 @@ seqc src/repl.seq -o seqlisp
 ./seqlisp
 ```
 
-The REPL prompts you for input and evaluates expressions when you press Ctrl+D:
+The REPL uses a vim-style line editor with modal editing (Normal/Insert modes).
+Type an expression and press Enter to evaluate it:
 
 ```
 SeqLisp dev
-Enter code (Ctrl+D to run):
-(+ 1 2 3)
+> (+ 1 2 3)
 6
 ```
+
+Press `i` to enter Insert mode, `Escape` to return to Normal mode. Use `j`/`k`
+for command history. See the [ROADMAP](ROADMAP.md#vim-style-repl-editor-) for
+the full list of supported vim motions.
 
 ## Core Concepts
 
@@ -80,16 +84,19 @@ To prevent evaluation, use `quote` or the shorthand `'`:
 
 ### Numbers
 
-SeqLisp supports integers:
+SeqLisp supports integers and floating-point numbers:
 
 ```lisp
 42
 -17
 0
+3.14
+-0.5
 (+ 1 2 3)      ; 6
 (- 10 3)       ; 7
 (* 2 3 4)      ; 24
 (/ 100 2 5)    ; 10
+(+ 1.5 2.5)    ; 4.0
 ```
 
 ### Booleans
@@ -310,6 +317,9 @@ All comparisons return `#t` or `#f`:
 
 ## Examples
 
+> **Note:** `length`, `append`, `reverse`, `map`, and `filter` are now builtins.
+> The examples below show how they could be implemented from scratch.
+
 ### List Length
 
 ```lisp
@@ -388,6 +398,8 @@ All comparisons return `#t` or `#f`:
 | `(lambda (params) body)` | Anonymous function |
 | `(define name value)` | Global definition |
 | `(begin expr...)` | Sequence expressions |
+| `(defmacro (name params) body)` | Define a macro |
+| `(try expr)` | Error handling (returns `(ok val)` or `(error msg)`) |
 
 ### Arithmetic
 
@@ -397,6 +409,10 @@ All comparisons return `#t` or `#f`:
 | `(- ...)` | Subtraction |
 | `(* ...)` | Multiplication |
 | `(/ ...)` | Division |
+| `(abs n)` | Absolute value |
+| `(min a b)` | Minimum |
+| `(max a b)` | Maximum |
+| `(modulo a b)` | Remainder |
 
 ### Comparisons
 
@@ -416,6 +432,17 @@ All comparisons return `#t` or `#f`:
 | `(car lst)` | First element |
 | `(cdr lst)` | Rest of list |
 | `(list ...)` | Build list from args |
+| `(append lst1 lst2)` | Concatenate two lists |
+| `(reverse lst)` | Reverse a list |
+| `(length lst)` | Length of a list |
+| `(nth n lst)` | Nth element (0-indexed) |
+| `(last lst)` | Last element |
+| `(take n lst)` | First n elements |
+| `(drop n lst)` | Drop first n elements |
+| `(map f lst)` | Apply f to each element |
+| `(filter pred lst)` | Keep elements matching pred |
+| `(fold f init lst)` | Reduce list to single value |
+| `(apply f lst)` | Apply f to list as arguments |
 
 ### Predicates
 
@@ -426,12 +453,14 @@ All comparisons return `#t` or `#f`:
 | `(symbol? x)` | Is x a symbol? |
 | `(list? x)` | Is x a list? |
 | `(boolean? x)` | Is x #t or #f? |
+| `(equal? a b)` | Structural equality |
 
 ### I/O
 
 | Function | Description |
 |----------|-------------|
 | `(print x)` | Print x and return it |
+| `(exit n)` | Exit with code n |
 
 ## Language Heritage
 

@@ -63,7 +63,13 @@ seq-lisp/
 │   └── repl.seq      # Interactive REPL
 ├── tests/
 │   ├── seq/          # Seq unit tests (test_*.seq)
-│   └── all.slisp      # Lisp test suite
+│   ├── lisp/         # Lisp test suites
+│   │   ├── core/           # Arithmetic, types, strings, floats, JSON
+│   │   ├── functions/      # Closures, higher-order, recursion
+│   │   ├── special_forms/  # if, let, begin, quote, cond
+│   │   ├── macros/         # defmacro, quasiquote, gensym
+│   │   └── edge_cases/     # Parser edge cases, error suggestions
+│   └── lsp/          # LSP integration tests
 ├── lib/
 │   └── test.slisp     # Lisp test framework
 ├── examples/         # Lisp programs
