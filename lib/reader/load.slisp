@@ -1,0 +1,11 @@
+; SeqLisp self-hosted file loader
+;
+; Provides (load path) which reads a .slisp file and evaluates
+; all expressions in it using eval-all-with-errors.
+
+(define (load path)
+  (let source (read-file path)
+    (let result (eval-all-with-errors source)
+      (if (ok? result)
+          (ok-value result)
+          result))))

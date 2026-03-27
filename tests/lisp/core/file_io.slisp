@@ -1,0 +1,34 @@
+;; File I/O Tests
+;; Tests for: read-file, write-file, file-exists?
+
+(define file-io-tests (list
+  (test 'write-and-read
+    (begin
+      (write-file "/tmp/seqlisp-io-test.txt" "hello")
+      (assert-eq (read-file "/tmp/seqlisp-io-test.txt") "hello")))
+
+  (test 'file-exists-true
+    (begin
+      (write-file "/tmp/seqlisp-io-test2.txt" "x")
+      (assert-true (file-exists? "/tmp/seqlisp-io-test2.txt"))))
+
+  (test 'file-exists-false
+    (assert-false (file-exists? "/tmp/seqlisp-nonexistent-file.txt")))
+
+  (test 'read-nonexistent-error
+    (assert-error (read-file "/tmp/seqlisp-nonexistent-file.txt")))
+
+  (test 'write-overwrites
+    (begin
+      (write-file "/tmp/seqlisp-io-test3.txt" "first")
+      (write-file "/tmp/seqlisp-io-test3.txt" "second")
+      (assert-eq (read-file "/tmp/seqlisp-io-test3.txt") "second")))
+
+  (test 'write-read-multiline
+    (begin
+      (write-file "/tmp/seqlisp-io-test4.txt" "line1\nline2\nline3")
+      (assert-eq (read-file "/tmp/seqlisp-io-test4.txt") "line1\nline2\nline3")))
+
+  (test 'write-returns-true
+    (assert-true (write-file "/tmp/seqlisp-io-test5.txt" "ok")))
+))
