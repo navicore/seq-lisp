@@ -16,12 +16,11 @@
   (test "load nonexistent file is error"
     (assert-error (load "/tmp/seqlisp-nonexistent.slisp")))
 
-  (test "load file with syntax error"
-    (let result (try (load "/tmp/seqlisp-load-syntax-err.slisp"))
-      (begin
-        (write-file "/tmp/seqlisp-load-syntax-err.slisp" "(+ 1")
-        ; Reloading after write to test actual syntax error behavior
-        #t)))
+  (test "load file with eval error returns error list"
+    (begin
+      (write-file "/tmp/seqlisp-load-err.slisp" "(+ 1 undefined-var)")
+      (let result (load "/tmp/seqlisp-load-err.slisp")
+        (assert-eq (car result) 'error))))
 
   (test "load returns last expression value"
     (begin

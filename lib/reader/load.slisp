@@ -8,4 +8,6 @@
     (let result (eval-all-with-errors source)
       (if (ok? result)
           (ok-value result)
+          ; eval-all-with-errors returns (error msg ...) as data.
+          ; Return the error list so callers can inspect it.
           result))))
