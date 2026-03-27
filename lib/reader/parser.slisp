@@ -1,0 +1,204 @@
+; SeqLisp self-hosted parser
+;
+; Converts a token list (from tokenize) into S-expressions.
+; Each parse function returns (value remaining-tokens).
+;
+; Handles: atoms (integers, floats, booleans, strings, symbols),
+;          lists with parens, dot notation for pairs,
+;          quote, quasiquote, unquote, unquote-splicing sugar.
+
+; ============================================
+; Parse result: (value remaining-tokens)
+; ============================================
+
+(define (make-parse-result value remaining)
+  (list value remaining))
+
+(define (parse-result-value pr) (car pr))
+(define (parse-result-remaining pr) (car (cdr pr)))
+
+; ============================================
+; Atom detection helpers
+; ============================================
+
+(define (digit-char? ch)
+  (if (equal? ch "0") #t
+    (if (equal? ch "1") #t
+      (if (equal? ch "2") #t
+        (if (equal? ch "3") #t
+          (if (equal? ch "4") #t
+            (if (equal? ch "5") #t
+              (if (equal? ch "6") #t
+                (if (equal? ch "7") #t
+                  (if (equal? ch "8") #t
+                    (if (equal? ch "9") #t
+                      #f)))))))))))
+
+(define (string-starts-with? str prefix)
+  (if (< (string-length str) (string-length prefix)) #f
+    (equal? (substring str 0 (string-length prefix)) prefix)))
+
+(define (number-token? text)
+  (if (equal? text "") #f
+    (let first (substring text 0 1)
+      (if (digit-char? first) #t
+        (if (equal? first "-")
+            (if (> (string-length text) 1)
+                (digit-char? (substring text 1 1))
+                #f)
+            #f)))))
+
+(define (has-dot? text)
+  (string-contains? text "."))
+
+(define (float-token? text)
+  (if (number-token? text)
+      (has-dot? text)
+      #f))
+
+(define (integer-token? text)
+  (if (number-token? text)
+      (if (has-dot? text) #f #t)
+      #f))
+
+(define (boolean-token? text)
+  (if (equal? text "#t") #t
+    (equal? text "#f")))
+
+(define (string-token? text)
+  (if (> (string-length text) 0)
+      (equal? (substring text 0 1) "\"")
+      #f))
+
+; Strip surrounding quotes from string token text
+(define (strip-quotes text)
+  (substring text 1 (- (string-length text) 2)))
+
+; ============================================
+; Integer parser (no string->int builtin yet)
+; ============================================
+
+(define (digit-value ch)
+  (if (equal? ch "0") 0
+    (if (equal? ch "1") 1
+      (if (equal? ch "2") 2
+        (if (equal? ch "3") 3
+          (if (equal? ch "4") 4
+            (if (equal? ch "5") 5
+              (if (equal? ch "6") 6
+                (if (equal? ch "7") 7
+                  (if (equal? ch "8") 8
+                    (if (equal? ch "9") 9
+                      0)))))))))))
+
+(define (string-to-integer text pos acc)
+  (if (>= pos (string-length text))
+      acc
+      (let ch (substring text pos 1)
+        (if (equal? ch "-")
+            (- 0 (string-to-integer text (+ pos 1) 0))
+            (if (digit-char? ch)
+                (string-to-integer text (+ pos 1)
+                                   (+ (* acc 10) (digit-value ch)))
+                acc)))))
+
+; Convert a string to a symbol using eval-with-errors
+(define (string->symbol name)
+  (let result (eval-with-errors (string-append "'" name))
+    (if (ok? result)
+        (ok-value result)
+        name)))
+
+; Convert a string to a float using eval-with-errors
+(define (string->float-val text)
+  (let result (eval-with-errors text)
+    (if (ok? result)
+        (ok-value result)
+        text)))
+
+; Convert token text to an atom value
+(define (text-to-atom text)
+  (if (equal? text "#t") #t
+    (if (equal? text "#f") #f
+      (if (string-token? text)
+          (strip-quotes text)
+          (if (float-token? text)
+              (string->float-val text)
+              (if (integer-token? text)
+                  (string-to-integer text 0 0)
+                  ; Symbol
+                  (string->symbol text)))))))
+
+; ============================================
+; Main parser
+; ============================================
+
+; Parse list contents until ")"
+; Takes a parser function to break mutual recursion with parse-expr.
+; Dot notation: (a . b) is stored as the list (a . b) — the dot
+; becomes a literal symbol, matching the host parser's behavior.
+(define (parse-list-items parser tokens acc)
+  (if (null? tokens)
+      (make-parse-result (reverse acc) '())
+      (let tok (car tokens)
+        (let text (token-text tok)
+          (if (equal? text ")")
+              (make-parse-result (reverse acc) (cdr tokens))
+              ; Parse next element (dot becomes a symbol like any other atom)
+              (let pr (parser tokens)
+                (parse-list-items parser
+                                 (parse-result-remaining pr)
+                                 (cons (parse-result-value pr) acc))))))))
+
+; parse-expr and parse-wrap are mutually recursive.
+; We inline the sugar handling to avoid forward references.
+(define (parse-expr tokens)
+  (if (null? tokens)
+      (make-parse-result '() '())
+      (let tok (car tokens)
+        (let text (token-text tok)
+          (let rest (cdr tokens)
+            (if (equal? text "(")
+                (parse-list-items parse-expr rest '())
+                (if (equal? text "'")
+                    (let pr (parse-expr rest)
+                      (make-parse-result (list 'quote (parse-result-value pr))
+                                         (parse-result-remaining pr)))
+                    (if (equal? text "`")
+                        (let pr (parse-expr rest)
+                          (make-parse-result (list 'quasiquote (parse-result-value pr))
+                                             (parse-result-remaining pr)))
+                        (if (equal? text ",@")
+                            (let pr (parse-expr rest)
+                              (make-parse-result (list 'unquote-splicing (parse-result-value pr))
+                                                 (parse-result-remaining pr)))
+                            (if (equal? text ",")
+                                (let pr (parse-expr rest)
+                                  (make-parse-result (list 'unquote (parse-result-value pr))
+                                                     (parse-result-remaining pr)))
+                                ; Atom
+                                (make-parse-result (text-to-atom text) rest)))))))))))))
+
+; ============================================
+; Multi-expression parser
+; ============================================
+
+; Parse all expressions from a token list
+(define (parse-all-exprs tokens acc)
+  (if (null? tokens)
+      (reverse acc)
+      (let pr (parse-expr tokens)
+        (parse-all-exprs (parse-result-remaining pr)
+                         (cons (parse-result-value pr) acc)))))
+
+; ============================================
+; Public API
+; ============================================
+
+; Parse a source string into the first S-expression
+(define (parse source)
+  (parse-result-value (parse-expr (tokenize source))))
+
+; Parse a source string into a list of all top-level S-expressions
+(define (parse-all source)
+  (parse-all-exprs (tokenize source) '()))
