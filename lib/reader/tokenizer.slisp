@@ -1,0 +1,222 @@
+; SeqLisp self-hosted tokenizer
+;
+; Tokenizes a source string into a list of token records.
+; Each token is (text start-line start-col end-line end-col).
+; Lines and columns are 1-based to match the Seq tokenizer.
+;
+; Handles: parens, symbols, numbers, strings (with escapes),
+;          quote, quasiquote, unquote, unquote-splicing, comments.
+
+; ============================================
+; Character helpers
+; ============================================
+
+(define (char-at str pos)
+  (if (>= pos (string-length str))
+      ""
+      (substring str pos 1)))
+
+(define (whitespace? ch)
+  (if (equal? ch " ") #t
+    (if (equal? ch "\t") #t
+      (if (equal? ch "\r") #t
+        (if (equal? ch "\n") #t
+          #f)))))
+
+(define (newline? ch)
+  (equal? ch "\n"))
+
+(define (delimiter? ch)
+  (if (equal? ch "(") #t
+    (if (equal? ch ")") #t
+      (if (equal? ch "'") #t
+        (if (equal? ch "`") #t
+          (if (equal? ch ",") #t
+            (if (equal? ch "\"") #t
+              (if (equal? ch ";") #t
+                (whitespace? ch)))))))))
+
+; ============================================
+; Token constructor
+; ============================================
+
+(define (make-token text start-line start-col end-line end-col)
+  (list text start-line start-col end-line end-col))
+
+(define (token-text tok) (car tok))
+(define (token-start-line tok) (car (cdr tok)))
+(define (token-start-col tok) (car (cdr (cdr tok))))
+(define (token-end-line tok) (car (cdr (cdr (cdr tok)))))
+(define (token-end-col tok) (car (cdr (cdr (cdr (cdr tok))))))
+
+; ============================================
+; Tokenizer state: (input pos line col tokens)
+; ============================================
+
+(define (make-state input pos line col tokens)
+  (list input pos line col tokens))
+
+(define (state-input st) (car st))
+(define (state-pos st) (car (cdr st)))
+(define (state-line st) (car (cdr (cdr st))))
+(define (state-col st) (car (cdr (cdr (cdr st)))))
+(define (state-tokens st) (car (cdr (cdr (cdr (cdr st))))))
+
+(define (state-at-end? st)
+  (>= (state-pos st) (string-length (state-input st))))
+
+(define (state-char st)
+  (char-at (state-input st) (state-pos st)))
+
+(define (state-advance st)
+  (let ch (state-char st)
+    (if (newline? ch)
+        (make-state (state-input st)
+                    (+ (state-pos st) 1)
+                    (+ (state-line st) 1)
+                    1
+                    (state-tokens st))
+        (make-state (state-input st)
+                    (+ (state-pos st) 1)
+                    (state-line st)
+                    (+ (state-col st) 1)
+                    (state-tokens st)))))
+
+(define (state-emit st tok)
+  (make-state (state-input st)
+              (state-pos st)
+              (state-line st)
+              (state-col st)
+              (cons tok (state-tokens st))))
+
+; ============================================
+; Skip whitespace and comments
+; ============================================
+
+(define (skip-comment st)
+  (if (state-at-end? st) st
+    (if (newline? (state-char st))
+        (state-advance st)
+        (skip-comment (state-advance st)))))
+
+(define (skip-whitespace st)
+  (if (state-at-end? st) st
+    (let ch (state-char st)
+      (if (equal? ch ";")
+          (skip-whitespace (skip-comment st))
+          (if (whitespace? ch)
+              (skip-whitespace (state-advance st))
+              st)))))
+
+; ============================================
+; String literal scanner
+; ============================================
+
+(define (scan-string st start-line start-col accum)
+  (if (state-at-end? st)
+      ; Unterminated string — emit what we have
+      (let text (string-append accum "\"")
+        (state-emit st (make-token text start-line start-col
+                                   (state-line st) (state-col st))))
+      (let ch (state-char st)
+        (if (equal? ch "\"")
+            ; Closing quote
+            (let text (string-append accum "\"")
+              (let st2 (state-advance st)
+                (state-emit st2 (make-token text start-line start-col
+                                            (state-line st) (state-col st)))))
+            (if (equal? ch "\\")
+                ; Escape sequence — inline to avoid mutual recursion
+                (let st2 (state-advance st)
+                  (if (state-at-end? st2)
+                      (let text (string-append accum "\\\"")
+                        (state-emit st2 (make-token text start-line start-col
+                                                    (state-line st2) (state-col st2))))
+                      (let esc-ch (state-char st2)
+                        (let replacement
+                          (if (equal? esc-ch "n") "\n"
+                            (if (equal? esc-ch "t") "\t"
+                              (if (equal? esc-ch "r") "\r"
+                                (if (equal? esc-ch "\\") "\\"
+                                  (if (equal? esc-ch "\"") "\""
+                                    (string-append "\\" esc-ch))))))
+                          (scan-string (state-advance st2) start-line start-col
+                                       (string-append accum replacement))))))
+                ; Regular character
+                (scan-string (state-advance st) start-line start-col
+                             (string-append accum ch)))))))
+
+; ============================================
+; Symbol/number scanner
+; ============================================
+
+(define (scan-atom st start-line start-col accum)
+  (if (state-at-end? st)
+      ; End of input — emit accumulated atom
+      (state-emit st (make-token accum start-line start-col
+                                 (state-line st) (state-col st)))
+      (let ch (state-char st)
+        (if (delimiter? ch)
+            ; Hit a delimiter — emit accumulated atom
+            (state-emit st (make-token accum start-line start-col
+                                       (state-line st) (state-col st)))
+            ; Accumulate character
+            (scan-atom (state-advance st) start-line start-col
+                       (string-append accum ch))))))
+
+; ============================================
+; Main tokenizer loop
+; ============================================
+
+(define (tokenize-loop st)
+  (let st2 (skip-whitespace st)
+    (if (state-at-end? st2) st2
+      (let ch (state-char st2)
+        (let line (state-line st2)
+          (let col (state-col st2)
+            (if (equal? ch "(")
+                (tokenize-loop
+                  (state-emit (state-advance st2)
+                              (make-token "(" line col line (+ col 1))))
+                (if (equal? ch ")")
+                    (tokenize-loop
+                      (state-emit (state-advance st2)
+                                  (make-token ")" line col line (+ col 1))))
+                    (if (equal? ch "'")
+                        (tokenize-loop
+                          (state-emit (state-advance st2)
+                                      (make-token "'" line col line (+ col 1))))
+                        (if (equal? ch "`")
+                            (tokenize-loop
+                              (state-emit (state-advance st2)
+                                          (make-token "`" line col line (+ col 1))))
+                            (if (equal? ch ",")
+                                (let st3 (state-advance st2)
+                                  (if (state-at-end? st3)
+                                      (tokenize-loop
+                                        (state-emit st3
+                                                    (make-token "," line col line (+ col 1))))
+                                      (if (equal? (state-char st3) "@")
+                                          (tokenize-loop
+                                            (state-emit (state-advance st3)
+                                                        (make-token ",@" line col line (+ col 2))))
+                                          (tokenize-loop
+                                            (state-emit st3
+                                                        (make-token "," line col line (+ col 1)))))))
+                                (if (equal? ch "\"")
+                                    ; String literal
+                                    (tokenize-loop
+                                      (scan-string (state-advance st2) line col "\""))
+                                    ; Atom (symbol, number, boolean)
+                                    (tokenize-loop
+                                      (scan-atom st2 line col ""))))))))))))))
+
+; ============================================
+; Public API
+; ============================================
+
+(define (tokenize source)
+  (reverse
+    (state-tokens
+      (tokenize-loop
+        (make-state source 0 1 1 '())))))
