@@ -1,12 +1,9 @@
 ; Tests for the self-hosted tokenizer
+; Accessors (token-text, token-start-line, etc.) come from lib/reader/tokenizer.slisp
 
 ; ============================================
 ; Token helpers for tests
 ; ============================================
-
-(define (token-text tok) (car tok))
-(define (token-start-line tok) (car (cdr tok)))
-(define (token-start-col tok) (car (cdr (cdr tok))))
 
 (define (token-texts tokens)
   (map token-text tokens))
@@ -128,6 +125,25 @@
         (assert-eq (token-start-col (car (cdr tokens))) 2)
         (assert-eq (token-start-col (car (cdr (cdr tokens)))) 5))))
 
+  (test "end span of single-char token"
+    (let tok (car (tokenize "("))
+      (begin
+        (assert-eq (token-end-line tok) 1)
+        (assert-eq (token-end-col tok) 2))))
+
+  (test "end span of symbol"
+    (let tok (car (tokenize "foo"))
+      (begin
+        (assert-eq (token-end-line tok) 1)
+        (assert-eq (token-end-col tok) 4))))
+
+  (test "end span multiline"
+    (let tokens (tokenize "a\nb")
+      (let tok (car (cdr tokens))
+        (begin
+          (assert-eq (token-start-line tok) 2)
+          (assert-eq (token-end-line tok) 2)))))
+
   ; --- Edge cases ---
   (test "dot in symbol"
     (assert-eq (token-texts (tokenize "a.b")) '("a.b")))
@@ -143,4 +159,7 @@
 
   (test "multiple expressions"
     (assert-eq (token-count "(define x 1)\n(+ x 2)") 10))
+
+  (test "backslash at end of string input"
+    (assert-eq (token-count "\"hello\\") 1))
 )

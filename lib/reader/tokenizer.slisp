@@ -87,7 +87,7 @@
               (state-pos st)
               (state-line st)
               (state-col st)
-              (append (state-tokens st) (list tok))))
+              (cons tok (state-tokens st))))
 
 ; ============================================
 ; Skip whitespace and comments
@@ -216,6 +216,7 @@
 ; ============================================
 
 (define (tokenize source)
-  (state-tokens
-    (tokenize-loop
-      (make-state source 0 1 1 '()))))
+  (reverse
+    (state-tokens
+      (tokenize-loop
+        (make-state source 0 1 1 '())))))

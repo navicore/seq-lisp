@@ -115,7 +115,7 @@ reader-test: build
     set -euo pipefail
     echo "Running self-hosted reader tests..."
     tmp=$(mktemp)
-    trap "rm -f $tmp" EXIT
+    trap "rm -f \"$tmp\"" EXIT
     cat lib/test.slisp \
         lib/reader/tokenizer.slisp \
         tests/lisp/reader/tokenizer.slisp \
