@@ -34,10 +34,6 @@
                     (if (equal? ch "9") #t
                       #f)))))))))))
 
-(define (string-starts-with? str prefix)
-  (if (< (string-length str) (string-length prefix)) #f
-    (equal? (substring str 0 (string-length prefix)) prefix)))
-
 (define (number-token? text)
   (if (equal? text "") #f
     (let first (substring text 0 1)

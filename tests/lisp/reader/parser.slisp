@@ -148,6 +148,6 @@
   (test "unclosed paren returns partial"
     (assert-eq (parse "(a b") '(a b)))
 
-  (test "extra close paren parsed as symbol"
-    (assert-eq (parse ")") (list)))
+  (test "extra close paren returns empty list"
+    (assert-eq (parse ")") '()))
 )
