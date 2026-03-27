@@ -1,0 +1,153 @@
+; Tests for the self-hosted parser
+
+(run-suite "Self-hosted Parser"
+
+  ; --- Atoms ---
+  (test "parse integer"
+    (assert-eq (parse "42") 42))
+
+  (test "parse negative integer"
+    (assert-eq (parse "-7") -7))
+
+  (test "parse zero"
+    (assert-eq (parse "0") 0))
+
+  (test "parse boolean true"
+    (assert-eq (parse "#t") #t))
+
+  (test "parse boolean false"
+    (assert-eq (parse "#f") #f))
+
+  (test "parse symbol"
+    (assert-eq (parse "foo") 'foo))
+
+  (test "parse hyphenated symbol"
+    (assert-eq (parse "string-length") 'string-length))
+
+  (test "parse predicate symbol"
+    (assert-eq (parse "null?") 'null?))
+
+  (test "parse string"
+    (assert-eq (parse "\"hello\"") "hello"))
+
+  (test "parse empty string"
+    (assert-eq (parse "\"\"") ""))
+
+  ; --- Lists ---
+  (test "parse empty list"
+    (assert-eq (parse "()") '()))
+
+  (test "parse simple list"
+    (assert-eq (parse "(+ 1 2)") '(+ 1 2)))
+
+  (test "parse nested list"
+    (assert-eq (parse "(define (f x) (+ x 1))")
+               '(define (f x) (+ x 1))))
+
+  (test "parse list with strings"
+    (assert-eq (parse "(print \"hello\")")
+               '(print "hello")))
+
+  (test "parse list with booleans"
+    (assert-eq (parse "(if #t 1 2)")
+               '(if #t 1 2)))
+
+  (test "parse deeply nested"
+    (assert-eq (parse "((a (b (c))))")
+               '((a (b (c))))))
+
+  ; --- Quote sugar ---
+  (test "parse quote"
+    (assert-eq (parse "'foo") '(quote foo)))
+
+  (test "parse quoted list"
+    (assert-eq (parse "'(1 2 3)") '(quote (1 2 3))))
+
+  (test "parse quasiquote"
+    (assert-eq (parse "`foo") '(quasiquote foo)))
+
+  (test "parse unquote"
+    (assert-eq (parse ",x") '(unquote x)))
+
+  (test "parse unquote-splicing"
+    (assert-eq (parse ",@xs") '(unquote-splicing xs)))
+
+  (test "parse quasiquote with unquote"
+    (assert-eq (parse "`(a ,b c)")
+               '(quasiquote (a (unquote b) c))))
+
+  (test "parse quasiquote with splice"
+    (assert-eq (parse "`(a ,@b c)")
+               '(quasiquote (a (unquote-splicing b) c))))
+
+  ; --- Dot notation ---
+  ; Dot is stored as a literal symbol in the list,
+  ; matching the host parser's behavior.
+  (test "parse dotted pair"
+    (assert-eq (parse "(a . b)") (list 'a '. 'b)))
+
+  (test "parse dotted with rest"
+    (assert-eq (parse "(x y . z)") (list 'x 'y '. 'z)))
+
+  (test "parse lambda with rest params"
+    (assert-eq (parse "(lambda (x . rest) rest)")
+               (list 'lambda (list 'x '. 'rest) 'rest)))
+
+  ; --- Multiple expressions ---
+  (test "parse-all single"
+    (assert-eq (parse-all "42") '(42)))
+
+  (test "parse-all multiple"
+    (assert-eq (parse-all "(define x 1) (+ x 2)")
+               '((define x 1) (+ x 2))))
+
+  (test "parse-all with comments"
+    (assert-eq (parse-all "; comment\n(foo) (bar)")
+               '((foo) (bar))))
+
+  ; --- Roundtrip: parse matches eval's view ---
+  (test "parsed define is evaluable shape"
+    (let expr (parse "(define x 42)")
+      (begin
+        (assert-eq (car expr) 'define)
+        (assert-eq (car (cdr expr)) 'x)
+        (assert-eq (car (cdr (cdr expr))) 42))))
+
+  (test "parsed lambda is evaluable shape"
+    (let expr (parse "(lambda (x) (+ x 1))")
+      (begin
+        (assert-eq (car expr) 'lambda)
+        (assert-eq (car (cdr expr)) '(x))
+        (assert-eq (car (cdr (cdr expr))) '(+ x 1)))))
+
+  ; --- Edge cases ---
+  (test "parse empty input"
+    (assert-eq (parse "") '()))
+
+  (test "parse whitespace only"
+    (assert-eq (parse "   ") '()))
+
+  (test "parse comment only"
+    (assert-eq (parse "; just a comment") '()))
+
+  (test "parse minus symbol"
+    (assert-eq (parse "(- 3 1)") '(- 3 1)))
+
+  (test "parse nested quotes"
+    (assert-eq (parse "''x") '(quote (quote x))))
+
+  (test "parse negative float"
+    (assert-eq (parse "-3.14") -3.14))
+
+  (test "parse string with escape"
+    (assert-eq (parse "\"a\\nb\"") "a\nb"))
+
+  (test "parse-all empty"
+    (assert-eq (parse-all "") '()))
+
+  (test "unclosed paren returns partial"
+    (assert-eq (parse "(a b") '(a b)))
+
+  (test "extra close paren returns empty list"
+    (assert-eq (parse ")") '()))
+)
