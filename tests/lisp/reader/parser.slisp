@@ -135,4 +135,19 @@
 
   (test "parse nested quotes"
     (assert-eq (parse "''x") '(quote (quote x))))
+
+  (test "parse negative float"
+    (assert-eq (parse "-3.14") -3.14))
+
+  (test "parse string with escape"
+    (assert-eq (parse "\"a\\nb\"") "a\nb"))
+
+  (test "parse-all empty"
+    (assert-eq (parse-all "") '()))
+
+  (test "unclosed paren returns partial"
+    (assert-eq (parse "(a b") '(a b)))
+
+  (test "extra close paren parsed as symbol"
+    (assert-eq (parse ")") (list)))
 )

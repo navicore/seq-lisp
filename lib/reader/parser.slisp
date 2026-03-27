@@ -70,7 +70,9 @@
       (equal? (substring text 0 1) "\"")
       #f))
 
-; Strip surrounding quotes from string token text
+; Strip surrounding quotes from string token text.
+; The tokenizer always produces string tokens with leading and trailing "
+; so we skip the first char and take (length - 2) chars.
 (define (strip-quotes text)
   (substring text 1 (- (string-length text) 2)))
 
@@ -91,6 +93,8 @@
                     (if (equal? ch "9") 9
                       0)))))))))))
 
+; Parse an integer from text. Assumes minus only appears at pos 0
+; (valid for number tokens from the tokenizer).
 (define (string-to-integer text pos acc)
   (if (>= pos (string-length text))
       acc
