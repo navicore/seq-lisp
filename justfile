@@ -109,6 +109,19 @@ lisp-run file: build
     cat lib/test.slisp {{file}} > "$tmp"
     ./target/seqlisp "$tmp"
 
+# Run self-hosted reader tests (tokenizer, parser, etc.)
+reader-test: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Running self-hosted reader tests..."
+    tmp=$(mktemp)
+    trap "rm -f $tmp" EXIT
+    cat lib/test.slisp \
+        lib/reader/tokenizer.slisp \
+        tests/lisp/reader/tokenizer.slisp \
+        > "$tmp"
+    ./target/seqlisp "$tmp"
+
 # Run LSP integration tests
 lsp-test: build
     #!/usr/bin/env bash
@@ -217,7 +230,7 @@ lsp-test: build
     fi
 
 # Full CI: test + build + lisp-test + lsp-test
-ci: test build lisp-test lsp-test
+ci: test build lisp-test reader-test lsp-test
     @echo "CI passed!"
 
 # Safe eval - for testing expressions with bounded output (prevents infinite loops)

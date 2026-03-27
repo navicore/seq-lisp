@@ -1,0 +1,146 @@
+; Tests for the self-hosted tokenizer
+
+; ============================================
+; Token helpers for tests
+; ============================================
+
+(define (token-text tok) (car tok))
+(define (token-start-line tok) (car (cdr tok)))
+(define (token-start-col tok) (car (cdr (cdr tok))))
+
+(define (token-texts tokens)
+  (map token-text tokens))
+
+(define (token-count source)
+  (length (tokenize source)))
+
+; ============================================
+; Test suite
+; ============================================
+
+(run-suite "Self-hosted Tokenizer"
+
+  ; --- Basic tokens ---
+  (test "empty string"
+    (assert-eq (tokenize "") '()))
+
+  (test "single symbol"
+    (assert-eq (token-texts (tokenize "foo")) '("foo")))
+
+  (test "single number"
+    (assert-eq (token-texts (tokenize "42")) '("42")))
+
+  (test "negative number"
+    (assert-eq (token-texts (tokenize "-7")) '("-7")))
+
+  (test "float"
+    (assert-eq (token-texts (tokenize "3.14")) '("3.14")))
+
+  (test "boolean true"
+    (assert-eq (token-texts (tokenize "#t")) '("#t")))
+
+  (test "boolean false"
+    (assert-eq (token-texts (tokenize "#f")) '("#f")))
+
+  ; --- Parens and structure ---
+  (test "parens"
+    (assert-eq (token-texts (tokenize "()")) '("(" ")")))
+
+  (test "simple expression"
+    (assert-eq (token-texts (tokenize "(+ 1 2)"))
+               '("(" "+" "1" "2" ")")))
+
+  (test "nested expression"
+    (assert-eq (token-texts (tokenize "(define (f x) (+ x 1))"))
+               '("(" "define" "(" "f" "x" ")" "(" "+" "x" "1" ")" ")")))
+
+  ; --- Quoting ---
+  (test "quote"
+    (assert-eq (token-texts (tokenize "'foo")) '("'" "foo")))
+
+  (test "quasiquote"
+    (assert-eq (token-texts (tokenize "`(a ,b ,@c)"))
+               '("`" "(" "a" "," "b" ",@" "c" ")")))
+
+  (test "unquote"
+    (assert-eq (token-texts (tokenize ",x")) '("," "x")))
+
+  (test "unquote-splicing"
+    (assert-eq (token-texts (tokenize ",@xs")) '(",@" "xs")))
+
+  ; --- Strings ---
+  (test "simple string"
+    (assert-eq (token-texts (tokenize "\"hello\"")) '("\"hello\"")))
+
+  (test "string with escape"
+    (assert-eq (token-texts (tokenize "\"a\\nb\"")) '("\"a\nb\"")))
+
+  (test "string with escaped quote"
+    (assert-eq (token-texts (tokenize "\"a\\\"b\"")) '("\"a\"b\"")))
+
+  (test "string in expression"
+    (assert-eq (token-texts (tokenize "(print \"hi\")"))
+               '("(" "print" "\"hi\"" ")")))
+
+  ; --- Comments ---
+  (test "comment at end"
+    (assert-eq (token-texts (tokenize "foo ; comment"))
+               '("foo")))
+
+  (test "comment before code"
+    (assert-eq (token-texts (tokenize "; comment\nfoo"))
+               '("foo")))
+
+  (test "comment between expressions"
+    (assert-eq (token-texts (tokenize "(a)\n; comment\n(b)"))
+               '("(" "a" ")" "(" "b" ")")))
+
+  ; --- Whitespace handling ---
+  (test "tabs and spaces"
+    (assert-eq (token-texts (tokenize "  a\tb  ")) '("a" "b")))
+
+  (test "multiple newlines"
+    (assert-eq (token-texts (tokenize "\n\nfoo\n\n")) '("foo")))
+
+  ; --- Source spans ---
+  (test "span of first token"
+    (let tok (car (tokenize "foo"))
+      (begin
+        (assert-eq (token-start-line tok) 1)
+        (assert-eq (token-start-col tok) 1))))
+
+  (test "span after newline"
+    (let tok (car (tokenize "\nbar"))
+      (begin
+        (assert-eq (token-start-line tok) 2)
+        (assert-eq (token-start-col tok) 1))))
+
+  (test "span with indentation"
+    (let tok (car (tokenize "  baz"))
+      (begin
+        (assert-eq (token-start-line tok) 1)
+        (assert-eq (token-start-col tok) 3))))
+
+  (test "span of paren"
+    (let tokens (tokenize "(foo)")
+      (begin
+        (assert-eq (token-start-col (car tokens)) 1)
+        (assert-eq (token-start-col (car (cdr tokens))) 2)
+        (assert-eq (token-start-col (car (cdr (cdr tokens)))) 5))))
+
+  ; --- Edge cases ---
+  (test "dot in symbol"
+    (assert-eq (token-texts (tokenize "a.b")) '("a.b")))
+
+  (test "hash symbol"
+    (assert-eq (token-texts (tokenize "#foo")) '("#foo")))
+
+  (test "comma at end of input"
+    (assert-eq (token-texts (tokenize ",")) '(",")))
+
+  (test "empty parens in list"
+    (assert-eq (token-texts (tokenize "'()")) '("'" "(" ")")))
+
+  (test "multiple expressions"
+    (assert-eq (token-count "(define x 1)\n(+ x 2)") 10))
+)
