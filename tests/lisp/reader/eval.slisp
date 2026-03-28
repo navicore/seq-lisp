@@ -163,13 +163,29 @@
       1))
 
   ; --- Apply edge cases ---
-  (test "eval apply 5+ args errors"
-    (let result (seval-string "(apply + '(1 2 3 4 5))")
+  ; apply works with self-hosted closures (not host builtins,
+  ; which have no first-class representation in the self-hosted eval)
+  (test "eval apply with closure"
+    (assert-eq (seval-string
+      "(define (add a b) (+ a b)) (apply add '(3 4))")
+      7))
+
+  (test "eval apply 5 args with closure"
+    (assert-eq (seval-string
+      "(define (sum5 a b c d e) (+ a (+ b (+ c (+ d e))))) (apply sum5 '(1 2 3 4 5))")
+      15))
+
+  (test "eval apply 7+ args errors"
+    (let result (seval-string
+      "(define (f a b c d e f g) a) (apply f '(1 2 3 4 5 6 7))")
       (assert-eq (car result) 'error)))
 
   ; --- Strings with special chars ---
   (test "eval string with embedded quote"
     (assert-eq (seval-string "(string-length \"a\\\"b\")") 3))
+
+  (test "eval string with newline through builtin"
+    (assert-eq (seval-string "(string-length \"a\\nb\")") 3))
 
   ; --- File evaluation (the checkpoint) ---
   (test "sload evaluates a file"

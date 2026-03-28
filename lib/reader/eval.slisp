@@ -327,7 +327,13 @@
             (escape-string-char str (+ pos 1) (string-append acc "\\\\"))
             (if (equal? ch "\"")
                 (escape-string-char str (+ pos 1) (string-append acc "\\\""))
-                (escape-string-char str (+ pos 1) (string-append acc ch)))))))
+                (if (equal? ch "\n")
+                    (escape-string-char str (+ pos 1) (string-append acc "\\n"))
+                    (if (equal? ch "\t")
+                        (escape-string-char str (+ pos 1) (string-append acc "\\t"))
+                        (if (equal? ch "\r")
+                            (escape-string-char str (+ pos 1) (string-append acc "\\r"))
+                            (escape-string-char str (+ pos 1) (string-append acc ch))))))))))
 
 (define (escape-string str)
   (escape-string-char str 0 ""))
@@ -514,15 +520,17 @@
   (if (null? lst) acc
       (fold f (f acc (car lst)) (cdr lst))))
 
-; Self-hosted apply dispatches by arity (0-4 args).
-; Errors on 5+ args — extend dispatch if needed.
+; Self-hosted apply dispatches by arity (0-6 args).
+; Errors on 7+ args — extend dispatch if needed.
 (define (apply f args)
   (if (null? args) (f)
     (if (null? (cdr args)) (f (car args))
       (if (null? (cdr (cdr args))) (f (car args) (car (cdr args)))
         (if (null? (cdr (cdr (cdr args)))) (f (car args) (car (cdr args)) (car (cdr (cdr args))))
           (if (null? (cdr (cdr (cdr (cdr args))))) (f (car args) (car (cdr args)) (car (cdr (cdr args))) (car (cdr (cdr (cdr args)))))
-            (list 'error 'apply-max-4-args)))))))
+            (if (null? (cdr (cdr (cdr (cdr (cdr args)))))) (f (car args) (car (cdr args)) (car (cdr (cdr args))) (car (cdr (cdr (cdr args)))) (car (cdr (cdr (cdr (cdr args))))))
+              (if (null? (cdr (cdr (cdr (cdr (cdr (cdr args))))))) (f (car args) (car (cdr args)) (car (cdr (cdr args))) (car (cdr (cdr (cdr args)))) (car (cdr (cdr (cdr (cdr args))))) (car (cdr (cdr (cdr (cdr (cdr args)))))))
+                (list 'error 'apply-max-6-args)))))))))
 
 (define (not x) (if x #f #t))
 ")
