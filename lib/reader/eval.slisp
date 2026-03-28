@@ -254,7 +254,7 @@
             (let closure (make-named-closure params body env name)
               (env-define env name closure)))))
       (let name (car args)
-        (let val (ev ev env (car (cdr args)))
+        (let val (trampoline ev (ev ev env (car (cdr args))))
           (if (eval-error? val) val
               (begin
                 (env-define env name val)
@@ -582,11 +582,11 @@
                       (if (eval-error? result)
                           (begin (print (list 'bootstrap-error result)) env)
                           (bootstrap-eval ev (car result) (cdr exprs))))
-                    (let val (ev ev env expr)
+                    (let val (trampoline ev (ev ev env expr))
                       (if (eval-error? val)
                           (begin (print (list 'bootstrap-error val)) env)
                           (bootstrap-eval ev env (cdr exprs))))))
-            (let val (ev ev env expr)
+            (let val (trampoline ev (ev ev env expr))
               (if (eval-error? val)
                   (begin (print (list 'bootstrap-error val)) env)
                   (bootstrap-eval ev env (cdr exprs))))))))
