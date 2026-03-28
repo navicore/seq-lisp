@@ -136,12 +136,36 @@
                                (cdr args)))))))
 
 ; ============================================
+; Trampoline for tail-call optimization
+; ============================================
+
+; A thunk represents a deferred evaluation: (__thunk__ env expr)
+; Returned from tail positions instead of recursing.
+(define (make-thunk env expr)
+  (list '__thunk__ env expr))
+
+(define (thunk? x)
+  (if (list? x)
+      (if (null? x) #f
+          (equal? (car x) '__thunk__))
+      #f))
+
+(define (thunk-env t) (car (cdr t)))
+(define (thunk-expr t) (car (cdr (cdr t))))
+
+; The trampoline: keep evaluating until the result is not a thunk.
+(define (trampoline ev result)
+  (if (thunk? result)
+      (trampoline ev (ev ev (thunk-env result) (thunk-expr result)))
+      result))
+
+; ============================================
 ; Argument evaluation
 ; ============================================
 
 (define (eval-args ev env args)
   (if (null? args) '()
-      (let val (ev ev env (car args))
+      (let val (trampoline ev (ev ev env (car args)))
         (if (eval-error? val) val
             (let rest (eval-args ev env (cdr args))
               (if (eval-error? rest) rest
@@ -167,47 +191,53 @@
       (let call-env (env-push self-env)
         (let bound-env (bind-params call-env (closure-params func) args)
           (if (eval-error? bound-env) bound-env
-              (ev ev bound-env (closure-body func))))))))
+              ; TAIL POSITION: return thunk instead of recursing
+              (make-thunk bound-env (closure-body func))))))))
 
 ; ============================================
 ; Special forms (all take ev as first param)
 ; ============================================
 
 (define (do-if ev env args)
-  (let test-val (ev ev env (car args))
+  (let test-val (trampoline ev (ev ev env (car args)))
     (if (eval-error? test-val) test-val
         (if (equal? test-val #f)
-            ; One-armed if: return '() when else branch is missing
             (if (null? (cdr (cdr args)))
                 '()
-                (ev ev env (car (cdr (cdr args)))))
-            (ev ev env (car (cdr args)))))))
+                ; TAIL POSITION
+                (make-thunk env (car (cdr (cdr args)))))
+            ; TAIL POSITION
+            (make-thunk env (car (cdr args)))))))
 
 (define (do-cond ev env clauses)
   (if (null? clauses) '()
       (let clause (car clauses)
         (if (equal? (car clause) 'else)
-            (ev ev env (car (cdr clause)))
-            (let test-val (ev ev env (car clause))
+            ; TAIL POSITION
+            (make-thunk env (car (cdr clause)))
+            (let test-val (trampoline ev (ev ev env (car clause)))
               (if (eval-error? test-val) test-val
                   (if (equal? test-val #f)
                       (do-cond ev env (cdr clauses))
-                      (ev ev env (car (cdr clause))))))))))
+                      ; TAIL POSITION
+                      (make-thunk env (car (cdr clause))))))))))
 
 (define (do-begin ev env exprs)
   (if (null? exprs) '()
       (if (null? (cdr exprs))
-          (ev ev env (car exprs))
-          (let val (ev ev env (car exprs))
+          ; TAIL POSITION
+          (make-thunk env (car exprs))
+          (let val (trampoline ev (ev ev env (car exprs)))
             (if (eval-error? val) val
                 (do-begin ev env (cdr exprs)))))))
 
 (define (do-let ev env args)
   (let name (car args)
-    (let val (ev ev env (car (cdr args)))
+    (let val (trampoline ev (ev ev env (car (cdr args))))
       (if (eval-error? val) val
-          (ev ev (env-define env name val)
-              (car (cdr (cdr args))))))))
+          ; TAIL POSITION
+          (make-thunk (env-define env name val)
+                      (car (cdr (cdr args))))))))
 
 ; Note: do-define returns the value but discards the updated env.
 ; This means bare (seval '(define x 1)) does not persist x.
@@ -397,15 +427,17 @@
         (if (eval-error? evaled-args) evaled-args
             (call-builtin head evaled-args)))
       ; Not a builtin — evaluate the head to get the operator
-      (let op (ev ev env head)
+      (let op (trampoline ev (ev ev env head))
         (if (eval-error? op) op
             (if (macro? op)
-                (let expanded (apply-closure ev op args)
+                ; Expand macro, then TAIL POSITION on the expansion
+                (let expanded (trampoline ev (apply-closure ev op args))
                   (if (eval-error? expanded) expanded
-                      (ev ev env expanded)))
+                      (make-thunk env expanded)))
                 (if (closure? op)
                     (let evaled-args (eval-args ev env args)
                       (if (eval-error? evaled-args) evaled-args
+                          ; TAIL POSITION: apply-closure returns a thunk
                           (apply-closure ev op evaled-args)))
                     (make-eval-error "not a function")))))))))
 
@@ -454,7 +486,7 @@
             (let closure (make-named-closure params body env name)
               (list (env-define env name closure) closure)))))
       (let name (car args)
-        (let val (ev ev env (car (cdr args)))
+        (let val (trampoline ev (ev ev env (car (cdr args))))
           (if (eval-error? val) val
               (list (env-define env name val) val))))))
 
@@ -490,11 +522,11 @@
                               (if (null? (cdr exprs))
                                   (car (cdr result))
                                   (do-eval-all ev (car result) (cdr exprs)))))
-                        (let val (ev ev env expr)
+                        (let val (trampoline ev (ev ev env expr))
                           (if (eval-error? val) val
                               (if (null? (cdr exprs)) val
                                   (do-eval-all ev env (cdr exprs))))))))
-            (let val (ev ev env expr)
+            (let val (trampoline ev (ev ev env expr))
               (if (eval-error? val) val
                   (if (null? (cdr exprs)) val
                       (do-eval-all ev env (cdr exprs)))))))))
@@ -571,7 +603,7 @@
 ; ============================================
 
 (define (seval expr)
-  (self-eval self-eval initial-env expr))
+  (trampoline self-eval (self-eval self-eval initial-env expr)))
 
 (define (seval-string source)
   (let exprs (parse-all source)

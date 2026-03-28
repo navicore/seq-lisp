@@ -187,6 +187,12 @@
   (test "eval string with newline through builtin"
     (assert-eq (seval-string "(string-length \"a\\nb\")") 3))
 
+  ; --- Tail-call optimization ---
+  (test "eval TCO deep recursion"
+    (assert-eq (seval-string
+      "(define (sum n acc) (if (= n 0) acc (sum (- n 1) (+ acc n)))) (sum 10000 0)")
+      50005000))
+
   ; --- File evaluation (the checkpoint) ---
   (test "sload evaluates a file"
     (begin
