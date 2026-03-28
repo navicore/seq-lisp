@@ -44,6 +44,9 @@ include "vim-line"
     then
 ;
 
+# bootstrap-env is defined in eval.seq — it embeds the bootstrap source
+# and produces an environment with map, filter, fold, apply, not.
+
 # Evaluate all expressions with persistent environment (no output)
 : eval-all-quiet ( SexprList Env -- Env )
     # Stack: Exprs Env -> FinalEnv
@@ -125,7 +128,7 @@ include "vim-line"
 # Run a file
 : run-file ( String -- )
     file.slurp drop tokenize parse-all
-    env-empty eval-all-print drop
+    bootstrap-env eval-all-print drop
 ;
 
 # ============================================
@@ -279,7 +282,7 @@ include "vim-line"
 
 # Start interactive REPL
 : run-repl ( -- )
-    history-load "" env-empty repl-loop ;
+    history-load "" bootstrap-env repl-loop ;
 
 # ============================================
 # Stdin Mode - Read all lines, then evaluate (for piped input)
@@ -306,7 +309,7 @@ include "vim-line"
         drop
     else
         tokenize parse-all
-        env-empty eval-all-print drop
+        bootstrap-env eval-all-print drop
     then ;
 
 # ============================================
@@ -363,7 +366,7 @@ include "vim-line"
         file.slurp if
             # Stack: Content (success)
             tokenize parse-all
-            env-empty eval-all-print drop
+            bootstrap-env eval-all-print drop
         else
             drop  # Drop empty/error content
             "Error: Cannot read file" io.write-line
@@ -378,7 +381,7 @@ include "vim-line"
     "lib/lsp.slisp" file.exists? if
         "lib/lsp.slisp" file.slurp if
             tokenize parse-all
-            env-empty eval-all-quiet drop
+            bootstrap-env eval-all-quiet drop
         else
             drop "Error: Cannot read lib/lsp.slisp" io.write-line
         then

@@ -480,6 +480,7 @@ union EvalResult {
   "filter" check-candidate
   "fold" check-candidate
   "apply" check-candidate
+  "not" check-candidate
   "print" check-candidate
   "read-line" check-candidate
   "read-n" check-candidate
@@ -677,7 +678,7 @@ union EvalResult {
 # Simple eval without environment (for backward compatibility)
 # Returns raw Sexpr for convenience - unwraps EvalOk, returns snil on error
 : eval ( Sexpr -- Sexpr )
-  env-empty eval-with-env
+  bootstrap-env eval-with-env
   dup eval-ok? if
     eval-ok-value
   else
@@ -885,17 +886,15 @@ union EvalResult {
     drop eval-take-with-env
   else dup "drop" string.equal? if
     drop eval-drop-with-env
-  else dup "map" string.equal? if
-    drop eval-map-with-env
-  else dup "filter" string.equal? if
-    drop eval-filter-with-env
-  else dup "fold" string.equal? if
-    drop eval-fold-with-env
+  # map, filter, fold, not are self-hosted in the bootstrap.
+  # They are found via env lookup, not dispatch. No native implementations.
+  # apply stays native because it must bridge closures and dispatch-only
+  # builtins (like +, -, *) which aren't first-class values.
   else dup "apply" string.equal? if
     drop eval-apply-with-env
   else
     dispatch-predicates
-  then then then then then then then then then then then then then then then
+  then then then then then then then then then then then then
 ;
 
 # ----------------------------------------
@@ -2786,8 +2785,8 @@ union EvalResult {
       eval-ok-value
       dup sstring? if
         sstring-val parse  # Parse the string -> Sexpr
-        # Now evaluate the parsed expression with empty env
-        env-empty eval-with-env
+        # Evaluate with bootstrap env so self-hosted functions are available
+        bootstrap-env eval-with-env
         dup eval-ok? if
           eval-ok-value make-ok-result eval-ok
         else dup eval-err? if
@@ -2892,8 +2891,8 @@ union EvalResult {
           # Empty - return (ok ())
           drop snil slist make-ok-result eval-ok
         else
-          # Evaluate all with empty initial env
-          env-empty snil slist eval-all-with-errors-loop
+          # Evaluate with bootstrap env so self-hosted functions are available
+          bootstrap-env snil slist eval-all-with-errors-loop
         then
       else
         drop "eval-all-with-errors: argument must be a string" eval-err
@@ -5365,3 +5364,50 @@ union EvalResult {
   else
     eval-ok-value sexpr-to-string io.write-line
   then ;
+
+# ============================================
+# Bootstrap: self-hosted standard library
+# ============================================
+# map, filter, fold, apply, not are implemented in SeqLisp.
+# This is the ONLY implementation — no native Seq duplicates.
+# The bootstrap source is embedded as a string so it doesn't
+# depend on the filesystem at compile time.
+
+: bootstrap-source ( -- String )
+  "(define (map f lst) (if (null? lst) '() (cons (f (car lst)) (map f (cdr lst)))))"
+  " (define (filter f lst) (if (null? lst) '() (if (f (car lst)) (cons (car lst) (filter f (cdr lst))) (filter f (cdr lst)))))" string.concat
+  " (define (fold f acc lst) (if (null? lst) acc (fold f (f acc (car lst)) (cdr lst))))" string.concat
+  " (define (not x) (if x #f #t))" string.concat
+  # apply stays native in dispatch — it must bridge closures and
+  # dispatch-only builtins (like +) which aren't first-class values.
+;
+
+# Evaluate bootstrap expressions, threading env through defines
+: bootstrap-eval-loop ( SexprList Env -- Env )
+  swap dup snil? if
+    drop  # Return env
+  else
+    dup scar 2 pick eval-with-env
+    dup eval-define? if
+      dup eval-define-name swap eval-define-value
+      3 pick env-extend
+      rot drop swap scdr swap
+      bootstrap-eval-loop
+    else
+      dup eval-err? if
+        eval-err-message "Bootstrap error: " swap string.concat io.write-line
+        scdr swap
+        bootstrap-eval-loop
+      else
+        drop scdr swap
+        bootstrap-eval-loop
+      then
+    then
+  then
+;
+
+# Produce the bootstrap environment (cached at first call site)
+: bootstrap-env ( -- Env )
+  bootstrap-source tokenize parse-all
+  env-empty bootstrap-eval-loop
+;

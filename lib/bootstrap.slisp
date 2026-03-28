@@ -1,0 +1,27 @@
+; SeqLisp Bootstrap Standard Library
+;
+; These functions are the single implementation — there are no
+; native Seq versions. They are loaded at host startup and injected
+; into the global environment before any user code runs.
+;
+; Functions: map, filter, fold, apply, not
+
+(define (map f lst)
+  (if (null? lst) '()
+      (cons (f (car lst)) (map f (cdr lst)))))
+
+(define (filter f lst)
+  (if (null? lst) '()
+      (if (f (car lst))
+          (cons (car lst) (filter f (cdr lst)))
+          (filter f (cdr lst)))))
+
+(define (fold f acc lst)
+  (if (null? lst) acc
+      (fold f (f acc (car lst)) (cdr lst))))
+
+; apply stays native in the host dispatch because it must bridge
+; closures and dispatch-only builtins (like +, -, *) which aren't
+; first-class values. See docs/design/self-hosting-phase2.md.
+
+(define (not x) (if x #f #t))
