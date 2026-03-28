@@ -45,7 +45,7 @@ include "vim-line"
 ;
 
 # bootstrap-env is defined in eval.seq — it embeds the bootstrap source
-# and produces an environment with map, filter, fold, apply, not.
+# and produces an environment with map, filter, fold, not.
 
 # Evaluate all expressions with persistent environment (no output)
 : eval-all-quiet ( SexprList Env -- Env )

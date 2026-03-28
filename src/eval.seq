@@ -5398,7 +5398,7 @@ union EvalResult {
       dup eval-err? if
         eval-err-message "Fatal bootstrap error: " swap string.concat io.write-line
         1 os.exit
-        # Dead code — stack shaping for compiler after os.exit
+        # Unreachable — compiler requires consistent stack depth after os.exit
         scdr swap bootstrap-eval-loop
       else
         # Non-define result (EvalOk) — discard value and continue.
