@@ -187,6 +187,37 @@
   (test "eval string with newline through builtin"
     (assert-eq (seval-string "(string-length \"a\\nb\")") 3))
 
+  ; --- Tail-call optimization ---
+  (test "eval TCO via if"
+    (assert-eq (seval-string
+      "(define (sum n acc) (if (= n 0) acc (sum (- n 1) (+ acc n)))) (sum 10000 0)")
+      50005000))
+
+  (test "eval TCO via cond"
+    (assert-eq (seval-string
+      "(define (countdown n) (cond ((= n 0) 'done) (else (countdown (- n 1))))) (countdown 10000)")
+      'done))
+
+  (test "eval TCO via begin"
+    (assert-eq (seval-string
+      "(define (loop n) (if (= n 0) 'ok (begin (loop (- n 1))))) (loop 10000)")
+      'ok))
+
+  (test "eval TCO via let"
+    (assert-eq (seval-string
+      "(define (loop n) (if (= n 0) 'ok (let x (- n 1) (loop x)))) (loop 10000)")
+      'ok))
+
+  ; Known limitation: mutual recursion doesn't work yet. Closures
+  ; capture the env at definition time, so the first-defined function
+  ; can't see the second. Fixing this requires mutable env cells or
+  ; a letrec-style form. The host eval handles this with mutable envs.
+
+  (test "eval TCO through macro"
+    (assert-eq (seval-string
+      "(defmacro (when test body) `(if ,test ,body '())) (define (loop n) (when (> n 0) (loop (- n 1)))) (loop 10000)")
+      '()))
+
   ; --- File evaluation (the checkpoint) ---
   (test "sload evaluates a file"
     (begin
