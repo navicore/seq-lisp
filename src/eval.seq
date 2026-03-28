@@ -5358,7 +5358,7 @@ union EvalResult {
 # ============================================
 
 : eval-print ( String -- )
-  parse env-empty eval-with-env
+  parse bootstrap-env eval-with-env
   dup eval-err? if
     format-eval-error io.write-line
   else
@@ -5368,10 +5368,11 @@ union EvalResult {
 # ============================================
 # Bootstrap: self-hosted standard library
 # ============================================
-# map, filter, fold, apply, not are implemented in SeqLisp.
+# map, filter, fold, not are implemented in SeqLisp below.
 # This is the ONLY implementation — no native Seq duplicates.
-# The bootstrap source is embedded as a string so it doesn't
-# depend on the filesystem at compile time.
+# The source is embedded as a string constant (not loaded from a file)
+# so there are no filesystem dependencies at startup.
+# apply stays native because it must bridge dispatch-only builtins.
 
 : bootstrap-source ( -- String )
   "(define (map f lst) (if (null? lst) '() (cons (f (car lst)) (map f (cdr lst)))))"
@@ -5395,9 +5396,10 @@ union EvalResult {
       bootstrap-eval-loop
     else
       dup eval-err? if
-        eval-err-message "Bootstrap error: " swap string.concat io.write-line
-        scdr swap
-        bootstrap-eval-loop
+        eval-err-message "Fatal bootstrap error: " swap string.concat io.write-line
+        1 os.exit
+        # Dead code — stack shaping for compiler after os.exit
+        scdr swap bootstrap-eval-loop
       else
         drop scdr swap
         bootstrap-eval-loop
@@ -5406,7 +5408,9 @@ union EvalResult {
   then
 ;
 
-# Produce the bootstrap environment (cached at first call site)
+# Produce the bootstrap environment.
+# Called at each entry point — re-evaluates the bootstrap each time.
+# Acceptable for startup; not called in hot loops.
 : bootstrap-env ( -- Env )
   bootstrap-source tokenize parse-all
   env-empty bootstrap-eval-loop
