@@ -145,6 +145,32 @@
     (let result (seval-string "(1 2 3)")
       (assert-eq (car result) 'error)))
 
+  ; --- Macros ---
+  (test "eval defmacro"
+    (assert-eq (seval-string
+      "(defmacro (when test body) `(if ,test ,body '())) (when #t 42)")
+      42))
+
+  (test "eval defmacro false"
+    (assert-eq (seval-string
+      "(defmacro (when test body) `(if ,test ,body '())) (when #f 42)")
+      '()))
+
+  ; --- Varargs ---
+  (test "eval variadic lambda"
+    (assert-eq (seval-string
+      "(define (first . args) (car args)) (first 1 2 3)")
+      1))
+
+  ; --- Apply edge cases ---
+  (test "eval apply 5+ args errors"
+    (let result (seval-string "(apply + '(1 2 3 4 5))")
+      (assert-eq (car result) 'error)))
+
+  ; --- Strings with special chars ---
+  (test "eval string with embedded quote"
+    (assert-eq (seval-string "(string-length \"a\\\"b\")") 3))
+
   ; --- File evaluation (the checkpoint) ---
   (test "sload evaluates a file"
     (begin

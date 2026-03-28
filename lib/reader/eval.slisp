@@ -14,6 +14,10 @@
 ; Environments
 ; ============================================
 
+; Reserved names: __not-found__ (env sentinel), __closure__ and __macro__
+; (tagged list markers). User code binding these names will cause
+; incorrect behavior. Acceptable for bootstrap; a production eval
+; should use unforgeable tags.
 (define (empty-env) '(()))
 
 (define (frame-lookup frame name)
@@ -205,6 +209,11 @@
           (ev ev (env-define env name val)
               (car (cdr (cdr args))))))))
 
+; Note: do-define returns the value but discards the updated env.
+; This means bare (seval '(define x 1)) does not persist x.
+; Multi-expression evaluation via seval-string/sload uses do-define-all
+; which correctly threads the env. This is by design — seval evaluates
+; a single expression without persistent state.
 (define (do-define ev env args)
   (if (list? (car args))
       ; Function shorthand — create named closure for recursive self-reference
@@ -244,10 +253,12 @@
 ; Quasiquote
 ; ============================================
 
-(define (do-qq-list ev env lst)
+; do-qq and do-qq-list are mutually recursive. We pass qq (the
+; quasiquote handler) as a parameter to break the forward reference.
+(define (do-qq-list qq ev env lst)
   (if (null? lst) '()
       (let item (car lst)
-        (let rest (do-qq-list ev env (cdr lst))
+        (let rest (do-qq-list qq ev env (cdr lst))
           (if (eval-error? rest) rest
               (if (list? item)
                   (if (null? item) (cons item rest)
@@ -259,17 +270,17 @@
                               (let val (ev ev env (car (cdr item)))
                                 (if (eval-error? val) val
                                     (append val rest)))
-                              (let val (do-qq ev env item)
+                              (let val (qq qq ev env item)
                                 (if (eval-error? val) val
                                     (cons val rest))))))
                   (cons item rest)))))))
 
-(define (do-qq ev env form)
+(define (do-qq qq ev env form)
   (if (list? form)
       (if (null? form) form
           (if (equal? (car form) 'unquote)
               (ev ev env (car (cdr form)))
-              (do-qq-list ev env form)))
+              (do-qq-list qq ev env form)))
       form))
 
 ; ============================================
@@ -307,42 +318,54 @@
           (car (cdr (car map)))
           (find-name-str sym (cdr map)))))
 
+; Escape a string for safe embedding in a host eval expression.
+; Replaces \ with \\ and " with \" so the round-trip is faithful.
+(define (escape-string-char str pos acc)
+  (if (>= pos (string-length str)) acc
+      (let ch (substring str pos 1)
+        (if (equal? ch "\\")
+            (escape-string-char str (+ pos 1) (string-append acc "\\\\"))
+            (if (equal? ch "\"")
+                (escape-string-char str (+ pos 1) (string-append acc "\\\""))
+                (escape-string-char str (+ pos 1) (string-append acc ch)))))))
+
+(define (escape-string str)
+  (escape-string-char str 0 ""))
+
 ; Serialize values to strings for host eval delegation.
-; Symbols not in builtin-name-map (e.g. user-defined) serialize as "??"
-; since there's no symbol->string builtin. This is only used for host
-; builtin calls, which only receive data args (not closures or user symbols).
+; Only used for host builtin calls, which receive data args.
+; Closures and unresolvable symbols produce errors rather than
+; silently emitting malformed expressions.
 ; val->str and list-items->str are mutually recursive — we inline
 ; the list case in list-items->str to avoid forward references.
-; For nested lists, we just quote them.
+(define (serialize-atom item)
+  (if (number? item) (json-encode item)
+    (if (float? item) (json-encode item)
+      (if (string? item) (string-append "\"" (escape-string item) "\"")
+        (if (boolean? item) (if item "#t" "#f")
+          (if (null? item) "'()"
+            (if (symbol? item)
+                (let name (find-name-str item builtin-name-map)
+                  (if name name #f))
+                #f)))))))
+
 (define (list-items->str lst)
   (if (null? lst) ""
       (let item (car lst)
         (let item-str
-          (if (number? item) (json-encode item)
-            (if (float? item) (json-encode item)
-              (if (string? item) (string-append "\"" item "\"")
-                (if (boolean? item) (if item "#t" "#f")
-                  (if (null? item) "'()"
-                    (if (list? item) (string-append "'(" (list-items->str item) ")")
-                      (if (symbol? item)
-                          (let name (find-name-str item builtin-name-map)
-                            (if name name "??"))
-                          "??")))))))
-          (if (null? (cdr lst))
-              item-str
-              (string-append item-str " " (list-items->str (cdr lst))))))))
+          (if (list? item)
+              (string-append "'(" (list-items->str item) ")")
+              (serialize-atom item))
+          (if (equal? item-str #f) "__unserializable__"
+              (if (null? (cdr lst))
+                  item-str
+                  (string-append item-str " " (list-items->str (cdr lst)))))))))
 
 (define (val->str v)
-  (if (number? v) (json-encode v)
-    (if (float? v) (json-encode v)
-      (if (string? v) (string-append "\"" v "\"")
-        (if (boolean? v) (if v "#t" "#f")
-          (if (null? v) "'()"
-            (if (list? v) (string-append "'(" (list-items->str v) ")")
-              (if (symbol? v)
-                  (let name (find-name-str v builtin-name-map)
-                    (if name name "??"))
-                  "??"))))))))
+  (if (list? v)
+      (string-append "'(" (list-items->str v) ")")
+      (let result (serialize-atom v)
+        (if (equal? result #f) "__unserializable__" result))))
 
 (define (args->str args)
   (if (null? args) ""
@@ -405,7 +428,7 @@
                           (if (equal? head 'define)  (do-define ev env args)
                           (if (equal? head 'lambda)  (do-lambda env args)
                           (if (equal? head 'defmacro)(do-defmacro env args)
-                          (if (equal? head 'quasiquote) (do-qq ev env (car args))
+                          (if (equal? head 'quasiquote) (do-qq do-qq ev env (car args))
                               (do-apply ev env head args)))))))))))))
                   expr)))))))
 
@@ -499,7 +522,7 @@
       (if (null? (cdr (cdr args))) (f (car args) (car (cdr args)))
         (if (null? (cdr (cdr (cdr args)))) (f (car args) (car (cdr args)) (car (cdr (cdr args))))
           (if (null? (cdr (cdr (cdr (cdr args))))) (f (car args) (car (cdr args)) (car (cdr (cdr args))) (car (cdr (cdr (cdr args)))))
-            (list 'error \"apply: too many arguments (max 4)\")))))))
+            (list 'error 'apply-max-4-args)))))))
 
 (define (not x) (if x #f #t))
 ")
