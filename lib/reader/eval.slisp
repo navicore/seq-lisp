@@ -14,10 +14,10 @@
 ; Environments
 ; ============================================
 
-; Reserved names: __not-found__ (env sentinel), __closure__ and __macro__
-; (tagged list markers). User code binding these names will cause
-; incorrect behavior. Acceptable for bootstrap; a production eval
-; should use unforgeable tags.
+; Reserved names: __not-found__ (env sentinel), __closure__, __macro__,
+; and __thunk__ (tagged list markers). User code binding these names
+; will cause incorrect behavior. Acceptable for bootstrap; a production
+; eval should use unforgeable tags.
 (define (empty-env) '(()))
 
 (define (frame-lookup frame name)
@@ -202,6 +202,7 @@
   (let test-val (trampoline ev (ev ev env (car args)))
     (if (eval-error? test-val) test-val
         (if (equal? test-val #f)
+            ; One-armed if: return '() when else branch is missing
             (if (null? (cdr (cdr args)))
                 '()
                 ; TAIL POSITION
@@ -430,7 +431,8 @@
       (let op (trampoline ev (ev ev env head))
         (if (eval-error? op) op
             (if (macro? op)
-                ; Expand macro, then TAIL POSITION on the expansion
+                ; Expand macro body (trampoline resolves the thunk from
+                ; apply-closure), then tail-call into the expansion
                 (let expanded (trampoline ev (apply-closure ev op args))
                   (if (eval-error? expanded) expanded
                       (make-thunk env expanded)))

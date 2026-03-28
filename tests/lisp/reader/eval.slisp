@@ -188,10 +188,25 @@
     (assert-eq (seval-string "(string-length \"a\\nb\")") 3))
 
   ; --- Tail-call optimization ---
-  (test "eval TCO deep recursion"
+  (test "eval TCO via if"
     (assert-eq (seval-string
       "(define (sum n acc) (if (= n 0) acc (sum (- n 1) (+ acc n)))) (sum 10000 0)")
       50005000))
+
+  (test "eval TCO via cond"
+    (assert-eq (seval-string
+      "(define (countdown n) (cond ((= n 0) 'done) (else (countdown (- n 1))))) (countdown 10000)")
+      'done))
+
+  (test "eval TCO via begin"
+    (assert-eq (seval-string
+      "(define (loop n) (if (= n 0) 'ok (begin (loop (- n 1))))) (loop 10000)")
+      'ok))
+
+  (test "eval TCO via let"
+    (assert-eq (seval-string
+      "(define (loop n) (if (= n 0) 'ok (let x (- n 1) (loop x)))) (loop 10000)")
+      'ok))
 
   ; --- File evaluation (the checkpoint) ---
   (test "sload evaluates a file"
