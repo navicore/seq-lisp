@@ -1,0 +1,30 @@
+; Tests for the self-hosted file loader
+
+(run-suite "Self-hosted Loader"
+
+  (test "load evaluates file"
+    (begin
+      (write-file "/tmp/seqlisp-load-test.slisp" "(+ 1 2)")
+      (assert-eq (load "/tmp/seqlisp-load-test.slisp") 3)))
+
+  (test "load evaluates all expressions"
+    (begin
+      (write-file "/tmp/seqlisp-load-test2.slisp"
+                  "(define x 10)\n(+ x 5)")
+      (assert-eq (load "/tmp/seqlisp-load-test2.slisp") 15)))
+
+  (test "load nonexistent file is error"
+    (assert-error (load "/tmp/seqlisp-nonexistent.slisp")))
+
+  (test "load file with eval error returns error list"
+    (begin
+      (write-file "/tmp/seqlisp-load-err.slisp" "(+ 1 undefined-var)")
+      (let result (load "/tmp/seqlisp-load-err.slisp")
+        (assert-eq (car result) 'error))))
+
+  (test "load returns last expression value"
+    (begin
+      (write-file "/tmp/seqlisp-load-test3.slisp"
+                  "1\n2\n3")
+      (assert-eq (load "/tmp/seqlisp-load-test3.slisp") 3)))
+)

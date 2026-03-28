@@ -495,6 +495,9 @@ union EvalResult {
   "string-find" check-candidate
   "string-chomp" check-candidate
   "exit" check-candidate
+  "read-file" check-candidate
+  "write-file" check-candidate
+  "file-exists?" check-candidate
   "try" check-candidate
   "quasiquote" check-candidate
   "defmacro" check-candidate
@@ -986,9 +989,15 @@ union EvalResult {
     drop eval-read-n-with-env
   else dup "exit" string.equal? if
     drop eval-exit-with-env
+  else dup "read-file" string.equal? if
+    drop eval-read-file-with-env
+  else dup "write-file" string.equal? if
+    drop eval-write-file-with-env
+  else dup "file-exists?" string.equal? if
+    drop eval-file-exists-with-env
   else
     dispatch-json
-  then then then then then then
+  then then then then then then then then then
 ;
 
 # ----------------------------------------
@@ -2371,6 +2380,110 @@ union EvalResult {
         then
       else
         drop "exit: argument must be a number" eval-err
+      then
+    then
+  then
+;
+
+# ============================================
+# File I/O
+# ============================================
+
+# (read-file path) - read entire file contents as a string
+# Returns the file contents, or raises an error if the file cannot be read.
+: eval-read-file-with-env ( SexprList Env -- EvalResult )
+  over 1 "read-file" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop
+    swap scdr scar  # -> Env PathExpr
+    swap eval-with-env  # -> PathResult
+    dup eval-err? if
+      # Error evaluating path - propagate
+    else
+      eval-ok-value
+      dup sstring? if
+        sstring-val file.slurp if
+          sstring eval-ok
+        else
+          drop "read-file: could not read file" eval-err
+        then
+      else
+        drop "read-file: argument must be a string" eval-err
+      then
+    then
+  then
+;
+
+# (write-file path content) - write string content to a file
+# Returns #t on success, or raises an error.
+: eval-write-file-with-env ( SexprList Env -- EvalResult )
+  over 2 "write-file" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop
+    # Extract two args: (write-file path content)
+    swap scdr                 # -> Env (PathExpr ContentExpr)
+    dup scar swap scdr scar   # -> Env PathExpr ContentExpr
+    # Evaluate content first (leaves PathExpr available for second eval)
+    rot                       # -> PathExpr ContentExpr Env
+    dup rot swap              # -> PathExpr Env ContentExpr Env
+    eval-with-env             # -> PathExpr Env ContentResult
+    dup eval-err? if
+      nip nip
+    else
+      eval-ok-value
+      dup sstring? if
+        sstring-val   # -> PathExpr Env ContentStr
+        rot rot       # -> ContentStr PathExpr Env
+        eval-with-env # -> ContentStr PathResult
+        dup eval-err? if
+          nip
+        else
+          eval-ok-value
+          dup sstring? if
+            sstring-val   # -> ContentStr PathStr
+            # file.spit: ( content path -- Bool )
+            file.spit if
+              "#t" ssym eval-ok
+            else
+              "write-file: could not write file" eval-err
+            then
+          else
+            drop drop "write-file: path must be a string" eval-err
+          then
+        then
+      else
+        drop drop drop "write-file: content must be a string" eval-err
+      then
+    then
+  then
+;
+
+# (file-exists? path) - check if a file exists
+# Returns #t or #f.
+: eval-file-exists-with-env ( SexprList Env -- EvalResult )
+  over 1 "file-exists?" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop
+    swap scdr scar  # -> Env PathExpr
+    swap eval-with-env  # -> PathResult
+    dup eval-err? if
+      # Error evaluating path - propagate
+    else
+      eval-ok-value
+      dup sstring? if
+        sstring-val file.exists? if
+          "#t" ssym eval-ok
+        else
+          "#f" ssym eval-ok
+        then
+      else
+        drop "file-exists?: argument must be a string" eval-err
       then
     then
   then

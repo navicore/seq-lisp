@@ -22,6 +22,7 @@
   (append string-tests
   (append float-tests
   (append json-tests
+  (append file-io-tests
   (append lsp-builtin-tests
   (append closure-tests
   (append higher-order-tests
@@ -37,7 +38,7 @@
   (append parser-edge-tests
   (append io-tests
   (append suggestion-tests
-          stack-trace-tests))))))))))))))))))))))))
+          stack-trace-tests)))))))))))))))))))))))))
 
 ;; ============================================
 ;; Run Tests and Report

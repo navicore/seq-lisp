@@ -1,0 +1,21 @@
+; SeqLisp self-hosted file loader
+;
+; Provides (load path) which reads a .slisp file and evaluates
+; all expressions in it using eval-all-with-errors.
+;
+; Error contract:
+;   - If the file cannot be read, load raises an evaluator error
+;     (catchable with try, testable with assert-error).
+;   - If evaluation fails, load returns an (error msg ...) list
+;     (not an evaluator error — inspect with (car result) = 'error).
+; This asymmetry exists because eval-all-with-errors returns errors
+; as data. Phase 4's self-hosted eval will unify this.
+
+(define (load path)
+  (let source (read-file path)
+    (let result (eval-all-with-errors source)
+      (if (ok? result)
+          (ok-value result)
+          ; eval-all-with-errors returns (error msg ...) as data.
+          ; Return the error list so callers can inspect it.
+          result))))

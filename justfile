@@ -80,6 +80,7 @@ lisp-test: build
         tests/lisp/core/strings.slisp \
         tests/lisp/core/floats.slisp \
         tests/lisp/core/json.slisp \
+        tests/lisp/core/file_io.slisp \
         tests/lisp/core/lsp_builtins.slisp \
         tests/lisp/functions/closures.slisp \
         tests/lisp/functions/higher_order.slisp \
@@ -125,6 +126,13 @@ reader-test: build
         lib/reader/tokenizer.slisp \
         lib/reader/parser.slisp \
         tests/lisp/reader/parser.slisp \
+        > "$tmp"
+    ./target/seqlisp "$tmp"
+    cat lib/test.slisp \
+        lib/reader/tokenizer.slisp \
+        lib/reader/parser.slisp \
+        lib/reader/load.slisp \
+        tests/lisp/reader/load.slisp \
         > "$tmp"
     ./target/seqlisp "$tmp"
 
