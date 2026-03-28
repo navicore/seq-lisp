@@ -2397,9 +2397,10 @@ union EvalResult {
     nip nip nip
   else
     drop drop
-    swap scdr scar
-    swap eval-with-env
+    swap scdr scar  # -> Env PathExpr
+    swap eval-with-env  # -> PathResult
     dup eval-err? if
+      # Error evaluating path - propagate
     else
       eval-ok-value
       dup sstring? if
@@ -2423,25 +2424,28 @@ union EvalResult {
     nip nip nip
   else
     drop drop
-    swap scdr
-    dup scar swap scdr scar  # -> Env PathExpr ContentExpr
-    rot  # -> PathExpr ContentExpr Env
-    dup rot swap  # -> PathExpr Env ContentExpr Env
-    eval-with-env  # -> PathExpr Env ContentResult
+    # Extract two args: (write-file path content)
+    swap scdr                 # -> Env (PathExpr ContentExpr)
+    dup scar swap scdr scar   # -> Env PathExpr ContentExpr
+    # Evaluate content first (leaves PathExpr available for second eval)
+    rot                       # -> PathExpr ContentExpr Env
+    dup rot swap              # -> PathExpr Env ContentExpr Env
+    eval-with-env             # -> PathExpr Env ContentResult
     dup eval-err? if
       nip nip
     else
       eval-ok-value
       dup sstring? if
-        sstring-val  # -> PathExpr Env ContentStr
-        rot rot  # -> ContentStr PathExpr Env
-        eval-with-env  # -> ContentStr PathResult
+        sstring-val   # -> PathExpr Env ContentStr
+        rot rot       # -> ContentStr PathExpr Env
+        eval-with-env # -> ContentStr PathResult
         dup eval-err? if
           nip
         else
           eval-ok-value
           dup sstring? if
-            sstring-val  # -> ContentStr PathStr
+            sstring-val   # -> ContentStr PathStr
+            # file.spit: ( content path -- Bool )
             file.spit if
               "#t" ssym eval-ok
             else
@@ -2466,9 +2470,10 @@ union EvalResult {
     nip nip nip
   else
     drop drop
-    swap scdr scar
-    swap eval-with-env
+    swap scdr scar  # -> Env PathExpr
+    swap eval-with-env  # -> PathResult
     dup eval-err? if
+      # Error evaluating path - propagate
     else
       eval-ok-value
       dup sstring? if
