@@ -120,9 +120,29 @@
     (assert-eq (seval-string "(string-append \"hello\" \" \" \"world\")")
                "hello world"))
 
+  ; --- One-armed if ---
+  (test "eval one-armed if true"
+    (assert-eq (seval-string "(if #t 42)") 42))
+
+  (test "eval one-armed if false"
+    (assert-eq (seval-string "(if #f 42)") '()))
+
+  ; --- Lambda with map ---
+  (test "eval map with lambda"
+    (assert-eq (seval-string "(map (lambda (x) (* x x)) '(1 2 3))")
+               '(1 4 9)))
+
+  ; --- Not with truthy ---
+  (test "eval not truthy"
+    (assert-eq (seval-string "(not 42)") #f))
+
   ; --- Error handling ---
   (test "eval undefined symbol"
     (let result (seval-string "undefined-var")
+      (assert-eq (car result) 'error)))
+
+  (test "eval call non-function"
+    (let result (seval-string "(1 2 3)")
       (assert-eq (car result) 'error)))
 
   ; --- File evaluation (the checkpoint) ---

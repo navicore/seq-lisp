@@ -173,7 +173,10 @@
   (let test-val (ev ev env (car args))
     (if (eval-error? test-val) test-val
         (if (equal? test-val #f)
-            (ev ev env (car (cdr (cdr args))))
+            ; One-armed if: return '() when else branch is missing
+            (if (null? (cdr (cdr args)))
+                '()
+                (ev ev env (car (cdr (cdr args)))))
             (ev ev env (car (cdr args)))))))
 
 (define (do-cond ev env clauses)
@@ -304,7 +307,10 @@
           (car (cdr (car map)))
           (find-name-str sym (cdr map)))))
 
-; Serialize values to strings for host eval.
+; Serialize values to strings for host eval delegation.
+; Symbols not in builtin-name-map (e.g. user-defined) serialize as "??"
+; since there's no symbol->string builtin. This is only used for host
+; builtin calls, which only receive data args (not closures or user symbols).
 ; val->str and list-items->str are mutually recursive — we inline
 ; the list case in list-items->str to avoid forward references.
 ; For nested lists, we just quote them.
@@ -485,16 +491,21 @@
   (if (null? lst) acc
       (fold f (f acc (car lst)) (cdr lst))))
 
+; Self-hosted apply dispatches by arity (0-4 args).
+; Errors on 5+ args — extend dispatch if needed.
 (define (apply f args)
   (if (null? args) (f)
     (if (null? (cdr args)) (f (car args))
       (if (null? (cdr (cdr args))) (f (car args) (car (cdr args)))
         (if (null? (cdr (cdr (cdr args)))) (f (car args) (car (cdr args)) (car (cdr (cdr args))))
-          (f (car args) (car (cdr args)) (car (cdr (cdr args))) (car (cdr (cdr (cdr args))))))))))
+          (if (null? (cdr (cdr (cdr (cdr args))))) (f (car args) (car (cdr args)) (car (cdr (cdr args))) (car (cdr (cdr (cdr args)))))
+            (list 'error \"apply: too many arguments (max 4)\")))))))
 
 (define (not x) (if x #f #t))
 ")
 
+; Bootstrap evaluator — errors in bootstrap definitions are fatal
+; (print and halt) since a broken stdlib makes everything unreliable.
 (define (bootstrap-eval ev env exprs)
   (if (null? exprs) env
       (let expr (car exprs)
@@ -503,14 +514,17 @@
                 (bootstrap-eval ev env (cdr exprs))
                 (if (equal? (car expr) 'define)
                     (let result (do-define-all ev env (cdr expr))
-                      (if (eval-error? result) env
+                      (if (eval-error? result)
+                          (begin (print (list 'bootstrap-error result)) env)
                           (bootstrap-eval ev (car result) (cdr exprs))))
-                    (begin
-                      (ev ev env expr)
-                      (bootstrap-eval ev env (cdr exprs)))))
-            (begin
-              (ev ev env expr)
-              (bootstrap-eval ev env (cdr exprs)))))))
+                    (let val (ev ev env expr)
+                      (if (eval-error? val)
+                          (begin (print (list 'bootstrap-error val)) env)
+                          (bootstrap-eval ev env (cdr exprs))))))
+            (let val (ev ev env expr)
+              (if (eval-error? val)
+                  (begin (print (list 'bootstrap-error val)) env)
+                  (bootstrap-eval ev env (cdr exprs))))))))
 
 ; Create the initial environment by evaluating the bootstrap.
 ; Returns the environment with map, filter, fold, apply, not defined.
