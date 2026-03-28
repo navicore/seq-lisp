@@ -5401,6 +5401,8 @@ union EvalResult {
         # Dead code — stack shaping for compiler after os.exit
         scdr swap bootstrap-eval-loop
       else
+        # Non-define result (EvalOk) — discard value and continue.
+        # All bootstrap forms should be defines.
         drop scdr swap
         bootstrap-eval-loop
       then

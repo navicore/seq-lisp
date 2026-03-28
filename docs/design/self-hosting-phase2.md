@@ -47,18 +47,22 @@ implementations from eval.seq dispatch and redirect them to the
 self-hosted versions. The host eval should call through to the
 self-hosted bootstrap for these functions.
 
-At host startup, evaluate a bootstrap `.slisp` file through the host's
-own parse + eval. The resulting closures go into the global environment.
-Remove `map`, `filter`, `fold`, `not` from the host dispatch chain.
-User code finds the SeqLisp closures via normal environment lookup.
+At host startup, evaluate an embedded bootstrap source string through
+the host's own parse + eval. The resulting closures go into the global
+environment. Remove `map`, `filter`, `fold`, `not` from the host
+dispatch chain. User code finds the SeqLisp closures via normal
+environment lookup.
 
-The host's internal `apply` (used by the eval machinery for function
-application) stays in Seq but is renamed to `__host-apply__` — an
-ugly internal name that is obviously not part of the language. The
-user-facing `apply` is the self-hosted version in the bootstrap.
+`apply` stays native in the host dispatch chain. It cannot be
+self-hosted because it must bridge closures and dispatch-only builtins
+(`+`, `-`, `*`, etc.) which aren't first-class values. The original
+plan to rename it `__host-apply__` was abandoned — `apply` needs
+access to the host's dispatch mechanism which only works through the
+native implementation. This is documented in the code.
 
 Checkpoint: host test suite passes with `map`/`filter`/`fold`/`not`
-removed from eval.seq dispatch. No duplicate implementations.
+removed from eval.seq dispatch. No duplicate implementations for
+those four. `apply` is native-only (not duplicated).
 
 ### Step 3 — Then expand
 

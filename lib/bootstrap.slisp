@@ -1,10 +1,10 @@
-; SeqLisp Bootstrap Standard Library
+; SeqLisp Bootstrap Standard Library — REFERENCE COPY
 ;
-; These functions are the single implementation — there are no
-; native Seq versions. They are loaded at host startup and injected
-; into the global environment before any user code runs.
+; The canonical source is the embedded string in src/eval.seq
+; (bootstrap-source). This file is for readability only and is NOT
+; loaded by the interpreter. Edit eval.seq to change bootstrap behavior.
 ;
-; Functions: map, filter, fold, apply, not
+; Functions: map, filter, fold, not (apply stays native)
 
 (define (map f lst)
   (if (null? lst) '()
