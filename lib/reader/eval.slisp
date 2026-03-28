@@ -1,0 +1,581 @@
+; SeqLisp self-hosted evaluator
+;
+; Implements the core language semantics in SeqLisp itself:
+;   - Environments (association-list based)
+;   - Special forms (if, let, define, lambda, begin, quote, cond, defmacro)
+;   - Closure creation and application
+;   - Macro expansion
+;   - Builtin delegation to host via apply
+;
+; All internal functions take an `ev` parameter (the evaluator function)
+; to break mutual recursion — SeqLisp has no forward references.
+
+; ============================================
+; Environments
+; ============================================
+
+; Reserved names: __not-found__ (env sentinel), __closure__ and __macro__
+; (tagged list markers). User code binding these names will cause
+; incorrect behavior. Acceptable for bootstrap; a production eval
+; should use unforgeable tags.
+(define (empty-env) '(()))
+
+(define (frame-lookup frame name)
+  (if (null? frame)
+      '__not-found__
+      (if (equal? (car (car frame)) name)
+          (car (cdr (car frame)))
+          (frame-lookup (cdr frame) name))))
+
+(define (env-lookup env name)
+  (if (null? env)
+      (list 'error "undefined symbol")
+      (let binding (frame-lookup (car env) name)
+        (if (equal? binding '__not-found__)
+            (env-lookup (cdr env) name)
+            binding))))
+
+; Bindings are (name value) lists since SeqLisp doesn't support dotted pairs.
+(define (env-define env name value)
+  (cons (cons (list name value) (car env))
+        (cdr env)))
+
+(define (env-push env)
+  (cons '() env))
+
+; ============================================
+; Closure and macro representation
+; ============================================
+
+; Closures: (closure params body env) or (closure params body env name)
+; Named closures include self-name for recursive self-reference.
+(define (make-closure params body env)
+  (list '__closure__ params body env))
+
+(define (make-named-closure params body env name)
+  (list '__closure__ params body env name))
+
+(define (closure? x)
+  (if (list? x)
+      (if (null? x) #f
+          (equal? (car x) '__closure__))
+      #f))
+
+(define (closure-params c) (car (cdr c)))
+(define (closure-body c) (car (cdr (cdr c))))
+(define (closure-env c) (car (cdr (cdr (cdr c)))))
+
+(define (make-macro params body env)
+  (list '__macro__ params body env))
+
+(define (macro? x)
+  (if (list? x)
+      (if (null? x) #f
+          (equal? (car x) '__macro__))
+      #f))
+
+(define (macro-params m) (car (cdr m)))
+(define (macro-body m) (car (cdr (cdr m))))
+(define (macro-env m) (car (cdr (cdr (cdr m)))))
+
+; ============================================
+; Error helpers
+; ============================================
+
+(define (eval-error? x)
+  (if (list? x)
+      (if (null? x) #f
+          (equal? (car x) 'error))
+      #f))
+
+(define (make-eval-error msg)
+  (list 'error msg))
+
+; ============================================
+; Builtin registry
+; ============================================
+
+; Higher-order functions (map, filter, fold, apply) are NOT in this list.
+; They are implemented in SeqLisp and bootstrapped into the initial
+; environment so they can work with self-hosted closures.
+(define builtin-names
+  '(+ - * / = < > <= >= modulo abs min max
+    cons car cdr list append reverse length nth last take drop
+    null? number? symbol? list? boolean? string? float? integer? equal?
+    print display write read-line read-n exit
+    string-length substring string-append string-split string-trim
+    string-upcase string-downcase string-contains? string-starts-with?
+    string-find string-chomp
+    json-parse json-encode
+    read-file write-file file-exists?
+    gensym))
+
+(define (member? x lst)
+  (if (null? lst) #f
+      (if (equal? x (car lst)) #t
+          (member? x (cdr lst)))))
+
+(define (builtin? name)
+  (member? name builtin-names))
+
+; ============================================
+; Parameter binding
+; ============================================
+
+(define (bind-params env params args)
+  (if (null? params)
+      env
+      (if (symbol? params)
+          (env-define env params args)
+          (if (equal? (car params) '.)
+              (env-define env (car (cdr params)) args)
+              (if (null? args)
+                  (make-eval-error "too few arguments")
+                  (bind-params (env-define env (car params) (car args))
+                               (cdr params)
+                               (cdr args)))))))
+
+; ============================================
+; Argument evaluation
+; ============================================
+
+(define (eval-args ev env args)
+  (if (null? args) '()
+      (let val (ev ev env (car args))
+        (if (eval-error? val) val
+            (let rest (eval-args ev env (cdr args))
+              (if (eval-error? rest) rest
+                  (cons val rest)))))))
+
+; ============================================
+; Closure application
+; ============================================
+
+; Check if closure has a self-name (5th element)
+(define (closure-named? c)
+  (if (null? (cdr (cdr (cdr (cdr c))))) #f #t))
+
+(define (closure-name c)
+  (car (cdr (cdr (cdr (cdr c))))))
+
+(define (apply-closure ev func args)
+  (let base-env (closure-env func)
+    ; For named closures, inject self-reference for recursion
+    (let self-env (if (closure-named? func)
+                      (env-define base-env (closure-name func) func)
+                      base-env)
+      (let call-env (env-push self-env)
+        (let bound-env (bind-params call-env (closure-params func) args)
+          (if (eval-error? bound-env) bound-env
+              (ev ev bound-env (closure-body func))))))))
+
+; ============================================
+; Special forms (all take ev as first param)
+; ============================================
+
+(define (do-if ev env args)
+  (let test-val (ev ev env (car args))
+    (if (eval-error? test-val) test-val
+        (if (equal? test-val #f)
+            ; One-armed if: return '() when else branch is missing
+            (if (null? (cdr (cdr args)))
+                '()
+                (ev ev env (car (cdr (cdr args)))))
+            (ev ev env (car (cdr args)))))))
+
+(define (do-cond ev env clauses)
+  (if (null? clauses) '()
+      (let clause (car clauses)
+        (if (equal? (car clause) 'else)
+            (ev ev env (car (cdr clause)))
+            (let test-val (ev ev env (car clause))
+              (if (eval-error? test-val) test-val
+                  (if (equal? test-val #f)
+                      (do-cond ev env (cdr clauses))
+                      (ev ev env (car (cdr clause))))))))))
+
+(define (do-begin ev env exprs)
+  (if (null? exprs) '()
+      (if (null? (cdr exprs))
+          (ev ev env (car exprs))
+          (let val (ev ev env (car exprs))
+            (if (eval-error? val) val
+                (do-begin ev env (cdr exprs)))))))
+
+(define (do-let ev env args)
+  (let name (car args)
+    (let val (ev ev env (car (cdr args)))
+      (if (eval-error? val) val
+          (ev ev (env-define env name val)
+              (car (cdr (cdr args))))))))
+
+; Note: do-define returns the value but discards the updated env.
+; This means bare (seval '(define x 1)) does not persist x.
+; Multi-expression evaluation via seval-string/sload uses do-define-all
+; which correctly threads the env. This is by design — seval evaluates
+; a single expression without persistent state.
+(define (do-define ev env args)
+  (if (list? (car args))
+      ; Function shorthand — create named closure for recursive self-reference
+      (let name (car (car args))
+        (let params (cdr (car args))
+          (let body (car (cdr args))
+            (let closure (make-named-closure params body env name)
+              (env-define env name closure)))))
+      (let name (car args)
+        (let val (ev ev env (car (cdr args)))
+          (if (eval-error? val) val
+              (begin
+                (env-define env name val)
+                val))))))
+
+(define (do-lambda env args)
+  (make-closure (car args) (car (cdr args)) env))
+
+(define (do-defmacro env args)
+  (if (list? (car args))
+      (let name (car (car args))
+        (let params (cdr (car args))
+          (let body (car (cdr args))
+            (let m (make-macro params body env)
+              (begin
+                (env-define env name m)
+                m)))))
+      (let name (car args)
+        (let params (car (cdr args))
+          (let body (car (cdr (cdr args)))
+            (let m (make-macro params body env)
+              (begin
+                (env-define env name m)
+                m)))))))
+
+; ============================================
+; Quasiquote
+; ============================================
+
+; do-qq and do-qq-list are mutually recursive. We pass qq (the
+; quasiquote handler) as a parameter to break the forward reference.
+(define (do-qq-list qq ev env lst)
+  (if (null? lst) '()
+      (let item (car lst)
+        (let rest (do-qq-list qq ev env (cdr lst))
+          (if (eval-error? rest) rest
+              (if (list? item)
+                  (if (null? item) (cons item rest)
+                      (if (equal? (car item) 'unquote)
+                          (let val (ev ev env (car (cdr item)))
+                            (if (eval-error? val) val
+                                (cons val rest)))
+                          (if (equal? (car item) 'unquote-splicing)
+                              (let val (ev ev env (car (cdr item)))
+                                (if (eval-error? val) val
+                                    (append val rest)))
+                              (let val (qq qq ev env item)
+                                (if (eval-error? val) val
+                                    (cons val rest))))))
+                  (cons item rest)))))))
+
+(define (do-qq qq ev env form)
+  (if (list? form)
+      (if (null? form) form
+          (if (equal? (car form) 'unquote)
+              (ev ev env (car (cdr form)))
+              (do-qq-list qq ev env form)))
+      form))
+
+; ============================================
+; Application
+; ============================================
+
+; Build a symbol->string mapping for builtin names.
+; Used to serialize builtin calls for host delegation.
+(define (build-name-map names)
+  (if (null? names) '()
+      (let name (car names)
+        (let result (eval-with-errors (string-append "'" name))
+          (if (ok? result)
+              (cons (list (ok-value result) name)
+                    (build-name-map (cdr names)))
+              (build-name-map (cdr names)))))))
+
+(define builtin-name-strings
+  '("+" "-" "*" "/" "=" "<" ">" "<=" ">=" "modulo" "abs" "min" "max"
+    "cons" "car" "cdr" "list" "append" "reverse" "length" "nth" "last" "take" "drop"
+    "null?" "number?" "symbol?" "list?" "boolean?" "string?" "float?" "integer?" "equal?"
+    "print" "display" "write" "read-line" "read-n" "exit"
+    "string-length" "substring" "string-append" "string-split" "string-trim"
+    "string-upcase" "string-downcase" "string-contains?" "string-starts-with?"
+    "string-find" "string-chomp"
+    "json-parse" "json-encode"
+    "read-file" "write-file" "file-exists?"
+    "gensym"))
+
+(define builtin-name-map (build-name-map builtin-name-strings))
+
+(define (find-name-str sym map)
+  (if (null? map) #f
+      (if (equal? (car (car map)) sym)
+          (car (cdr (car map)))
+          (find-name-str sym (cdr map)))))
+
+; Escape a string for safe embedding in a host eval expression.
+; Replaces \ with \\ and " with \" so the round-trip is faithful.
+(define (escape-string-char str pos acc)
+  (if (>= pos (string-length str)) acc
+      (let ch (substring str pos 1)
+        (if (equal? ch "\\")
+            (escape-string-char str (+ pos 1) (string-append acc "\\\\"))
+            (if (equal? ch "\"")
+                (escape-string-char str (+ pos 1) (string-append acc "\\\""))
+                (if (equal? ch "\n")
+                    (escape-string-char str (+ pos 1) (string-append acc "\\n"))
+                    (if (equal? ch "\t")
+                        (escape-string-char str (+ pos 1) (string-append acc "\\t"))
+                        (if (equal? ch "\r")
+                            (escape-string-char str (+ pos 1) (string-append acc "\\r"))
+                            (escape-string-char str (+ pos 1) (string-append acc ch))))))))))
+
+(define (escape-string str)
+  (escape-string-char str 0 ""))
+
+; Serialize values to strings for host eval delegation.
+; Only used for host builtin calls, which receive data args.
+; Closures and unresolvable symbols produce errors rather than
+; silently emitting malformed expressions.
+; val->str and list-items->str are mutually recursive — we inline
+; the list case in list-items->str to avoid forward references.
+(define (serialize-atom item)
+  (if (number? item) (json-encode item)
+    (if (float? item) (json-encode item)
+      (if (string? item) (string-append "\"" (escape-string item) "\"")
+        (if (boolean? item) (if item "#t" "#f")
+          (if (null? item) "'()"
+            (if (symbol? item)
+                (let name (find-name-str item builtin-name-map)
+                  (if name name #f))
+                #f)))))))
+
+(define (list-items->str lst)
+  (if (null? lst) ""
+      (let item (car lst)
+        (let item-str
+          (if (list? item)
+              (string-append "'(" (list-items->str item) ")")
+              (serialize-atom item))
+          (if (equal? item-str #f) "__unserializable__"
+              (if (null? (cdr lst))
+                  item-str
+                  (string-append item-str " " (list-items->str (cdr lst)))))))))
+
+(define (val->str v)
+  (if (list? v)
+      (string-append "'(" (list-items->str v) ")")
+      (let result (serialize-atom v)
+        (if (equal? result #f) "__unserializable__" result))))
+
+(define (args->str args)
+  (if (null? args) ""
+      (if (null? (cdr args))
+          (val->str (car args))
+          (string-append (val->str (car args)) " " (args->str (cdr args))))))
+
+; Call a host builtin by serializing the expression and using eval-with-errors
+(define (call-builtin name evaled-args)
+  (let name-str (find-name-str name builtin-name-map)
+    (if name-str
+        (let expr-str (string-append "(" name-str " " (args->str evaled-args) ")")
+          (let result (eval-with-errors expr-str)
+            (if (ok? result)
+                (ok-value result)
+                (make-eval-error (car (cdr result))))))
+        (make-eval-error "unknown builtin"))))
+
+(define (do-apply ev env head args)
+  ; Check builtins first (by name) before evaluating the head
+  (if (builtin? head)
+      (let evaled-args (eval-args ev env args)
+        (if (eval-error? evaled-args) evaled-args
+            (call-builtin head evaled-args)))
+      ; Not a builtin — evaluate the head to get the operator
+      (let op (ev ev env head)
+        (if (eval-error? op) op
+            (if (macro? op)
+                (let expanded (apply-closure ev op args)
+                  (if (eval-error? expanded) expanded
+                      (ev ev env expanded)))
+                (if (closure? op)
+                    (let evaled-args (eval-args ev env args)
+                      (if (eval-error? evaled-args) evaled-args
+                          (apply-closure ev op evaled-args)))
+                    (make-eval-error "not a function")))))))))
+
+; ============================================
+; Main evaluator — defined last so all helpers exist
+; ============================================
+
+(define (self-eval ev env expr)
+  (if (number? expr) expr
+    (if (float? expr) expr
+      (if (string? expr) expr
+        (if (boolean? expr) expr
+          (if (symbol? expr)
+              (let result (env-lookup env expr)
+                (if (eval-error? result) result result))
+              (if (list? expr)
+                  (if (null? expr) expr
+                      ; Dispatch on head
+                      (let head (car expr)
+                        (let args (cdr expr)
+                          (if (equal? head 'quote)   (car args)
+                          (if (equal? head 'if)      (do-if ev env args)
+                          (if (equal? head 'cond)    (do-cond ev env args)
+                          (if (equal? head 'begin)   (do-begin ev env args)
+                          (if (equal? head 'let)     (do-let ev env args)
+                          (if (equal? head 'define)  (do-define ev env args)
+                          (if (equal? head 'lambda)  (do-lambda env args)
+                          (if (equal? head 'defmacro)(do-defmacro env args)
+                          (if (equal? head 'quasiquote) (do-qq do-qq ev env (car args))
+                              (do-apply ev env head args)))))))))))))
+                  expr)))))))
+
+; ============================================
+; Multi-expression evaluation
+; ============================================
+
+; Define that returns (new-env value) for threading.
+; For function defines, create closure then define it, and use
+; the post-define env as the closure's captured env. This allows
+; recursion since the closure's env includes itself.
+(define (do-define-all ev env args)
+  (if (list? (car args))
+      (let name (car (car args))
+        (let params (cdr (car args))
+          (let body (car (cdr args))
+            (let closure (make-named-closure params body env name)
+              (list (env-define env name closure) closure)))))
+      (let name (car args)
+        (let val (ev ev env (car (cdr args)))
+          (if (eval-error? val) val
+              (list (env-define env name val) val))))))
+
+; Defmacro that returns (new-env macro) for threading
+(define (do-defmacro-all ev env args)
+  (if (list? (car args))
+      (let name (car (car args))
+        (let params (cdr (car args))
+          (let body (car (cdr args))
+            (let m (make-macro params body env)
+              (list (env-define env name m) m)))))
+      (let name (car args)
+        (let params (car (cdr args))
+          (let body (car (cdr (cdr args)))
+            (let m (make-macro params body env)
+              (list (env-define env name m) m)))))))
+
+(define (do-eval-all ev env exprs)
+  (if (null? exprs) '()
+      (let expr (car exprs)
+        (if (list? expr)
+            (if (null? expr)
+                (do-eval-all ev env (cdr exprs))
+                (if (equal? (car expr) 'define)
+                    (let result (do-define-all ev env (cdr expr))
+                      (if (eval-error? result) result
+                          (if (null? (cdr exprs))
+                              (car (cdr result))
+                              (do-eval-all ev (car result) (cdr exprs)))))
+                    (if (equal? (car expr) 'defmacro)
+                        (let result (do-defmacro-all ev env (cdr expr))
+                          (if (eval-error? result) result
+                              (if (null? (cdr exprs))
+                                  (car (cdr result))
+                                  (do-eval-all ev (car result) (cdr exprs)))))
+                        (let val (ev ev env expr)
+                          (if (eval-error? val) val
+                              (if (null? (cdr exprs)) val
+                                  (do-eval-all ev env (cdr exprs))))))))
+            (let val (ev ev env expr)
+              (if (eval-error? val) val
+                  (if (null? (cdr exprs)) val
+                      (do-eval-all ev env (cdr exprs)))))))))
+
+; ============================================
+; Bootstrap: self-hosted standard library
+; ============================================
+
+; These functions are implemented in SeqLisp rather than delegated
+; to the host, so they work correctly with self-hosted closures.
+(define bootstrap-source "
+(define (map f lst)
+  (if (null? lst) '()
+      (cons (f (car lst)) (map f (cdr lst)))))
+
+(define (filter f lst)
+  (if (null? lst) '()
+      (if (f (car lst))
+          (cons (car lst) (filter f (cdr lst)))
+          (filter f (cdr lst)))))
+
+(define (fold f acc lst)
+  (if (null? lst) acc
+      (fold f (f acc (car lst)) (cdr lst))))
+
+; Self-hosted apply dispatches by arity (0-6 args).
+; Errors on 7+ args — extend dispatch if needed.
+(define (apply f args)
+  (if (null? args) (f)
+    (if (null? (cdr args)) (f (car args))
+      (if (null? (cdr (cdr args))) (f (car args) (car (cdr args)))
+        (if (null? (cdr (cdr (cdr args)))) (f (car args) (car (cdr args)) (car (cdr (cdr args))))
+          (if (null? (cdr (cdr (cdr (cdr args))))) (f (car args) (car (cdr args)) (car (cdr (cdr args))) (car (cdr (cdr (cdr args)))))
+            (if (null? (cdr (cdr (cdr (cdr (cdr args)))))) (f (car args) (car (cdr args)) (car (cdr (cdr args))) (car (cdr (cdr (cdr args)))) (car (cdr (cdr (cdr (cdr args))))))
+              (if (null? (cdr (cdr (cdr (cdr (cdr (cdr args))))))) (f (car args) (car (cdr args)) (car (cdr (cdr args))) (car (cdr (cdr (cdr args)))) (car (cdr (cdr (cdr (cdr args))))) (car (cdr (cdr (cdr (cdr (cdr args)))))))
+                (list 'error 'apply-max-6-args)))))))))
+
+(define (not x) (if x #f #t))
+")
+
+; Bootstrap evaluator — errors in bootstrap definitions are fatal
+; (print and halt) since a broken stdlib makes everything unreliable.
+(define (bootstrap-eval ev env exprs)
+  (if (null? exprs) env
+      (let expr (car exprs)
+        (if (list? expr)
+            (if (null? expr)
+                (bootstrap-eval ev env (cdr exprs))
+                (if (equal? (car expr) 'define)
+                    (let result (do-define-all ev env (cdr expr))
+                      (if (eval-error? result)
+                          (begin (print (list 'bootstrap-error result)) env)
+                          (bootstrap-eval ev (car result) (cdr exprs))))
+                    (let val (ev ev env expr)
+                      (if (eval-error? val)
+                          (begin (print (list 'bootstrap-error val)) env)
+                          (bootstrap-eval ev env (cdr exprs))))))
+            (let val (ev ev env expr)
+              (if (eval-error? val)
+                  (begin (print (list 'bootstrap-error val)) env)
+                  (bootstrap-eval ev env (cdr exprs))))))))
+
+; Create the initial environment by evaluating the bootstrap.
+; Returns the environment with map, filter, fold, apply, not defined.
+(define (bootstrap-env)
+  (let exprs (parse-all bootstrap-source)
+    (bootstrap-eval self-eval (empty-env) exprs)))
+
+; Cache the bootstrapped environment
+(define initial-env (bootstrap-env))
+
+; ============================================
+; Public API
+; ============================================
+
+(define (seval expr)
+  (self-eval self-eval initial-env expr))
+
+(define (seval-string source)
+  (let exprs (parse-all source)
+    (do-eval-all self-eval initial-env exprs)))
+
+(define (sload path)
+  (seval-string (read-file path)))

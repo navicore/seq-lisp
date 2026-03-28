@@ -1,0 +1,202 @@
+; Tests for the self-hosted evaluator
+
+(run-suite "Self-hosted Evaluator"
+
+  ; --- Atoms ---
+  (test "eval number"
+    (assert-eq (seval 42) 42))
+
+  (test "eval string"
+    (assert-eq (seval "hello") "hello"))
+
+  (test "eval boolean"
+    (assert-eq (seval #t) #t))
+
+  ; --- Arithmetic via host builtins ---
+  (test "eval addition"
+    (assert-eq (seval-string "(+ 1 2)") 3))
+
+  (test "eval nested arithmetic"
+    (assert-eq (seval-string "(+ (* 2 3) (- 10 4))") 12))
+
+  ; --- Quote ---
+  (test "eval quote"
+    (assert-eq (seval-string "'foo") 'foo))
+
+  (test "eval quoted list"
+    (assert-eq (seval-string "'(1 2 3)") '(1 2 3)))
+
+  ; --- If ---
+  (test "eval if true"
+    (assert-eq (seval-string "(if #t 1 2)") 1))
+
+  (test "eval if false"
+    (assert-eq (seval-string "(if #f 1 2)") 2))
+
+  (test "eval if with expression test"
+    (assert-eq (seval-string "(if (> 3 2) 'yes 'no)") 'yes))
+
+  ; --- Let ---
+  (test "eval let"
+    (assert-eq (seval-string "(let x 5 (+ x 1))") 6))
+
+  (test "eval nested let"
+    (assert-eq (seval-string "(let x 1 (let y 2 (+ x y)))") 3))
+
+  ; --- Begin ---
+  (test "eval begin"
+    (assert-eq (seval-string "(begin 1 2 3)") 3))
+
+  ; --- Define and use ---
+  (test "eval define and use"
+    (assert-eq (seval-string "(define x 42) x") 42))
+
+  (test "eval define function"
+    (assert-eq (seval-string "(define (add1 x) (+ x 1)) (add1 5)") 6))
+
+  ; --- Lambda ---
+  (test "eval lambda application"
+    (assert-eq (seval-string "((lambda (x) (+ x 1)) 5)") 6))
+
+  (test "eval closure"
+    (assert-eq (seval-string
+      "(define (make-adder n) (lambda (x) (+ n x))) ((make-adder 10) 5)")
+      15))
+
+  ; --- Cond ---
+  (test "eval cond"
+    (assert-eq (seval-string "(cond (#f 1) (#t 2) (else 3))") 2))
+
+  (test "eval cond else"
+    (assert-eq (seval-string "(cond (#f 1) (#f 2) (else 3))") 3))
+
+  ; --- List operations via host ---
+  (test "eval cons car cdr"
+    (assert-eq (seval-string "(car (cons 1 '(2 3)))") 1))
+
+  (test "eval list"
+    (assert-eq (seval-string "(list 1 2 3)") '(1 2 3)))
+
+  (test "eval map"
+    (assert-eq (seval-string
+      "(define (double x) (* x 2)) (map double '(1 2 3))")
+      '(2 4 6)))
+
+  (test "eval filter"
+    (assert-eq (seval-string
+      "(define (positive? x) (> x 0)) (filter positive? '(-1 2 -3 4))")
+      '(2 4)))
+
+  (test "eval fold"
+    (assert-eq (seval-string
+      "(fold (lambda (acc x) (+ acc x)) 0 '(1 2 3 4 5))")
+      15))
+
+  (test "eval not"
+    (assert-eq (seval-string "(not #f)") #t))
+
+  ; --- Predicates ---
+  (test "eval null?"
+    (assert-eq (seval-string "(null? '())") #t))
+
+  (test "eval number?"
+    (assert-eq (seval-string "(number? 42)") #t))
+
+  ; --- Quasiquote ---
+  (test "eval quasiquote"
+    (assert-eq (seval-string "(let x 5 `(a ,x c))") '(a 5 c)))
+
+  (test "eval unquote-splicing"
+    (assert-eq (seval-string "(let xs '(1 2) `(a ,@xs b))") '(a 1 2 b)))
+
+  ; --- Recursion ---
+  (test "eval recursive function"
+    (assert-eq (seval-string
+      "(define (fact n) (if (= n 0) 1 (* n (fact (- n 1))))) (fact 5)")
+      120))
+
+  ; --- String operations via host ---
+  (test "eval string-append"
+    (assert-eq (seval-string "(string-append \"hello\" \" \" \"world\")")
+               "hello world"))
+
+  ; --- One-armed if ---
+  (test "eval one-armed if true"
+    (assert-eq (seval-string "(if #t 42)") 42))
+
+  (test "eval one-armed if false"
+    (assert-eq (seval-string "(if #f 42)") '()))
+
+  ; --- Lambda with map ---
+  (test "eval map with lambda"
+    (assert-eq (seval-string "(map (lambda (x) (* x x)) '(1 2 3))")
+               '(1 4 9)))
+
+  ; --- Not with truthy ---
+  (test "eval not truthy"
+    (assert-eq (seval-string "(not 42)") #f))
+
+  ; --- Error handling ---
+  (test "eval undefined symbol"
+    (let result (seval-string "undefined-var")
+      (assert-eq (car result) 'error)))
+
+  (test "eval call non-function"
+    (let result (seval-string "(1 2 3)")
+      (assert-eq (car result) 'error)))
+
+  ; --- Macros ---
+  (test "eval defmacro"
+    (assert-eq (seval-string
+      "(defmacro (when test body) `(if ,test ,body '())) (when #t 42)")
+      42))
+
+  (test "eval defmacro false"
+    (assert-eq (seval-string
+      "(defmacro (when test body) `(if ,test ,body '())) (when #f 42)")
+      '()))
+
+  ; --- Varargs ---
+  (test "eval variadic lambda"
+    (assert-eq (seval-string
+      "(define (first . args) (car args)) (first 1 2 3)")
+      1))
+
+  ; --- Apply edge cases ---
+  ; apply works with self-hosted closures (not host builtins,
+  ; which have no first-class representation in the self-hosted eval)
+  (test "eval apply with closure"
+    (assert-eq (seval-string
+      "(define (add a b) (+ a b)) (apply add '(3 4))")
+      7))
+
+  (test "eval apply 5 args with closure"
+    (assert-eq (seval-string
+      "(define (sum5 a b c d e) (+ a (+ b (+ c (+ d e))))) (apply sum5 '(1 2 3 4 5))")
+      15))
+
+  (test "eval apply 7+ args errors"
+    (let result (seval-string
+      "(define (f a b c d e f g) a) (apply f '(1 2 3 4 5 6 7))")
+      (assert-eq (car result) 'error)))
+
+  ; --- Strings with special chars ---
+  (test "eval string with embedded quote"
+    (assert-eq (seval-string "(string-length \"a\\\"b\")") 3))
+
+  (test "eval string with newline through builtin"
+    (assert-eq (seval-string "(string-length \"a\\nb\")") 3))
+
+  ; --- File evaluation (the checkpoint) ---
+  (test "sload evaluates a file"
+    (begin
+      (write-file "/tmp/seqlisp-seval-test.slisp"
+                  "(define (square x) (* x x)) (square 7)")
+      (assert-eq (sload "/tmp/seqlisp-seval-test.slisp") 49)))
+
+  (test "sload with multiple definitions"
+    (begin
+      (write-file "/tmp/seqlisp-seval-test2.slisp"
+                  "(define pi 3) (define (circle-area r) (* pi (* r r))) (circle-area 10)")
+      (assert-eq (sload "/tmp/seqlisp-seval-test2.slisp") 300)))
+)

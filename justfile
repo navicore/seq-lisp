@@ -135,6 +135,14 @@ reader-test: build
         tests/lisp/reader/load.slisp \
         > "$tmp"
     ./target/seqlisp "$tmp"
+    cat lib/test.slisp \
+        lib/reader/tokenizer.slisp \
+        lib/reader/parser.slisp \
+        lib/reader/load.slisp \
+        lib/reader/eval.slisp \
+        tests/lisp/reader/eval.slisp \
+        > "$tmp"
+    ./target/seqlisp "$tmp"
 
 # Run LSP integration tests
 lsp-test: build
