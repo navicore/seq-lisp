@@ -4,24 +4,9 @@
 ; (bootstrap-source). This file is for readability only and is NOT
 ; loaded by the interpreter. Edit eval.seq to change bootstrap behavior.
 ;
-; Functions: map, filter, fold, not (apply stays native)
-
-(define (map f lst)
-  (if (null? lst) '()
-      (cons (f (car lst)) (map f (cdr lst)))))
-
-(define (filter f lst)
-  (if (null? lst) '()
-      (if (f (car lst))
-          (cons (car lst) (filter f (cdr lst)))
-          (filter f (cdr lst)))))
-
-(define (fold f acc lst)
-  (if (null? lst) acc
-      (fold f (f acc (car lst)) (cdr lst))))
-
-; apply stays native in the host dispatch because it must bridge
-; closures and dispatch-only builtins (like +, -, *) which aren't
-; first-class values. See docs/design/self-hosting-phase2.md.
+; Only non-recursive functions are self-hosted here.
+; map, filter, fold, apply stay native for stack safety —
+; self-hosted closures consume too much host stack per call
+; for recursive functions on large lists.
 
 (define (not x) (if x #f #t))

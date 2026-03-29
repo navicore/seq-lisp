@@ -540,19 +540,15 @@
 ; These functions are implemented in SeqLisp rather than delegated
 ; to the host, so they work correctly with self-hosted closures.
 (define bootstrap-source "
-(define (map f lst)
-  (if (null? lst) '()
-      (cons (f (car lst)) (map f (cdr lst)))))
-
-(define (filter f lst)
-  (if (null? lst) '()
-      (if (f (car lst))
-          (cons (car lst) (filter f (cdr lst)))
-          (filter f (cdr lst)))))
-
 (define (fold f acc lst)
   (if (null? lst) acc
       (fold f (f acc (car lst)) (cdr lst))))
+
+(define (map f lst)
+  (reverse (fold (lambda (acc x) (cons (f x) acc)) '() lst)))
+
+(define (filter f lst)
+  (reverse (fold (lambda (acc x) (if (f x) (cons x acc) acc)) '() lst)))
 
 ; Self-hosted apply dispatches by arity (0-6 args).
 ; Errors on 7+ args — extend dispatch if needed.

@@ -2,76 +2,136 @@
 
 Follows the completed [self-hosting.md](self-hosting.md) (phases 1-4).
 
-## Intent
+## Completed
 
-Phase 4 shipped a working self-hosted evaluator but left two problems:
+### Step 1 — TCO via trampoline (PR #69)
 
-1. **Duplicate implementations.** `map`, `filter`, `fold`, `apply`, `not`
-   exist in both the self-hosted bootstrap AND the host eval. Two
-   implementations of the same function is a maintenance and correctness
-   hazard. Each self-hosted function should replace its host equivalent,
-   not coexist with it.
+Tail positions return `(__thunk__ env expr)` instead of recursing.
+A trampoline loop drives evaluation. Covers: `if`, `cond`, `begin`,
+`let`, closure body, macro expansion. `(sum 10000 0)` works.
 
-2. **Missing TCO.** The self-hosted eval uses plain recursion. Programs
-   that rely on tail-call optimization (a core language feature) will
-   stack overflow under `seval-string`/`sload`. This is a regression
-   from the design constraint "don't break existing programs."
+**Regression: mutual recursion doesn't work** in the self-hosted eval.
+The host eval handles this via mutable environments; the self-hosted
+eval uses immutable envs where the first-defined function can't see
+the second. Fixing this requires either mutable env cells or a
+`letrec`-style form. This should be addressed before the self-hosted
+eval is considered production-ready.
 
-No new builtins should be moved into self-hosting until these are resolved.
+### Step 2 — Deduplicate bootstrap functions (PR #70)
+
+Attempted to self-host `map`, `filter`, `fold`, `not`. Reverted
+`map`/`filter`/`fold` to native — self-hosted closures consume too
+much host stack per call, causing stack overflow on ~5,000+ element
+lists. This is a fundamental limitation of evaluating closures through
+the host's tree-walking eval.
+
+Current state: only `not` is self-hosted (no recursion, no stack risk).
+`map`, `filter`, `fold`, `apply` stay native.
+
+Self-hosting recursive higher-order functions requires either:
+- First-class builtins (so self-hosted functions can call `+` etc.
+  without going through the host eval's closure application path)
+- A fundamentally different execution model (compilation, bytecode)
+
+## Regressions — Must Fix Before Next Release
+
+### 1. `map`/`filter` stack overflow on large lists
+
+The self-hosted `map` and `filter` (SeqLisp closures evaluated by the
+host) consume far more stack per recursive call than the native Seq
+implementations they replaced. `map` and `filter` on ~10,000-element
+lists crash with stack overflow. This affects **all users** via the
+host eval, not just the self-hosted eval.
+
+`fold` is tail-recursive and works via the host's TCO — not affected.
+
+Confirmed: `(map (lambda (x) (+ x 1)) (range 1000 '()))` works.
+`(map (lambda (x) (+ x 1)) (range 10000 '()))` crashes (exit 132).
+
+Options:
+- **A.** Rewrite `map`/`filter` as iterative using `fold` + `reverse`
+  (eliminates the recursion, uses tail-recursive `fold`)
+- **B.** Revert to native Seq `map`/`filter` until the stack depth
+  issue is resolved (abandons single-implementation goal temporarily)
+- **C.** Increase the host stack size (bandaid, doesn't fix the root cause)
+
+Option A is preferred — it preserves self-hosting and fixes the issue.
+
+### 2. Mutual recursion broken in self-hosted eval
+
+The self-hosted eval uses immutable environments. When `even?` is
+defined, `odd?` isn't in the env yet. The host eval handles this with
+mutable environments. No host test suite coverage exists for mutual
+recursion — the gap went undetected.
+
+This affects code run through `seval-string`/`sload` only, not the
+host eval. But it means the self-hosted eval cannot run a meaningful
+subset of valid SeqLisp programs.
+
+Options:
+- **A.** Add `letrec` to the self-hosted eval that pre-binds all names
+  before evaluating any bodies
+- **B.** Make `do-eval-all` do a two-pass define: first pass creates
+  placeholder closures with the final env, second pass fills them in
+
+Both regressions need test coverage added to prevent future recurrence.
+
+## Remaining Work
+
+### Expand the bootstrap stdlib (limited)
+
+Only non-recursive functions can be self-hosted in the host eval's
+bootstrap. Self-hosted closures consume too much host stack per call
+for recursive functions on large inputs.
+
+In Lisp, almost all interesting functions are recursive. The viable
+candidates for self-hosting in the bootstrap are trivial compositions:
+- **Predicates**: `>=`, `<=`, `zero?`, `positive?`, `negative?`
+- **Arithmetic**: `abs`, `min`, `max`
+- **List accessors**: `cadr`, `caddr` (fixed car/cdr chains)
+
+All recursive functions (`map`, `filter`, `fold`, `append`, `reverse`,
+`length`, `nth`, `take`, `drop`, `equal?`) must stay native.
+
+Deeper self-hosting of recursive functions requires either first-class
+builtins (so closures can call `+` without host eval overhead) or a
+different execution model (compilation to Seq, bytecode interpreter).
+
+### Self-hosted `try`
+
+Currently not a special form in the self-hosted eval. Needed for
+the self-hosted REPL to recover from errors gracefully. Requires
+defining how the self-hosted eval's error representation interacts
+with `try`'s `(ok value)` / `(error message)` contract.
+
+### Self-hosted REPL
+
+A read-eval-print loop in SeqLisp: read from stdin via `read-line`,
+tokenize, parse, evaluate with `self-eval`, print result, loop.
+Must thread environment across inputs so defines persist.
+
+Depends on: `try` (for error recovery), and the eval being robust
+enough for interactive use.
+
+### Resolve bootstrap source duplication
+
+The bootstrap source exists in two places:
+- Embedded string in `src/eval.seq` (canonical, what actually runs)
+- `lib/bootstrap.slisp` (reference copy, not loaded)
+
+Options:
+1. Build step that generates the embedded string from the `.slisp` file
+2. CI check that verifies they match
+3. Delete the reference copy entirely
+
+Option 1 is cleanest.
 
 ## Constraints
 
-- **Don't break existing programs or the host test suite.** The 496
-  host-eval tests must continue to pass.
+- **Don't break existing programs or tests.**
 - **Single implementation.** When a function is self-hosted, the host
-  version is removed. Not "both exist."
-- **TCO before expansion.** No new bootstrap functions until the
-  self-hosted eval can handle deep tail recursion.
-
-## Approach
-
-### Step 1 — TCO via trampoline
-
-Add tail-call optimization to the self-hosted eval. When `self-eval`
-is in a tail position (last expression of `if`, `cond`, `begin`, `let`,
-function body), return a thunk `(__thunk__ env expr)` instead of
-recursing. A top-level trampoline loop evaluates thunks until a final
-value is reached.
-
-Checkpoint: `(seval-string "(define (sum n acc) (if (= n 0) acc (sum (- n 1) (+ acc n)))) (sum 10000 0)")` returns `50005000`.
-
-### Step 2 — Deduplicate: remove host versions of self-hosted functions
-
-For `map`, `filter`, `fold`, `apply`, `not`: remove the host
-implementations from eval.seq dispatch and redirect them to the
-self-hosted versions. The host eval should call through to the
-self-hosted bootstrap for these functions.
-
-At host startup, evaluate an embedded bootstrap source string through
-the host's own parse + eval. The resulting closures go into the global
-environment. Remove `map`, `filter`, `fold`, `not` from the host
-dispatch chain. User code finds the SeqLisp closures via normal
-environment lookup.
-
-`apply` stays native in the host dispatch chain. It cannot be
-self-hosted because it must bridge closures and dispatch-only builtins
-(`+`, `-`, `*`, etc.) which aren't first-class values. The original
-plan to rename it `__host-apply__` was abandoned — `apply` needs
-access to the host's dispatch mechanism which only works through the
-native implementation. This is documented in the code.
-
-Checkpoint: host test suite passes with `map`/`filter`/`fold`/`not`
-removed from eval.seq dispatch. No duplicate implementations for
-those four. `apply` is native-only (not duplicated).
-
-### Step 3 — Then expand
-
-Only after steps 1-2: move more functions into the bootstrap, add
-`try` as a special form, build the self-hosted REPL.
-
-## Open Questions
-
-- Should the bootstrap source move from a string literal in `eval.slisp`
-  to a separate `.slisp` file loaded at init?
-- Which host-internal functions besides `apply` need ugly-renaming to
-  distinguish them from user-facing self-hosted versions?
+  version is removed.
+- **`apply` stays native.** Documented exception — builtins aren't
+  first-class values.
+- **Performance is secondary to correctness.** The serialization
+  round-trip for host builtins is a known cost.
