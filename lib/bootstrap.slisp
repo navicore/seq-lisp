@@ -1,10 +1,13 @@
-; SeqLisp Bootstrap Standard Library — REFERENCE COPY
+; SeqLisp Bootstrap Standard Library — HISTORICAL REFERENCE
 ;
-; The canonical source is the embedded string in src/eval.seq
-; (bootstrap-source). This file is for readability only and is NOT
-; loaded by the interpreter. Edit eval.seq to change bootstrap behavior.
+; This file is not loaded by the interpreter. All functions listed here
+; are now implemented as native builtins in src/eval.seq.
 ;
-; Functions: map, filter, fold, not (apply stays native)
+; This file documents the self-hosting experiment from the Phase 2
+; design work. See docs/design/self-hosting-phase2.md for context
+; on why self-hosted recursive functions were reverted to native.
+
+(define (not x) (if x #f #t))
 
 (define (map f lst)
   (if (null? lst) '()
@@ -19,9 +22,3 @@
 (define (fold f acc lst)
   (if (null? lst) acc
       (fold f (f acc (car lst)) (cdr lst))))
-
-; apply stays native in the host dispatch because it must bridge
-; closures and dispatch-only builtins (like +, -, *) which aren't
-; first-class values. See docs/design/self-hosting-phase2.md.
-
-(define (not x) (if x #f #t))
