@@ -924,9 +924,11 @@ union EvalResult {
     drop eval-equal?-with-env
   else dup "gensym" string.equal? if
     drop eval-gensym-with-env
+  else dup "not" string.equal? if
+    drop eval-not-with-env
   else
     dispatch-control-flow
-  then then then then then then then then then then
+  then then then then then then then then then then then
 ;
 
 # ----------------------------------------
@@ -4187,6 +4189,28 @@ union EvalResult {
       dup ssym? if
         ssym-val dup "#t" string.equal? swap "#f" string.equal? or
         if "#t" else "#f" then
+      else
+        drop "#f"
+      then
+      ssym eval-ok
+    then
+  then
+;
+
+# (not expr) - returns #t if expr is #f, #f otherwise
+: eval-not-with-env ( SexprList Env -- EvalResult )
+  over 1 "not" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop
+    swap scdr scar
+    swap eval-with-env
+    dup eval-err? if
+    else
+      eval-ok-value
+      dup ssym? if
+        ssym-val "#f" string.equal? if "#t" else "#f" then
       else
         drop "#f"
       then

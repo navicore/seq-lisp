@@ -39,4 +39,10 @@
   (test 'equal-num-list (assert-false (equal? 1 '(1))))
   (test 'equal-sym-list (assert-false (equal? 'a '(a))))
   (test 'equal-deep (assert-true (equal? '((((a)))) '((((a)))))))
-  (test 'equal-deep-diff (assert-false (equal? '((((a)))) '((((b)))))))))
+  (test 'equal-deep-diff (assert-false (equal? '((((a)))) '((((b)))))))
+  ;; not
+  (test 'not-false (assert-true (not #f)))
+  (test 'not-true (assert-false (not #t)))
+  (test 'not-number (assert-false (not 42)))
+  (test 'not-nil (assert-false (not '())))
+  (test 'not-symbol (assert-false (not 'x)))))
