@@ -1,0 +1,50 @@
+;; Logic and Control Flow Tests
+;; Tests for: and, or, when, unless, error
+
+(define logic-tests (list
+  ;; and - short circuit, returns first falsy or last value
+  (test 'and-no-args (assert-eq #t (and)))
+  (test 'and-single-true (assert-eq 5 (and 5)))
+  (test 'and-single-false (assert-eq #f (and #f)))
+  (test 'and-two-true (assert-eq 3 (and 1 3)))
+  (test 'and-first-false (assert-eq #f (and #f 5)))
+  (test 'and-second-false (assert-eq #f (and 1 #f)))
+  (test 'and-zero-falsy (assert-eq 0 (and 1 0 3)))
+  (test 'and-many-true (assert-eq 4 (and 1 2 3 4)))
+  (test 'and-returns-value (assert-eq 42 (and #t 42)))
+  (test 'and-short-circuit
+    (assert-eq #f (and #f (error "should not reach"))))
+
+  ;; or - short circuit, returns first truthy or last value
+  (test 'or-no-args (assert-eq #f (or)))
+  (test 'or-single-true (assert-eq 5 (or 5)))
+  (test 'or-single-false (assert-eq #f (or #f)))
+  (test 'or-first-true (assert-eq 1 (or 1 2)))
+  (test 'or-first-false (assert-eq 2 (or #f 2)))
+  (test 'or-all-false (assert-eq 0 (or #f 0)))
+  (test 'or-many-false (assert-eq 3 (or #f 0 3)))
+  (test 'or-returns-value (assert-eq 42 (or 42 99)))
+  (test 'or-short-circuit
+    (assert-eq 1 (or 1 (error "should not reach"))))
+
+  ;; when - evaluates body if condition is truthy
+  (test 'when-true (assert-eq 42 (when #t 42)))
+  (test 'when-false (assert-eq #f (when #f 42)))
+  (test 'when-zero-falsy (assert-eq #f (when 0 42)))
+  (test 'when-number-truthy (assert-eq 42 (when 1 42)))
+  (test 'when-multi-body (assert-eq 3 (when #t 1 2 3)))
+
+  ;; unless - evaluates body if condition is falsy
+  (test 'unless-false (assert-eq 42 (unless #f 42)))
+  (test 'unless-true (assert-eq #f (unless #t 42)))
+  (test 'unless-zero (assert-eq 42 (unless 0 42)))
+  (test 'unless-number (assert-eq #f (unless 1 42)))
+  (test 'unless-multi-body (assert-eq 3 (unless #f 1 2 3)))
+
+  ;; error - user-initiated error raising
+  (test 'error-basic (assert-error (error "test error")))
+  (test 'error-caught-by-try
+    (assert-true (error? (try (error "test error")))))
+  (test 'error-symbol-arg (assert-error (error 'bad)))
+  (test 'error-number-arg (assert-error (error 42)))
+  (test 'error-list-arg (assert-error (error '(1 2 3))))))

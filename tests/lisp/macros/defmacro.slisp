@@ -11,11 +11,11 @@
 (defmacro (swap-args a b) `',(list b a))
 
 ;; Macro that builds an if expression
-(defmacro (when cond body)
+(defmacro (my-when cond body)
   `(if ,cond ,body '()))
 
 ;; Macro that builds the opposite
-(defmacro (unless cond body)
+(defmacro (my-unless cond body)
   `(if ,cond '() ,body))
 
 ;; Short-circuit and/or (2-arg versions)
@@ -31,11 +31,11 @@
   (test 'macro-identity (assert-eq (identity-macro (+ 1 2)) 3))
   ;; Macro with multiple params
   (test 'macro-swap (assert-eq (swap-args 1 2) '(2 1)))
-  ;; when/unless
-  (test 'when-true (assert-eq (when #t 'yes) 'yes))
-  (test 'when-false (assert-eq (when #f 'yes) '()))
-  (test 'unless-true (assert-eq (unless #t 'no) '()))
-  (test 'unless-false (assert-eq (unless #f 'yes) 'yes))
+  ;; my-when/my-unless (custom macros, not shadowing builtins)
+  (test 'my-when-true (assert-eq (my-when #t 'yes) 'yes))
+  (test 'my-when-false (assert-eq (my-when #f 'yes) '()))
+  (test 'my-unless-true (assert-eq (my-unless #t 'no) '()))
+  (test 'my-unless-false (assert-eq (my-unless #f 'yes) 'yes))
   ;; Short-circuit and/or
   (test 'and2-tt (assert-eq (and2 #t #t) #t))
   (test 'and2-tf (assert-eq (and2 #t #f) #f))

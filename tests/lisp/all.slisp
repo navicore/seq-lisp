@@ -38,6 +38,7 @@
   (append parser-edge-tests
   (append io-tests
   (append suggestion-tests
+  (append logic-tests
           stack-trace-tests)))))))))))))))))))))))))
 
 ;; ============================================

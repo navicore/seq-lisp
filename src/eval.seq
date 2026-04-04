@@ -500,6 +500,19 @@ union EvalResult {
   "write-file" check-candidate
   "file-exists?" check-candidate
   "try" check-candidate
+  "error" check-candidate
+  "and" check-candidate
+  "or" check-candidate
+  "when" check-candidate
+  "unless" check-candidate
+  "zero?" check-candidate
+  "positive?" check-candidate
+  "negative?" check-candidate
+  "even?" check-candidate
+  "odd?" check-candidate
+  "pair?" check-candidate
+  "procedure?" check-candidate
+  "newline" check-candidate
   "quasiquote" check-candidate
   "defmacro" check-candidate
   "gensym" check-candidate
@@ -1028,8 +1041,81 @@ union EvalResult {
   else dup "eval-all-with-errors" string.equal? if
     drop eval-eval-all-with-errors
   else
-    dispatch-user-defined
+    dispatch-new-builtins
   then then then
+;
+
+# ----------------------------------------
+# Group 7d: New builtins (added after initial dispatch chain to preserve performance)
+# User-defined functions are checked first (env lookup) so the new
+# builtins don't slow down every user-defined call.
+# ----------------------------------------
+: dispatch-new-builtins ( SexprList Env String -- EvalResult )
+  # Check env first — if it's a user-defined closure/macro, use it
+  # to avoid walking 13 new string comparisons for every user-defined call.
+  dup 2 pick env-lookup-raw  # List Env FuncName EvalResult
+  dup eval-ok? if
+    eval-ok-value  # List Env FuncName Value
+    dup sclosure? if
+      # Apply closure directly (no second env lookup)
+      # Stack: List Env FuncName ClosureSexpr
+      nip             # List Env ClosureSexpr  (drop FuncName)
+      rot rot         # ClosureSexpr List Env
+      over scdr       # ClosureSexpr List Env Args
+      rot drop        # ClosureSexpr Env Args
+      swap            # ClosureSexpr Args Env
+      apply-closure
+    else dup smacro? if
+      # Apply macro directly (no second env lookup)
+      # Stack: List Env FuncName MacroSexpr
+      nip             # List Env MacroSexpr  (drop FuncName)
+      rot rot         # MacroSexpr List Env
+      over scdr       # MacroSexpr List Env Args
+      rot drop        # MacroSexpr Env Args
+      swap            # MacroSexpr Args Env
+      apply-macro
+    else
+      # Found in env but not callable — continue checking new builtins
+      drop   # List Env FuncName  (drop Value)
+      dispatch-new-builtins-chain
+    then then
+  else
+    # Not in env — check new builtins
+    drop  # List Env FuncName  (drop EvalResult)
+    dispatch-new-builtins-chain
+  then
+;
+
+: dispatch-new-builtins-chain ( SexprList Env String -- EvalResult )
+  dup "and" string.equal? if
+    drop eval-and-with-env
+  else dup "or" string.equal? if
+    drop eval-or-with-env
+  else dup "when" string.equal? if
+    drop eval-when-with-env
+  else dup "unless" string.equal? if
+    drop eval-unless-with-env
+  else dup "error" string.equal? if
+    drop eval-error-with-env
+  else dup "newline" string.equal? if
+    drop eval-newline-with-env
+  else dup "zero?" string.equal? if
+    drop eval-zero?-with-env
+  else dup "positive?" string.equal? if
+    drop eval-positive?-with-env
+  else dup "negative?" string.equal? if
+    drop eval-negative?-with-env
+  else dup "even?" string.equal? if
+    drop eval-even?-with-env
+  else dup "odd?" string.equal? if
+    drop eval-odd?-with-env
+  else dup "pair?" string.equal? if
+    drop eval-pair?-with-env
+  else dup "procedure?" string.equal? if
+    drop eval-procedure?-with-env
+  else
+    dispatch-user-defined
+  then then then then then then then then then then then then then
 ;
 
 # ----------------------------------------
@@ -1894,6 +1980,13 @@ union EvalResult {
       dup eval-ok-value sexpr-to-display-string io.write
     then
   then
+;
+
+: eval-newline-with-env ( SexprList Env -- EvalResult )
+  # (newline) - outputs a newline character, returns #t
+  drop drop
+  "\n" io.write
+  "#t" ssym eval-ok
 ;
 
 # ============================================
@@ -4220,6 +4313,166 @@ union EvalResult {
 ;
 
 # ============================================
+# Numeric predicates: zero?, positive?, negative?, even?, odd?
+# ============================================
+
+: eval-zero?-with-env ( SexprList Env -- EvalResult )
+  over 1 "zero?" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop
+    swap scdr scar
+    swap eval-with-env
+    dup eval-err? if
+    else
+      eval-ok-value
+      dup snum? if
+        snum-val 0 i.= if "#t" else "#f" then
+        ssym eval-ok
+      else dup sfloat? if
+        sfloat-val 0.0 f.= if "#t" else "#f" then
+        ssym eval-ok
+      else
+        drop "zero?: argument must be a number" eval-err
+      then then
+    then
+  then
+;
+
+: eval-positive?-with-env ( SexprList Env -- EvalResult )
+  over 1 "positive?" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop
+    swap scdr scar
+    swap eval-with-env
+    dup eval-err? if
+    else
+      eval-ok-value
+      dup snum? if
+        snum-val 0 i.> if "#t" else "#f" then
+        ssym eval-ok
+      else dup sfloat? if
+        sfloat-val 0.0 f.> if "#t" else "#f" then
+        ssym eval-ok
+      else
+        drop "positive?: argument must be a number" eval-err
+      then then
+    then
+  then
+;
+
+: eval-negative?-with-env ( SexprList Env -- EvalResult )
+  over 1 "negative?" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop
+    swap scdr scar
+    swap eval-with-env
+    dup eval-err? if
+    else
+      eval-ok-value
+      dup snum? if
+        snum-val 0 i.< if "#t" else "#f" then
+        ssym eval-ok
+      else dup sfloat? if
+        sfloat-val 0.0 f.< if "#t" else "#f" then
+        ssym eval-ok
+      else
+        drop "negative?: argument must be a number" eval-err
+      then then
+    then
+  then
+;
+
+: eval-even?-with-env ( SexprList Env -- EvalResult )
+  over 1 "even?" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop
+    swap scdr scar
+    swap eval-with-env
+    dup eval-err? if
+    else
+      eval-ok-value
+      dup snum? if
+        snum-val dup 2 i.divide drop 2 i.multiply i.= if "#t" else "#f" then
+        ssym eval-ok
+      else
+        drop "even?: argument must be an integer" eval-err
+      then
+    then
+  then
+;
+
+: eval-odd?-with-env ( SexprList Env -- EvalResult )
+  over 1 "odd?" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop
+    swap scdr scar
+    swap eval-with-env
+    dup eval-err? if
+    else
+      eval-ok-value
+      dup snum? if
+        snum-val dup 2 i.divide drop 2 i.multiply i.= if "#f" else "#t" then
+        ssym eval-ok
+      else
+        drop "odd?: argument must be an integer" eval-err
+      then
+    then
+  then
+;
+
+# ============================================
+# pair? and procedure?
+# ============================================
+
+: eval-pair?-with-env ( SexprList Env -- EvalResult )
+  over 1 "pair?" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop
+    swap scdr scar
+    swap eval-with-env
+    dup eval-err? if
+    else
+      eval-ok-value
+      dup slist? if
+        slist-val snil? if "#f" else "#t" then
+      else
+        drop "#f"
+      then
+      ssym eval-ok
+    then
+  then
+;
+
+: eval-procedure?-with-env ( SexprList Env -- EvalResult )
+  over 1 "procedure?" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop
+    swap scdr scar
+    swap eval-with-env
+    dup eval-err? if
+    else
+      eval-ok-value
+      sclosure? if "#t" else "#f" then
+      ssym eval-ok
+    then
+  then
+;
+
+# ============================================
 # Equal? (structural equality)
 #
 # Compares two S-expressions for structural equality.
@@ -4489,6 +4742,67 @@ union EvalResult {
 ;
 
 # ============================================
+# When / Unless (conditional execution)
+# (when test body...) - evaluate body if test is truthy
+# (unless test body...) - evaluate body if test is falsy
+# ============================================
+
+: eval-when-with-env ( SexprList Env -- EvalResult )
+  swap scdr  # Skip 'when' -> Env (test body...)
+  dup scar 2 pick eval-with-env  # Eval test -> (test body...) Env EvalResult
+  dup eval-err? if
+    nip nip
+  else
+    eval-ok-value
+    cond-test-true? if
+      # Truthy - evaluate body expressions (like begin)
+      scdr swap eval-begin-exprs
+    else
+      # Falsy - return #f
+      drop drop "#f" ssym eval-ok
+    then
+  then
+;
+
+: eval-unless-with-env ( SexprList Env -- EvalResult )
+  swap scdr  # Skip 'unless' -> Env (test body...)
+  dup scar 2 pick eval-with-env  # Eval test -> (test body...) Env EvalResult
+  dup eval-err? if
+    nip nip
+  else
+    eval-ok-value
+    cond-test-true? if
+      # Truthy - return #f
+      drop drop "#f" ssym eval-ok
+    else
+      # Falsy - evaluate body expressions (like begin)
+      scdr swap eval-begin-exprs
+    then
+  then
+;
+
+# ============================================
+# Error (user-initiated error raising)
+# ============================================
+
+: eval-error-with-env ( SexprList Env -- EvalResult )
+  # (error message) - raises an error that can be caught by try
+  over 1 "error" check-arity
+  dup eval-err? if
+    nip nip nip
+  else
+    drop drop
+    swap scdr scar
+    swap eval-with-env
+    dup eval-err? if
+    else
+      eval-ok-value
+      sexpr-to-display-string eval-err
+    then
+  then
+;
+
+# ============================================
 # Cond (multi-way conditional)
 # ============================================
 
@@ -4578,6 +4892,87 @@ union EvalResult {
   # Stack: BodyExprs Env
   # Evaluate body expressions, return last result (like begin)
   eval-begin-exprs
+;
+
+# ============================================
+# And (short-circuit logical and)
+# (and) => #t
+# (and expr) => expr
+# (and expr1 expr2 ...) => first falsy value, or last value
+# ============================================
+
+: eval-and-with-env ( SexprList Env -- EvalResult )
+  swap scdr  # Skip 'and' -> Env Args
+  dup snil? if
+    # (and) with no args returns #t
+    drop drop "#t" ssym eval-ok
+  else
+    swap eval-and-exprs
+  then
+;
+
+: eval-and-exprs ( SexprList Env -- EvalResult )
+  # Stack: Exprs Env
+  # Evaluate expressions left to right, return first falsy or last value
+  over scdr snil? if
+    # Last expression - evaluate in tail position
+    swap scar swap eval-with-env
+  else
+    over scar over eval-with-env  # -> Exprs Env EvalResult
+    dup eval-err? if
+      nip nip  # propagate error
+    else
+      eval-ok-value
+      dup cond-test-true? if
+        # Truthy - continue with rest
+        drop swap scdr swap eval-and-exprs
+      else
+        # Falsy - return this value
+        nip nip eval-ok
+      then
+    then
+  then
+;
+
+# ============================================
+# Or (short-circuit logical or)
+# (or) => #f
+# (or expr) => expr
+# (or expr1 expr2 ...) => first truthy value, or last value
+# ============================================
+
+: eval-or-with-env ( SexprList Env -- EvalResult )
+  swap scdr  # Skip 'or' -> Env Args
+  dup snil? if
+    # (or) with no args returns #f
+    drop drop "#f" ssym eval-ok
+  else
+    swap eval-or-exprs
+  then
+;
+
+: eval-or-exprs ( SexprList Env -- EvalResult )
+  # Stack: Exprs Env
+  # Evaluate expressions left to right, return first truthy or last value
+  over scdr snil? if
+    # Last expression - evaluate in tail position
+    swap scar swap eval-with-env
+  else
+    over scar over eval-with-env  # -> Exprs Env EvalResult
+    dup eval-err? if
+      nip nip  # propagate error
+    else
+      eval-ok-value
+      # Check if falsy (0 or #f) using cond-test-true?
+      dup cond-test-true? if
+        # Truthy - return this value
+        nip nip eval-ok
+      else
+        # Falsy - continue with rest
+        drop swap scdr swap eval-or-exprs
+      then
+    then
+  then
 ;
 
 # ============================================

@@ -93,6 +93,7 @@ lisp-test: build
         tests/lisp/macros/defmacro.slisp \
         tests/lisp/macros/quasiquote.slisp \
         tests/lisp/macros/gensym.slisp \
+        tests/lisp/special_forms/logic.slisp \
         tests/lisp/edge_cases/parser.slisp \
         tests/lisp/edge_cases/io.slisp \
         tests/lisp/edge_cases/suggestions.slisp \
