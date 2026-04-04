@@ -52,7 +52,7 @@
   (test 'zero-negative (assert-false (zero? -1)))
   (test 'zero-float-zero (assert-true (zero? 0.0)))
   (test 'zero-float-nonzero (assert-false (zero? 1.5)))
-  (test 'zero-string (assert-false (zero? "hello")))
+  (test 'zero-type-error (assert-error (zero? "hello")))
   ;; positive?
   (test 'positive-yes (assert-true (positive? 5)))
   (test 'positive-zero (assert-false (positive? 0)))
@@ -85,8 +85,16 @@
   (test 'pair-empty (assert-false (pair? '())))
   (test 'pair-number (assert-false (pair? 42)))
   (test 'pair-symbol (assert-false (pair? 'foo)))
+  ;; positive? / negative? type errors
+  (test 'positive-type-error (assert-error (positive? "hello")))
+  (test 'negative-type-error (assert-error (negative? "hello")))
   ;; procedure?
   (test 'procedure-lambda (assert-true (procedure? (lambda (x) x))))
   (test 'procedure-number (assert-false (procedure? 42)))
   (test 'procedure-symbol (assert-false (procedure? 'foo)))
-  (test 'procedure-list (assert-false (procedure? '(1 2 3))))))
+  (test 'procedure-list (assert-false (procedure? '(1 2 3))))
+  ;; procedure? returns false for macros
+  (test 'procedure-not-macro
+    (begin
+      (defmacro (test-macro x) x)
+      (assert-false (procedure? test-macro))))))

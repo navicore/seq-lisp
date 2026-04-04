@@ -39,7 +39,7 @@
   (append io-tests
   (append suggestion-tests
   (append logic-tests
-          stack-trace-tests))))))))))))))))))))))))))
+          stack-trace-tests)))))))))))))))))))))))))
 
 ;; ============================================
 ;; Run Tests and Report

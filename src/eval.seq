@@ -1056,15 +1056,29 @@ union EvalResult {
   dup 2 pick env-lookup-raw  # List Env FuncName EvalResult
   dup eval-ok? if
     eval-ok-value  # List Env FuncName Value
-    dup sclosure? over smacro? or if
-      # User-defined function — hand off to dispatch-user-defined
-      drop   # List Env FuncName  (drop Value, keep FuncName for dispatch-user-defined)
-      dispatch-user-defined
+    dup sclosure? if
+      # Apply closure directly (no second env lookup)
+      # Stack: List Env FuncName ClosureSexpr
+      nip             # List Env ClosureSexpr  (drop FuncName)
+      rot rot         # ClosureSexpr List Env
+      over scdr       # ClosureSexpr List Env Args
+      rot drop        # ClosureSexpr Env Args
+      swap            # ClosureSexpr Args Env
+      apply-closure
+    else dup smacro? if
+      # Apply macro directly (no second env lookup)
+      # Stack: List Env FuncName MacroSexpr
+      nip             # List Env MacroSexpr  (drop FuncName)
+      rot rot         # MacroSexpr List Env
+      over scdr       # MacroSexpr List Env Args
+      rot drop        # MacroSexpr Env Args
+      swap            # MacroSexpr Args Env
+      apply-macro
     else
       # Found in env but not callable — continue checking new builtins
       drop   # List Env FuncName  (drop Value)
       dispatch-new-builtins-chain
-    then
+    then then
   else
     # Not in env — check new builtins
     drop  # List Env FuncName  (drop EvalResult)
@@ -4315,12 +4329,13 @@ union EvalResult {
       eval-ok-value
       dup snum? if
         snum-val 0 i.= if "#t" else "#f" then
+        ssym eval-ok
       else dup sfloat? if
         sfloat-val 0.0 f.= if "#t" else "#f" then
+        ssym eval-ok
       else
-        drop "#f"
+        drop "zero?: argument must be a number" eval-err
       then then
-      ssym eval-ok
     then
   then
 ;
@@ -4338,12 +4353,13 @@ union EvalResult {
       eval-ok-value
       dup snum? if
         snum-val 0 i.> if "#t" else "#f" then
+        ssym eval-ok
       else dup sfloat? if
         sfloat-val 0.0 f.> if "#t" else "#f" then
+        ssym eval-ok
       else
-        drop "#f"
+        drop "positive?: argument must be a number" eval-err
       then then
-      ssym eval-ok
     then
   then
 ;
@@ -4361,12 +4377,13 @@ union EvalResult {
       eval-ok-value
       dup snum? if
         snum-val 0 i.< if "#t" else "#f" then
+        ssym eval-ok
       else dup sfloat? if
         sfloat-val 0.0 f.< if "#t" else "#f" then
+        ssym eval-ok
       else
-        drop "#f"
+        drop "negative?: argument must be a number" eval-err
       then then
-      ssym eval-ok
     then
   then
 ;
@@ -4449,13 +4466,7 @@ union EvalResult {
     dup eval-err? if
     else
       eval-ok-value
-      dup sclosure? if
-        drop "#t"
-      else dup smacro? if
-        drop "#t"
-      else
-        drop "#f"
-      then then
+      sclosure? if "#t" else "#f" then
       ssym eval-ok
     then
   then
@@ -4786,13 +4797,7 @@ union EvalResult {
     dup eval-err? if
     else
       eval-ok-value
-      dup sstring? if
-        sstring-val eval-err
-      else dup ssym? if
-        ssym-val eval-err
-      else
-        drop "error: argument must be a string" eval-err
-      then then
+      sexpr-to-display-string eval-err
     then
   then
 ;

@@ -46,4 +46,5 @@
   (test 'error-caught-by-try
     (assert-true (error? (try (error "test error")))))
   (test 'error-symbol-arg (assert-error (error 'bad)))
-  (test 'error-type-check (assert-error (error 42)))))
+  (test 'error-number-arg (assert-error (error 42)))
+  (test 'error-list-arg (assert-error (error '(1 2 3))))))
