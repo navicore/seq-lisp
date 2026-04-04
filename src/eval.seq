@@ -3014,6 +3014,21 @@ union EvalResult {
     nip  # -> EvalResult
   else
     eval-ok-value  # -> Name Value
+    # If the value is an unnamed closure, convert to named closure
+    # so (define fact (lambda ...)) supports self-recursion
+    dup sclosure? if
+      dup sclosure-val named-closure? not if
+        # Unnamed closure — make it named
+        # Stack: Name ClosureSexpr
+        sclosure-val  # -> Name LispClosure
+        dup closure-params  # -> Name LC Params
+        over closure-body   # -> Name LC Params Body
+        rot closure-env     # -> Name Params Body Env
+        3 pick              # -> Name Params Body Env Name
+        make-named-closure  # -> Name NamedClosure
+        sclosure            # -> Name NamedClosureSexpr
+      then
+    then
     eval-define  # -> EvalDefine
   then
 ;
