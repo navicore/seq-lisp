@@ -23,6 +23,74 @@
 : key-ctrl-c    ( -- Int ) 3 ;
 : key-ctrl-d    ( -- Int ) 4 ;
 
+# Flatten newlines to spaces for editor buffer (single-line editing).
+# History retains the original newlines; this is display/edit only.
+: flatten-newlines ( String -- String )
+  "" swap flatten-newlines-loop ;
+
+: flatten-newlines-loop ( String String -- String )
+  dup string.length 0 i.= if drop else
+    dup 0 1 string.substring
+    dup "\n" string.equal? if drop " " then
+    rot swap string.concat swap
+    dup string.length 1 i.subtract swap 1 rot string.substring
+    flatten-newlines-loop
+  then ;
+
+# Escape newlines for history file storage: \n -> \\n
+# Also escapes backslashes: \ -> \\
+: escape-newlines ( String -- String )
+  "" swap escape-newlines-loop ;
+
+: escape-newlines-loop ( String String -- String )
+  dup string.length 0 i.= if drop else
+    dup 0 1 string.substring
+    dup "\\" string.equal? if
+      drop "\\\\"
+    else dup "\n" string.equal? if
+      drop "\\n"
+    then then
+    rot swap string.concat swap
+    dup string.length 1 i.subtract swap 1 rot string.substring
+    escape-newlines-loop
+  then ;
+
+# Unescape newlines from history file: \\n -> \n, \\\\ -> \\
+: unescape-newlines ( String -- String )
+  "" swap unescape-newlines-loop ;
+
+: unescape-newlines-loop ( String String -- String )
+  # Stack: acc remaining
+  dup string.length 0 i.= if drop else
+    dup string.length 1 i.> if
+      # Check for two-char escape sequences
+      dup 0 2 string.substring
+      dup "\\n" string.equal? if
+        # Replace \\n with newline
+        drop  # acc remaining (drop two-chars)
+        dup string.length 2 i.subtract swap 2 rot string.substring  # acc rest
+        swap "\n" string.concat swap  # (acc+\n) rest
+        unescape-newlines-loop
+      else dup "\\\\" string.equal? if
+        # Replace \\\\ with backslash
+        drop  # acc remaining
+        dup string.length 2 i.subtract swap 2 rot string.substring  # acc rest
+        swap "\\" string.concat swap  # (acc+\\) rest
+        unescape-newlines-loop
+      else
+        # Not an escape — take one char
+        drop  # acc remaining (drop two-chars)
+        dup 0 1 string.substring  # acc remaining char
+        rot swap string.concat swap  # (acc+char) remaining
+        dup string.length 1 i.subtract swap 1 rot string.substring  # (acc+char) rest
+        unescape-newlines-loop
+      then then
+    else
+      # Single char remaining — just append it
+      string.concat  # acc+remaining
+    then
+  then ;
+
 # ============================================
 # EditorState Type
 # ============================================
@@ -266,9 +334,29 @@ union UndoList {
 
 # Add entry to history (prepends to front = newest first)
 # Skips empty strings and duplicates of the most recent entry
+# Strip leading whitespace/newlines from a string
+: string-strip-leading ( String -- String )
+  0 swap string-strip-leading-loop ;
+
+: string-strip-leading-loop ( Int String -- String )
+  # Stack: Pos Str
+  over over string.length i.>= if
+    drop drop ""
+  else
+    dup 2 pick string.char-at  # Pos Str CharCode  (string.char-at wants Str Int)
+    dup 10 i.= over 13 i.= or over 32 i.= or over 9 i.= or if
+      drop swap 1 i.add swap string-strip-leading-loop
+    else
+      # Not whitespace — return Str[Pos..]
+      drop  # Pos Str
+      dup string.length 2 pick i.subtract  # Pos Str RemLen
+      rot swap string.substring  # Str Pos RemLen -> result
+    then
+  then ;
+
 : history-add ( History String -- History )
-  # Strip trailing whitespace/newlines first
-  string-strip-trailing
+  # Strip leading and trailing whitespace/newlines
+  string-strip-leading string-strip-trailing
   # Check if string is empty
   dup string.empty? if
     drop  # Don't add empty strings
@@ -362,7 +450,8 @@ union UndoList {
     nip
   else
     over scar sstring-val  # Get entry string
-    "\n" string.concat     # Add newline
+    escape-newlines        # Escape embedded newlines for file storage
+    "\n" string.concat     # Add record delimiter
     string.concat          # Append to result
     swap scdr swap         # Move to next
     history-to-string-loop
@@ -406,6 +495,7 @@ union UndoList {
       dup string.empty? if
         drop  # Empty, just return History
       else
+        unescape-newlines  # Restore embedded newlines
         sstring swap scons  # NewHistory
       then
     else
@@ -430,6 +520,7 @@ union UndoList {
       swap dup string.empty? if
         drop  # Empty line, skip: History Rest
       else
+        unescape-newlines  # Restore embedded newlines
         sstring  # History Rest SLine
         rot     # Rest SLine History
         scons   # Rest NewHistory  (scons takes SLine History, correct order)
@@ -775,7 +866,6 @@ union UndoList {
 # ============================================
 
 # Render: clear line, show prompt, show buffer, position cursor
-# Original signature - called with extracted values from EdState
 : vim-render ( String String Int Int -- )
   # Stack: Prompt Buffer Cursor Mode
   "\r\x1b[2K" io.write  # Clear line first
@@ -1312,7 +1402,7 @@ union UndoList {
       # Can go up: increment histpos, get history entry
       nip drop  # Drop EdState and Buffer -> History Prompt HistPos
       1 i.add  # History Prompt NewHistPos
-      dup 3 pick swap history-get  # History Prompt NewHistPos HistEntry
+      dup 3 pick swap history-get flatten-newlines  # History Prompt NewHistPos HistEntry
       swap  # History Prompt HistEntry NewHistPos
       vim-edit-with-histpos
     else
@@ -1337,7 +1427,7 @@ union UndoList {
           vim-edit-with-histpos
         else
           # Get history entry at new position
-          dup 3 pick swap history-get  # History Prompt NewHistPos HistEntry
+          dup 3 pick swap history-get flatten-newlines  # History Prompt NewHistPos HistEntry
           swap  # History Prompt HistEntry NewHistPos
           vim-edit-with-histpos
         then
