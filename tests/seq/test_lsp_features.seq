@@ -23,31 +23,31 @@ include "../../src/eval"
 : test-returns-ok ( String -- )
   dup wrap-eval-all               # Stack: Input WrappedInput
   parse env-empty eval-with-env   # Stack: Input EvalResult
-  dup eval-ok? if
+  dup eval-ok? [
     eval-ok-value                 # Stack: Input ResultSexpr (SList)
-    slist-val scar ssym-val "ok" string.equal? if
+    slist-val scar ssym-val "ok" string.equal? [
       "PASS: " swap string.concat io.write-line
-    else
+    ] [
       "FAIL: " swap string.concat " (not ok result)" string.concat io.write-line
-    then
-  else
+    ] if
+  ] [
     drop "FAIL: " swap string.concat " (eval failed)" string.concat io.write-line
-  then ;
+  ] if ;
 
 # Simple test that checks eval-all-with-errors returns error
 : test-returns-error ( String -- )
   dup wrap-eval-all               # Stack: Input WrappedInput
   parse env-empty eval-with-env   # Stack: Input EvalResult
-  dup eval-ok? if
+  dup eval-ok? [
     eval-ok-value                 # Stack: Input ResultSexpr (SList)
-    slist-val scar ssym-val "error" string.equal? if
+    slist-val scar ssym-val "error" string.equal? [
       "PASS: " swap string.concat " (got error)" string.concat io.write-line
-    else
+    ] [
       "FAIL: " swap string.concat " (expected error, got ok)" string.concat io.write-line
-    then
-  else
+    ] if
+  ] [
     drop "FAIL: " swap string.concat " (eval failed)" string.concat io.write-line
-  then ;
+  ] if ;
 
 : main ( -- )
   "=== eval-all-with-errors Tests ===" io.write-line

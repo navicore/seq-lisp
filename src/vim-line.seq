@@ -6,6 +6,8 @@
 # Usage:
 #   "prompt> " "" vim-edit  # Returns edited string on Enter
 
+include std:control
+
 # ============================================
 # Constants
 # ============================================
@@ -29,13 +31,13 @@
   "" swap flatten-newlines-loop ;
 
 : flatten-newlines-loop ( String String -- String )
-  dup string.length 0 i.= if drop else
+  dup string.length 0 i.= [ drop ] [
     dup 0 1 string.substring
-    dup "\n" string.equal? if drop " " then
+    dup "\n" string.equal? [ drop " " ] when
     rot swap string.concat swap
     dup string.length 1 i.subtract swap 1 rot string.substring
     flatten-newlines-loop
-  then ;
+  ] if ;
 
 # Escape newlines for history file storage: \n -> \\n
 # Also escapes backslashes: \ -> \\
@@ -43,17 +45,17 @@
   "" swap escape-newlines-loop ;
 
 : escape-newlines-loop ( String String -- String )
-  dup string.length 0 i.= if drop else
+  dup string.length 0 i.= [ drop ] [
     dup 0 1 string.substring
-    dup "\\" string.equal? if
+    dup "\\" string.equal? [
       drop "\\\\"
-    else dup "\n" string.equal? if
+    ] [ dup "\n" string.equal? [
       drop "\\n"
-    then then
+    ] when ] if
     rot swap string.concat swap
     dup string.length 1 i.subtract swap 1 rot string.substring
     escape-newlines-loop
-  then ;
+  ] if ;
 
 # Unescape newlines from history file: \\n -> \n, \\\\ -> \\
 : unescape-newlines ( String -- String )
@@ -61,35 +63,35 @@
 
 : unescape-newlines-loop ( String String -- String )
   # Stack: acc remaining
-  dup string.length 0 i.= if drop else
-    dup string.length 1 i.> if
+  dup string.length 0 i.= [ drop ] [
+    dup string.length 1 i.> [
       # Check for two-char escape sequences
       dup 0 2 string.substring
-      dup "\\n" string.equal? if
+      dup "\\n" string.equal? [
         # Replace \\n with newline
         drop  # acc remaining (drop two-chars)
         dup string.length 2 i.subtract swap 2 rot string.substring  # acc rest
         swap "\n" string.concat swap  # (acc+\n) rest
         unescape-newlines-loop
-      else dup "\\\\" string.equal? if
+      ] [ dup "\\\\" string.equal? [
         # Replace \\\\ with backslash
         drop  # acc remaining
         dup string.length 2 i.subtract swap 2 rot string.substring  # acc rest
         swap "\\" string.concat swap  # (acc+\\) rest
         unescape-newlines-loop
-      else
+      ] [
         # Not an escape — take one char
         drop  # acc remaining (drop two-chars)
         dup 0 1 string.substring  # acc remaining char
         rot swap string.concat swap  # (acc+char) remaining
         dup string.length 1 i.subtract swap 1 rot string.substring  # (acc+char) rest
         unescape-newlines-loop
-      then then
-    else
+      ] if ] if
+    ] [
       # Single char remaining — just append it
       string.concat  # acc+remaining
-    then
-  then ;
+    ] if
+  ] if ;
 
 # ============================================
 # EditorState Type
@@ -198,14 +200,14 @@ union UndoList {
 # Pop from undo stack - returns UndoStack Buffer Cursor
 # If stack is empty, returns empty string and 0
 : undo-pop ( UndoStack -- UndoStack String Int )
-    dup undo-empty? if
+    dup undo-empty? [
         "" 0  # Empty stack returns empty state
-    else
+    ] [
         # UndoCons has fields: buffer, cursor, tail
         dup UndoCons-tail    # Stack Tail
         swap dup UndoCons-buffer  # Tail Stack Buffer
         swap UndoCons-cursor # Tail Buffer Cursor
-    then ;
+    ] if ;
 
 # Limit undo stack depth (called after push)
 : undo-limit ( UndoStack -- UndoStack )
@@ -214,13 +216,13 @@ union UndoList {
 # Simple recursive limiter: keep first N entries, drop rest
 : undo-limit-loop ( UndoStack Int -- UndoStack )
     # Base case 1: limit reached, return empty
-    dup 0 i.<= if
+    dup 0 i.<= [
         drop drop undo-empty
-    else
+    ] [
         # Base case 2: stack empty, return empty
-        over undo-empty? if
+        over undo-empty? [
             drop
-        else
+        ] [
             # Recursive case: keep this entry, limit tail
             # Stack: UndoStack(1) Remaining(0)
             # Get tail and recurse first
@@ -233,8 +235,8 @@ union UndoList {
             rot                      # Stack Remaining Buffer Cursor LimitedTail
             Make-UndoCons            # Stack Remaining NewUndoStack
             nip nip                  # NewUndoStack (drop Remaining and old UndoStack)
-        then
-    then ;
+        ] if
+    ] if ;
 
 # Arrow key codes (synthetic, outside ASCII range)
 : key-up    ( -- Int ) 1001 ;
@@ -246,38 +248,38 @@ union UndoList {
 # Uses non-blocking read after ESC to avoid requiring double-ESC
 : read-key ( -- Int )
   terminal.read-char
-  dup 27 i.= if
+  dup 27 i.= [
     # ESC - check for arrow sequence (non-blocking)
     drop terminal.read-char?
-    dup 0 i.< if
+    dup 0 i.< [
       # No character available - plain ESC
       drop 27
-    else
-      dup 91 i.= if
+    ] [
+      dup 91 i.= [
         # ESC [ - read arrow code
         drop terminal.read-char
-        dup 65 i.= if drop key-up else     # Up arrow
-        dup 66 i.= if drop key-down else   # Down arrow
-        dup 67 i.= if drop key-right else  # Right arrow
-        dup 68 i.= if drop key-left else   # Left arrow
+        dup 65 i.= [ drop key-up ] [     # Up arrow
+        dup 66 i.= [ drop key-down ] [   # Down arrow
+        dup 67 i.= [ drop key-right ] [  # Right arrow
+        dup 68 i.= [ drop key-left ] [   # Left arrow
         drop 27  # Unknown sequence, return ESC
-        then then then then
-      else
+        ] if ] if ] if ] if
+      ] [
         # ESC followed by something else, return ESC
         drop 27
-      then
-    then
-  then ;
+      ] if
+    ] if
+  ] when ;
 
 # ============================================
 # Integer Helpers (missing from Seq stdlib)
 # ============================================
 
 : int-min ( Int Int -- Int )
-  2dup i.< if drop else nip then ;
+  2dup i.< [ drop ] [ nip ] if ;
 
 : int-max ( Int Int -- Int )
-  2dup i.> if drop else nip then ;
+  2dup i.> [ drop ] [ nip ] if ;
 
 : int-mod ( Int Int -- Int )
   # a b -- a mod b = a - (a / b) * b
@@ -294,11 +296,11 @@ union UndoList {
 
 # Check if character code is a word character (letter, digit, underscore)
 : is-word-char ( Int -- Bool )
-  dup 48 i.>= over 57 i.<= and if drop true else  # 0-9
-  dup 65 i.>= over 90 i.<= and if drop true else  # A-Z
-  dup 97 i.>= over 122 i.<= and if drop true else  # a-z
+  dup 48 i.>= over 57 i.<= and [ drop true ] [  # 0-9
+  dup 65 i.>= over 90 i.<= and [ drop true ] [  # A-Z
+  dup 97 i.>= over 122 i.<= and [ drop true ] [  # a-z
   95 i.=  # underscore
-  then then then ;
+  ] if ] if ] if ;
 
 # ============================================
 # History Management
@@ -317,20 +319,20 @@ union UndoList {
 
 : string-strip-trailing-loop ( String Int -- String )
   # Stack: Str Len
-  dup 0 i.<= if
+  dup 0 i.<= [
     # Empty - return empty string
     drop drop ""
-  else
+  ] [
     # Check last char
     2dup 1 i.subtract string.char-at
-    dup 10 i.= over 13 i.= or over 32 i.= or over 9 i.= or if
+    dup 10 i.= over 13 i.= or over 32 i.= or over 9 i.= or [
       # Newline (10), CR (13), space (32), or tab (9) - trim it
       drop 1 i.subtract string-strip-trailing-loop
-    else
+    ] [
       # Not whitespace - done, return Str[0..Len]
       drop swap 0 rot string.substring
-    then
-  then ;
+    ] if
+  ] if ;
 
 # Add entry to history (prepends to front = newest first)
 # Skips empty strings and duplicates of the most recent entry
@@ -340,78 +342,78 @@ union UndoList {
 
 : string-strip-leading-loop ( Int String -- String )
   # Stack: Pos Str
-  over over string.length i.>= if
+  over over string.length i.>= [
     drop drop ""
-  else
+  ] [
     dup 2 pick string.char-at  # Pos Str CharCode  (string.char-at wants Str Int)
-    dup 10 i.= over 13 i.= or over 32 i.= or over 9 i.= or if
+    dup 10 i.= over 13 i.= or over 32 i.= or over 9 i.= or [
       drop swap 1 i.add swap string-strip-leading-loop
-    else
+    ] [
       # Not whitespace — return Str[Pos..]
       drop  # Pos Str
       dup string.length 2 pick i.subtract  # Pos Str RemLen
       rot swap string.substring  # Str Pos RemLen -> result
-    then
-  then ;
+    ] if
+  ] if ;
 
 : history-add ( History String -- History )
   # Strip leading and trailing whitespace/newlines
   string-strip-leading string-strip-trailing
   # Check if string is empty
-  dup string.empty? if
+  dup string.empty? [
     drop  # Don't add empty strings
-  else
+  ] [
     # Check if duplicate of most recent
-    over snil? if
+    over snil? [
       # History empty, just add
       sstring swap scons
-    else
+    ] [
       # Compare with most recent entry
       # Stack: History(1) NewString(0)
       over scar sstring-val  # History(2) NewString(1) OldString(0)
       1 pick                 # History(3) NewString(2) OldString(1) NewString(0)
-      string.equal? if       # History(2) NewString(1) AreEqual(0)
+      string.equal? [        # History(2) NewString(1) AreEqual(0)
         drop  # Duplicate, don't add
-      else
+      ] [
         sstring swap scons
-      then
-    then
-  then ;
+      ] if
+    ] if
+  ] if ;
 
 # Get history length
 : history-length ( History -- Int )
   0 history-length-loop ;
 
 : history-length-loop ( History Int -- Int )
-  over snil? if
+  over snil? [
     nip
-  else
+  ] [
     1 i.add swap scdr swap history-length-loop
-  then ;
+  ] if ;
 
 # Get nth history entry (1-indexed, 1 = most recent)
 # Returns empty string if out of bounds
 : history-get ( History Int -- String )
   # Stack: History N
-  dup 1 i.< if
+  dup 1 i.< [
     drop drop ""  # Invalid index
-  else
+  ] [
     history-get-loop
-  then ;
+  ] if ;
 
 : history-get-loop ( History Int -- String )
   # Stack: History N
-  over snil? if
+  over snil? [
     drop drop ""  # Past end of history
-  else
-    dup 1 i.= if
+  ] [
+    dup 1 i.= [
       # Found it
       drop scar sstring-val
-    else
+    ] [
       # Keep looking
       1 i.subtract swap scdr swap history-get-loop
-    then
-  then ;
+    ] if
+  ] if ;
 
 # ============================================
 # History Persistence
@@ -422,83 +424,83 @@ union UndoList {
 
 # Get history file path (~/.seqlisp_history)
 : history-file-path ( -- String )
-  "HOME" os.getenv if
+  "HOME" os.getenv [
     "/.seqlisp_history" string.concat
-  else
+  ] [
     drop ".seqlisp_history"  # Fallback to current dir
-  then ;
+  ] if ;
 
 # Reverse a history list (for saving oldest-first)
 : history-reverse ( History -- History )
   snil history-reverse-loop ;
 
 : history-reverse-loop ( History Acc -- Acc )
-  over snil? if
+  over snil? [
     nip
-  else
+  ] [
     over scar swap scons  # Prepend current item to acc
     swap scdr swap        # Move to next item
     history-reverse-loop
-  then ;
+  ] if ;
 
 # Convert history to string (one entry per line, oldest first)
 : history-to-string ( History -- String )
   history-reverse "" history-to-string-loop ;
 
 : history-to-string-loop ( History String -- String )
-  over snil? if
+  over snil? [
     nip
-  else
+  ] [
     over scar sstring-val  # Get entry string
     escape-newlines        # Escape embedded newlines for file storage
     "\n" string.concat     # Add record delimiter
     string.concat          # Append to result
     swap scdr swap         # Move to next
     history-to-string-loop
-  then ;
+  ] if ;
 
 # Save history to file
 : history-save ( History -- )
-  dup snil? if
+  dup snil? [
     drop  # Nothing to save
-  else
+  ] [
     history-to-string
     history-file-path
     file.spit drop  # Ignore success/failure
-  then ;
+  ] if ;
 
 # Load history from file (returns history list, newest first)
 : history-load ( -- History )
   history-file-path
-  dup file.exists? if
-    file.slurp if
+  dup file.exists? [
+    file.slurp [
       # Got content, parse lines
       snil swap history-load-lines
-    else
+    ] [
       drop snil  # Failed to read, return empty
-    then
-  else
+    ] if
+  ] [
     drop snil  # File doesn't exist, return empty
-  then ;
+  ] if ;
 
 # Parse lines from file content into history
 # File has oldest entries first, we prepend each so newest ends up first
 : history-load-lines ( History String -- History )
-  dup string.empty? if
+  dup string.empty? [
     drop  # Done, return history
-  else
+  ] [
     dup "\n" string.find  # History Content Pos
-    dup 0 i.< if
+    dup 0 i.< [
       # No newline - this is the last entry
       drop  # History Content
       string-strip-trailing
-      dup string.empty? if
+      dup string.empty? [
         drop  # Empty, just return History
-      else
+      ] [
         unescape-newlines  # Restore embedded newlines
         sstring swap scons  # NewHistory
-      then
-    else
+      ] if
+    ] [
       # Found newline at Pos
       # Stack: History Content Pos
       # 1. Extract line = Content[0..Pos]
@@ -517,20 +519,20 @@ union UndoList {
 
       # 4. Add StrippedLine to History if not empty
       # Stack: History StrippedLine Rest
-      swap dup string.empty? if
+      swap dup string.empty? [
         drop  # Empty line, skip: History Rest
-      else
+      ] [
         unescape-newlines  # Restore embedded newlines
         sstring  # History Rest SLine
         rot     # Rest SLine History
         scons   # Rest NewHistory  (scons takes SLine History, correct order)
         swap    # NewHistory Rest
-      then
+      ] if
 
       # Stack: History Rest
       history-load-lines
-    then
-  then ;
+    ] if
+  ] if ;
 
 # ============================================
 # Word Motion Helpers
@@ -541,123 +543,123 @@ union UndoList {
 : find-next-word ( String Int -- Int )
   # Stack: Str Pos
   over string.length  # Str Pos Len
-  2dup i.>= if
+  2dup i.>= [
     # Already at or past end
     drop nip  # Return Len
-  else
+  ] [
     # Check what kind of char we're on
     2 pick 2 pick string.char-at  # Str Pos Len Char
-    dup is-whitespace if
+    dup is-whitespace [
       # On whitespace - skip it
       drop find-next-word-skip-space
-    else
-      is-word-char if
+    ] [
+      is-word-char [
         # On word char - skip word chars
         find-next-word-skip-wordchars
-      else
+      ] [
         # On punctuation - skip punctuation
         find-next-word-skip-punct
-      then
-    then
-  then ;
+      ] if
+    ] if
+  ] if ;
 
 : find-next-word-skip-wordchars ( String Int Int -- Int )
   # Stack: Str Pos Len - skip word characters
-  2dup i.>= if
+  2dup i.>= [
     drop nip
-  else
+  ] [
     2 pick 2 pick string.char-at
-    dup is-whitespace if
+    dup is-whitespace [
       # Found whitespace, skip it to find next word
       drop find-next-word-skip-space
-    else
-      is-word-char if
+    ] [
+      is-word-char [
         # Still on word char, advance
         swap 1 i.add swap find-next-word-skip-wordchars
-      else
+      ] [
         # Hit punctuation - this is the boundary, return current pos
         drop nip
-      then
-    then
-  then ;
+      ] if
+    ] if
+  ] if ;
 
 : find-next-word-skip-punct ( String Int Int -- Int )
   # Stack: Str Pos Len - skip punctuation characters
-  2dup i.>= if
+  2dup i.>= [
     drop nip
-  else
+  ] [
     2 pick 2 pick string.char-at
-    dup is-whitespace if
+    dup is-whitespace [
       # Found whitespace, skip it to find next word
       drop find-next-word-skip-space
-    else
-      is-word-char if
+    ] [
+      is-word-char [
         # Hit word char - this is the boundary, return current pos
         drop nip
-      else
+      ] [
         # Still on punctuation, advance
         swap 1 i.add swap find-next-word-skip-punct
-      then
-    then
-  then ;
+      ] if
+    ] if
+  ] if ;
 
 : find-next-word-skip-space ( String Int Int -- Int )
   # Stack: Str Pos Len
-  2dup i.>= if
+  2dup i.>= [
     drop nip
-  else
-    2 pick 2 pick string.char-at is-whitespace if
+  ] [
+    2 pick 2 pick string.char-at is-whitespace [
       # Still whitespace, advance
       swap 1 i.add swap find-next-word-skip-space
-    else
+    ] [
       # Found start of next word
       drop nip
-    then
-  then ;
+    ] if
+  ] if ;
 
 # Find previous word start position from current position
 : find-prev-word ( String Int -- Int )
   # Stack: Str Pos
-  dup 0 i.<= if
+  dup 0 i.<= [
     drop drop 0  # Already at start, return 0
-  else
+  ] [
     # Move back one first
     1 i.subtract
     find-prev-word-skip-space
-  then ;
+  ] if ;
 
 : find-prev-word-skip-space ( String Int -- Int )
   # Stack: Str Pos
-  dup 0 i.< if
+  dup 0 i.< [
     drop drop 0
-  else
-    over over string.char-at is-whitespace if
-      dup 0 i.<= if
+  ] [
+    over over string.char-at is-whitespace [
+      dup 0 i.<= [
         drop drop 0
-      else
+      ] [
         1 i.subtract find-prev-word-skip-space
-      then
-    else
+      ] if
+    ] [
       find-prev-word-skip-word
-    then
-  then ;
+    ] if
+  ] if ;
 
 : find-prev-word-skip-word ( String Int -- Int )
   # Stack: Str Pos - we're in a word, find its start
-  dup 0 i.<= if
+  dup 0 i.<= [
     drop drop 0
-  else
-    over over string.char-at is-whitespace not if
-      dup 0 i.<= if
+  ] [
+    over over string.char-at is-whitespace not [
+      dup 0 i.<= [
         drop drop 0
-      else
+      ] [
         1 i.subtract find-prev-word-skip-word
-      then
-    else
+      ] if
+    ] [
       # Hit whitespace, the word starts at pos+1
       nip 1 i.add
-    then
-  then ;
+    ] if
+  ] if ;
 
 # ============================================
 # String Helpers
@@ -666,9 +668,9 @@ union UndoList {
 # Delete character at position: ( Str Pos -- NewStr )
 # string.substring takes (Str Start Len -- Substr)
 : string-delete-at ( String Int -- String )
-  over string.length over i.<= if
+  over string.length over i.<= [
     drop  # Position beyond string - return unchanged
-  else
+  ] [
     # Stack: Str Pos
     2dup 0 swap string.substring  # Before: Str[0..Pos]
     # Stack: Str Pos Before
@@ -678,7 +680,7 @@ union UndoList {
     string.substring  # After: Str[Pos+1..end]
     # Stack: Before After
     string.concat
-  then ;
+  ] if ;
 
 # Insert character at position: ( Str Pos Char -- NewStr )
 : string-insert-at ( String Int Int -- String )
@@ -701,11 +703,11 @@ union UndoList {
 # Clamp cursor to valid range for normal mode (0 to len-1, or 0 if empty)
 : clamp-cursor-normal ( String Int -- Int )
   over string.length
-  dup 0 i.= if
+  dup 0 i.= [
     drop drop drop 0  # Drop Len, Cursor, Str -> push 0
-  else
+  ] [
     1 i.subtract int-min 0 int-max nip  # Compute clamped cursor, drop Str
-  then ;
+  ] if ;
 
 # Clamp cursor to valid range for insert mode (0 to len)
 : clamp-cursor-insert ( String Int -- Int )
@@ -717,31 +719,31 @@ union UndoList {
 
 # Check if character is an opening bracket
 : is-open-bracket ( Int -- Bool )
-  dup 40 i.= if drop true else      # (
-  dup 91 i.= if drop true else      # [
-  dup 123 i.= if drop true else     # {
+  dup 40 i.= [ drop true ] [      # (
+  dup 91 i.= [ drop true ] [      # [
+  dup 123 i.= [ drop true ] [     # {
   drop false
-  then then then ;
+  ] if ] if ] if ;
 
 # Check if character is a closing bracket
 : is-close-bracket ( Int -- Bool )
-  dup 41 i.= if drop true else      # )
-  dup 93 i.= if drop true else      # ]
-  dup 125 i.= if drop true else     # }
+  dup 41 i.= [ drop true ] [      # )
+  dup 93 i.= [ drop true ] [      # ]
+  dup 125 i.= [ drop true ] [     # }
   drop false
-  then then then ;
+  ] if ] if ] if ;
 
 # Get the matching bracket for a given bracket
 # Returns 0 if not a bracket
 : matching-bracket ( Int -- Int )
-  dup 40 i.= if drop 41 else        # ( -> )
-  dup 41 i.= if drop 40 else        # ) -> (
-  dup 91 i.= if drop 93 else        # [ -> ]
-  dup 93 i.= if drop 91 else        # ] -> [
-  dup 123 i.= if drop 125 else      # { -> }
-  dup 125 i.= if drop 123 else      # } -> {
+  dup 40 i.= [ drop 41 ] [        # ( -> )
+  dup 41 i.= [ drop 40 ] [        # ) -> (
+  dup 91 i.= [ drop 93 ] [        # [ -> ]
+  dup 93 i.= [ drop 91 ] [        # ] -> [
+  dup 123 i.= [ drop 125 ] [      # { -> }
+  dup 125 i.= [ drop 123 ] [      # } -> {
   drop 0
-  then then then then then then ;
+  ] if ] if ] if ] if ] if ] if ;
 
 # Find matching bracket position
 # Returns -1 if no match found
@@ -750,7 +752,7 @@ union UndoList {
   # Get char at cursor
   2dup string.char-at
   # Stack: Str Pos Char
-  dup is-open-bracket if
+  dup is-open-bracket [
     # Search forward for closing bracket
     dup matching-bracket
     # Stack: Str Pos Char MatchChar
@@ -761,8 +763,8 @@ union UndoList {
     1
     # Stack: Str (Pos+1) MatchChar Depth=1
     find-bracket-forward
-  else
-    dup is-close-bracket if
+  ] [
+    dup is-close-bracket [
       # Search backward for opening bracket
       dup matching-bracket
       # Stack: Str Pos Char MatchChar
@@ -773,93 +775,93 @@ union UndoList {
       1
       # Stack: Str (Pos-1) MatchChar Depth=1
       find-bracket-backward
-    else
+    ] [
       # Not on a bracket - return -1
       drop drop drop -1
-    then
-  then ;
+    ] if
+  ] if ;
 
 # Search forward for matching bracket
 # ( String StartPos MatchChar Depth -- MatchPos )
 : find-bracket-forward ( String Int Int Int -- Int )
   # Stack: Str Pos Match Depth
-  3 pick string.length 3 pick i.<= if
+  3 pick string.length 3 pick i.<= [
     # Past end of string - no match
     drop drop drop drop -1
-  else
+  ] [
     # Get char at current position
     3 pick 3 pick string.char-at
     # Stack: Str(4) Pos(3) Match(2) Depth(1) Char(0)
-    dup 3 pick i.= if
+    dup 3 pick i.= [
       # Found matching bracket type (Char == Match)
       drop
       # Stack: Str Pos Match Depth
       1 i.subtract
-      dup 0 i.= if
+      dup 0 i.= [
         # Depth is 0 - found the match!
         drop drop nip  # Return Pos
-      else
+      ] [
         # Keep searching
         rot 1 i.add rot rot  # Increment Pos
         find-bracket-forward
-      then
-    else
+      ] if
+    ] [
       # Check if it's the opening bracket (increases depth)
       # Stack: Str(4) Pos(3) Match(2) Depth(1) Char(0)
-      2 pick matching-bracket over i.= if
+      2 pick matching-bracket over i.= [
         drop
         1 i.add  # Increase depth
         rot 1 i.add rot rot  # Increment Pos
         find-bracket-forward
-      else
+      ] [
         # Some other char - continue
         drop
         rot 1 i.add rot rot  # Increment Pos
         find-bracket-forward
-      then
-    then
-  then ;
+      ] if
+    ] if
+  ] if ;
 
 # Search backward for matching bracket
 # ( String StartPos MatchChar Depth -- MatchPos )
 : find-bracket-backward ( String Int Int Int -- Int )
   # Stack: Str Pos Match Depth
-  2 pick 0 i.< if
+  2 pick 0 i.< [
     # Before start of string - no match
     drop drop drop drop -1
-  else
+  ] [
     # Get char at current position
     3 pick 3 pick string.char-at
     # Stack: Str(4) Pos(3) Match(2) Depth(1) Char(0)
-    dup 3 pick i.= if
+    dup 3 pick i.= [
       # Found matching bracket type (Char == Match)
       drop
       # Stack: Str Pos Match Depth
       1 i.subtract
-      dup 0 i.= if
+      dup 0 i.= [
         # Depth is 0 - found the match!
         drop drop nip  # Return Pos
-      else
+      ] [
         # Keep searching
         rot 1 i.subtract rot rot  # Decrement Pos
         find-bracket-backward
-      then
-    else
+      ] if
+    ] [
       # Check if it's the closing bracket (increases depth)
       # Stack: Str(4) Pos(3) Match(2) Depth(1) Char(0)
-      2 pick matching-bracket over i.= if
+      2 pick matching-bracket over i.= [
         drop
         1 i.add  # Increase depth
         rot 1 i.subtract rot rot  # Decrement Pos
         find-bracket-backward
-      else
+      ] [
         # Some other char - continue
         drop
         rot 1 i.subtract rot rot  # Decrement Pos
         find-bracket-backward
-      then
-    then
-  then ;
+      ] if
+    ] if
+  ] if ;
 
 # ============================================
 # Rendering
@@ -870,19 +872,19 @@ union UndoList {
   # Stack: Prompt Buffer Cursor Mode
   "\r\x1b[2K" io.write  # Clear line first
   # Show mode indicator: ● for insert, ○ for normal
-  dup mode-insert i.= if "● " io.write else "○ " io.write then
+  dup mode-insert i.= [ "● " io.write ] [ "○ " io.write ] if
   drop  # Drop mode -> Prompt Buffer Cursor
   rot io.write  # Write prompt -> Buffer Cursor
   over io.write  # Write buffer -> Buffer Cursor
   # Move cursor: we're at end of buffer, need to go back (buflen - cursor) chars
   over string.length swap i.subtract  # -> Buffer Diff
-  dup 0 i.> if
+  dup 0 i.> [
     "\x1b[" io.write
     int-to-string io.write
     "D" io.write
-  else
+  ] [
     drop
-  then
+  ] if
   drop  # Drop Buffer
   terminal.flush ;
 
@@ -899,19 +901,19 @@ union UndoList {
 
 # Convert int to string (simple, positive only)
 : int-to-string ( Int -- String )
-  dup 0 i.= if
+  dup 0 i.= [
     drop "0"
-  else
+  ] [
     "" swap int-to-string-loop
-  then ;
+  ] if ;
 
 : int-to-string-loop ( String Int -- String )
-  dup 0 i.= if
+  dup 0 i.= [
     drop
-  else
+  ] [
     dup 10 int-mod 48 i.add char->string rot string.concat swap
     10 i./ drop int-to-string-loop
-  then ;
+  ] if ;
 
 # ============================================
 # Normal Mode Key Handlers
@@ -921,17 +923,17 @@ union UndoList {
 
 : normal-key-h ( EditorState -- EditorState Bool )
   # Move cursor left
-  dup ed-cursor 0 i.> if
+  dup ed-cursor 0 i.> [
     dup ed-cursor 1 i.subtract ed-with-cursor
-  then
+  ] when
   true ;
 
 : normal-key-l ( EditorState -- EditorState Bool )
   # Move cursor right if not at end (cursor < len-1)
   dup ed-buffer string.length 1 i.subtract  # EdState (len-1)
-  over ed-cursor i.> if
+  over ed-cursor i.> [
     dup ed-cursor 1 i.add ed-with-cursor
-  then
+  ] when
   true ;
 
 : normal-key-0 ( EditorState -- EditorState Bool )
@@ -940,19 +942,19 @@ union UndoList {
 
 : normal-key-$ ( EditorState -- EditorState Bool )
   # Move cursor to end of line
-  dup ed-buffer string.length dup 0 i.> if 1 i.subtract then
+  dup ed-buffer string.length dup 0 i.> [ 1 i.subtract ] when
   ed-with-cursor true ;
 
 : normal-key-% ( EditorState -- EditorState Bool )
   # Move cursor to matching bracket
   dup ed-buffer over ed-cursor find-matching-bracket
   # Stack: EdState MatchPos
-  dup 0 i.< if
+  dup 0 i.< [
     # No match found - stay in place
     drop true
-  else
+  ] [
     ed-with-cursor true
-  then ;
+  ] if ;
 
 : normal-key-i ( EditorState -- EditorState Bool )
   # Enter insert mode at cursor
@@ -960,9 +962,9 @@ union UndoList {
 
 : normal-key-a ( EditorState -- EditorState Bool )
   # Enter insert mode after cursor (append)
-  dup ed-buffer string.length over ed-cursor i.> if
+  dup ed-buffer string.length over ed-cursor i.> [
     dup ed-cursor 1 i.add ed-with-cursor
-  then
+  ] when
   mode-insert ed-with-mode true ;
 
 : normal-key-A ( EditorState -- EditorState Bool )
@@ -977,14 +979,14 @@ union UndoList {
 
 : normal-key-x ( EditorState -- EditorState Bool )
   # Delete character under cursor
-  dup ed-buffer string.length over ed-cursor i.> if
+  dup ed-buffer string.length over ed-cursor i.> [
     # Cursor is valid, delete char
     dup ed-buffer over ed-cursor string-delete-at
     # Stack: EdState(1) NewBuffer(0)
     dup 2 pick ed-cursor clamp-cursor-normal
     # Stack: EdState(2) NewBuffer(1) NewCursor(0)
     ed-with-buffer-cursor
-  then
+  ] when
   true ;
 
 : normal-key-w ( EditorState -- EditorState Bool )
@@ -1003,12 +1005,12 @@ union UndoList {
 : normal-key-r ( EditorState -- EditorState Bool )
   # Replace character under cursor
   terminal.read-char
-  dup 27 i.= over 0 i.< or if
+  dup 27 i.= over 0 i.< or [
     # Escape or error - cancel
     drop true
-  else
+  ] [
     # Stack: EdState(1) Char(0)
-    over ed-buffer string.length 2 pick ed-cursor i.> if
+    over ed-buffer string.length 2 pick ed-cursor i.> [
       # Cursor valid - do replacement
       # Get buffer and cursor from EdState
       over ed-buffer   # EdState Char Buffer
@@ -1018,10 +1020,10 @@ union UndoList {
       rot              # EdState TmpBuffer Cursor Char
       string-insert-at # EdState NewBuffer
       ed-with-buffer true
-    else
+    ] [
       drop true
-    then
-  then ;
+    ] if
+  ] if ;
 
 # ============================================
 # Operator Handlers (d, c)
@@ -1039,20 +1041,20 @@ union UndoList {
 # Operator: d (delete)
 : normal-key-d ( EditorState -- EditorState Bool )
   terminal.read-char
-  dup 27 i.= over 0 i.< or if
+  dup 27 i.= over 0 i.< or [
     # Escape or error - cancel
     drop true
-  else
-    dup 100 i.= if
+  ] [
+    dup 100 i.= [
       # dd - delete entire line
       drop
       "" 0 mode-normal ed-with-buffer-cursor-mode true
-    else
-      dup 36 i.= if
+    ] [
+      dup 36 i.= [
         # d$ - delete to end of line
         drop normal-key-D
-      else
-        dup 119 i.= if
+      ] [
+        dup 119 i.= [
           # dw - delete word
           drop
           # Stack: EdState
@@ -1078,13 +1080,13 @@ union UndoList {
           # Clean up: drop Buffer, Cursor, NextPos, keep EdState and NewBuffer
           nip nip nip             # EdState NewBuffer
           ed-with-buffer true
-        else
+        ] [
           # Unknown motion - ignore for now
           drop true
-        then
-      then
-    then
-  then ;
+        ] if
+      ] if
+    ] if
+  ] if ;
 
 # C - change to end of line (same as c$)
 : normal-key-C ( EditorState -- EditorState Bool )
@@ -1098,20 +1100,20 @@ union UndoList {
 # Operator: c (change = delete + insert mode)
 : normal-key-c ( EditorState -- EditorState Bool )
   terminal.read-char
-  dup 27 i.= over 0 i.< or if
+  dup 27 i.= over 0 i.< or [
     # Escape or error - cancel
     drop true
-  else
-    dup 99 i.= if
+  ] [
+    dup 99 i.= [
       # cc - change entire line
       drop
       "" 0 mode-insert ed-with-buffer-cursor-mode true
-    else
-      dup 36 i.= if
+    ] [
+      dup 36 i.= [
         # c$ - change to end of line
         drop normal-key-C
-      else
-        dup 119 i.= if
+      ] [
+        dup 119 i.= [
           # cw - change word
           drop
           # Stack: EdState
@@ -1139,13 +1141,13 @@ union UndoList {
           swap                    # EdState(2) NewBuffer(1) Cursor(0)
           mode-insert             # EdState(3) NewBuffer(2) Cursor(1) Mode(0)
           ed-with-buffer-cursor-mode true
-        else
+        ] [
           # Unknown motion - ignore for now
           drop true
-        then
-      then
-    then
-  then ;
+        ] if
+      ] if
+    ] if
+  ] if ;
 
 # ============================================
 # Yank/Paste Handlers
@@ -1172,15 +1174,15 @@ union UndoList {
 # y - yank operator
 : normal-key-y ( EditorState -- EditorState Bool )
   terminal.read-char
-  dup 27 i.= over 0 i.< or if
+  dup 27 i.= over 0 i.< or [
     # Escape or error - cancel
     drop true
-  else
-    dup 121 i.= if  # yy - yank entire line
+  ] [
+    dup 121 i.= [  # yy - yank entire line
       drop
       dup ed-buffer ed-with-yank true
-    else
-      dup 36 i.= if  # y$ - yank to end of line
+    ] [
+      dup 36 i.= [  # y$ - yank to end of line
         drop
         dup ed-buffer over ed-cursor
         # Stack: EdState Buffer Cursor
@@ -1189,8 +1191,8 @@ union UndoList {
         string.substring
         # Stack: EdState Yanked
         ed-with-yank true
-      else
-        dup 119 i.= if  # yw - yank word
+      ] [
+        dup 119 i.= [  # yw - yank word
           drop
           # Find next word position
           dup ed-buffer over ed-cursor find-next-word
@@ -1204,19 +1206,19 @@ union UndoList {
           string.substring
           # Stack: EdState NextPos Yanked
           nip ed-with-yank true
-        else
+        ] [
           # Unknown motion - ignore
           drop true
-        then
-      then
-    then
-  then ;
+        ] if
+      ] if
+    ] if
+  ] if ;
 
 # p - paste after cursor
 : normal-key-p ( EditorState -- EditorState Bool )
-  dup ed-yank dup string.empty? if
+  dup ed-yank dup string.empty? [
     drop true  # Nothing to paste
-  else
+  ] [
     # Stack: EdState(1) YankStr(0)
     # Get all needed values first
     over ed-buffer           # EdState YankStr Buffer
@@ -1234,13 +1236,13 @@ union UndoList {
     rot ed-with-buffer       # EdState YankStr Buffer InsertPos NewCursor EdState'
     swap ed-with-cursor      # EdState YankStr Buffer InsertPos EdState''
     nip nip nip nip true
-  then ;
+  ] if ;
 
 # P - paste before cursor
 : normal-key-P ( EditorState -- EditorState Bool )
-  dup ed-yank dup string.empty? if
+  dup ed-yank dup string.empty? [
     drop true  # Nothing to paste
-  else
+  ] [
     # Stack: EdState(1) YankStr(0)
     # Get all needed values first
     over ed-buffer           # EdState YankStr Buffer
@@ -1258,7 +1260,7 @@ union UndoList {
     rot ed-with-buffer       # EdState YankStr Buffer InsertPos NewCursor EdState'
     swap ed-with-cursor      # EdState YankStr Buffer InsertPos EdState''
     nip nip nip nip true
-  then ;
+  ] if ;
 
 # ============================================
 # Insert Mode Key Handlers
@@ -1266,13 +1268,13 @@ union UndoList {
 
 : insert-backspace ( EditorState -- EditorState Bool )
   # Delete character before cursor
-  dup ed-cursor 0 i.> if
+  dup ed-cursor 0 i.> [
     dup ed-cursor 1 i.subtract
     # Stack: EdState NewCursor
     over ed-buffer over string-delete-at
     # Stack: EdState NewCursor NewBuffer
     swap ed-with-buffer-cursor
-  then
+  ] when
   true ;
 
 : insert-char ( EditorState Int -- EditorState Bool )
@@ -1292,72 +1294,72 @@ union UndoList {
 
 : handle-key ( EditorState Int -- EditorState Bool )
   # Stack: EdState Key
-  over ed-mode mode-insert i.= if
+  over ed-mode mode-insert i.= [
     handle-insert-key
-  else
+  ] [
     handle-normal-key
-  then ;
+  ] if ;
 
 : handle-normal-key ( EditorState Int -- EditorState Bool )
-  dup 104 i.= over key-left i.= or if drop normal-key-h else   # h or Left - left
-  dup 108 i.= over key-right i.= or if drop normal-key-l else  # l or Right - right
-  dup 119 i.= if drop normal-key-w else  # w - next word
-  dup 98 i.= if drop normal-key-b else   # b - prev word
-  dup 48 i.= if drop normal-key-0 else   # 0 - start of line
-  dup 36 i.= if drop normal-key-$ else   # $ - end of line
-  dup 37 i.= if drop normal-key-% else   # % - matching bracket
-  dup 105 i.= if drop normal-key-i else  # i - insert
-  dup 97 i.= if drop normal-key-a else   # a - append
-  dup 65 i.= if drop normal-key-A else   # A - append at end
-  dup 73 i.= if drop normal-key-I else   # I - insert at start
-  dup 120 i.= if drop normal-key-x else  # x - delete char
-  dup 114 i.= if drop normal-key-r else  # r - replace char
-  dup 100 i.= if drop normal-key-d else  # d - delete operator
-  dup 99 i.= if drop normal-key-c else   # c - change operator
-  dup 68 i.= if drop normal-key-D else   # D - delete to end
-  dup 67 i.= if drop normal-key-C else   # C - change to end
-  dup 121 i.= if drop normal-key-y else  # y - yank operator
-  dup 112 i.= if drop normal-key-p else  # p - paste after
-  dup 80 i.= if drop normal-key-P else   # P - paste before
-  dup key-enter i.= if drop false else
-  dup key-newline i.= if drop false else
-  dup key-ctrl-c i.= if drop "\x04" 0 mode-normal ed-with-buffer-cursor-mode false else
-  dup key-ctrl-d i.= if drop "\x04" 0 mode-normal ed-with-buffer-cursor-mode false else
+  dup 104 i.= over key-left i.= or [ drop normal-key-h ] [   # h or Left - left
+  dup 108 i.= over key-right i.= or [ drop normal-key-l ] [  # l or Right - right
+  dup 119 i.= [ drop normal-key-w ] [  # w - next word
+  dup 98 i.= [ drop normal-key-b ] [   # b - prev word
+  dup 48 i.= [ drop normal-key-0 ] [   # 0 - start of line
+  dup 36 i.= [ drop normal-key-$ ] [   # $ - end of line
+  dup 37 i.= [ drop normal-key-% ] [   # % - matching bracket
+  dup 105 i.= [ drop normal-key-i ] [  # i - insert
+  dup 97 i.= [ drop normal-key-a ] [   # a - append
+  dup 65 i.= [ drop normal-key-A ] [   # A - append at end
+  dup 73 i.= [ drop normal-key-I ] [   # I - insert at start
+  dup 120 i.= [ drop normal-key-x ] [  # x - delete char
+  dup 114 i.= [ drop normal-key-r ] [  # r - replace char
+  dup 100 i.= [ drop normal-key-d ] [  # d - delete operator
+  dup 99 i.= [ drop normal-key-c ] [   # c - change operator
+  dup 68 i.= [ drop normal-key-D ] [   # D - delete to end
+  dup 67 i.= [ drop normal-key-C ] [   # C - change to end
+  dup 121 i.= [ drop normal-key-y ] [  # y - yank operator
+  dup 112 i.= [ drop normal-key-p ] [  # p - paste after
+  dup 80 i.= [ drop normal-key-P ] [   # P - paste before
+  dup key-enter i.= [ drop false ] [
+  dup key-newline i.= [ drop false ] [
+  dup key-ctrl-c i.= [ drop "\x04" 0 mode-normal ed-with-buffer-cursor-mode false ] [
+  dup key-ctrl-d i.= [ drop "\x04" 0 mode-normal ed-with-buffer-cursor-mode false ] [
   drop true
-  then then then then then then then then then then then then then then then then then then then then then then then then ;
+  ] if ] if ] if ] if ] if ] if ] if ] if ] if ] if ] if ] if ] if ] if ] if ] if ] if ] if ] if ] if ] if ] if ] if ] if ;
 
 : handle-insert-key ( EditorState Int -- EditorState Bool )
-  dup key-escape i.= if
+  dup key-escape i.= [
     # Escape: return to normal mode, clamp cursor
     drop
     dup ed-buffer over ed-cursor clamp-cursor-normal ed-with-cursor
     mode-normal ed-with-mode true
-  else
-  dup key-left i.= if
+  ] [
+  dup key-left i.= [
     # Left arrow: move cursor left, stay in insert mode
     drop
-    dup ed-cursor 0 i.> if
+    dup ed-cursor 0 i.> [
       dup ed-cursor 1 i.subtract ed-with-cursor
-    then
+    ] when
     true
-  else
-  dup key-right i.= if
+  ] [
+  dup key-right i.= [
     # Right arrow: move cursor right, stay in insert mode
     drop
-    dup ed-buffer string.length over ed-cursor i.> if
+    dup ed-buffer string.length over ed-cursor i.> [
       dup ed-cursor 1 i.add ed-with-cursor
-    then
+    ] when
     true
-  else
-  dup key-enter i.= if drop false else
-  dup key-newline i.= if drop false else
-  dup key-backspace i.= if drop insert-backspace else
-  dup key-ctrl-h i.= if drop insert-backspace else
-  dup key-ctrl-c i.= if drop "\x04" 0 mode-normal ed-with-buffer-cursor-mode false else
-  dup key-ctrl-d i.= if drop "\x04" 0 mode-normal ed-with-buffer-cursor-mode false else
-  dup 32 i.>= over 126 i.<= and if insert-char else
+  ] [
+  dup key-enter i.= [ drop false ] [
+  dup key-newline i.= [ drop false ] [
+  dup key-backspace i.= [ drop insert-backspace ] [
+  dup key-ctrl-h i.= [ drop insert-backspace ] [
+  dup key-ctrl-c i.= [ drop "\x04" 0 mode-normal ed-with-buffer-cursor-mode false ] [
+  dup key-ctrl-d i.= [ drop "\x04" 0 mode-normal ed-with-buffer-cursor-mode false ] [
+  dup 32 i.>= over 126 i.<= and [ insert-char ] [
   drop true
-  then then then then then then then then then then ;
+  ] if ] if ] if ] if ] if ] if ] if ] if ] if ] if ;
 
 # ============================================
 # Main Editor
@@ -1392,51 +1394,51 @@ union UndoList {
   swap drop
   # Stack: History Prompt HistPos EdState ResultCode
   # Check result code
-  dup edit-hist-up i.= if
+  dup edit-hist-up i.= [
     # Navigate up in history
     drop  # History Prompt HistPos EdState
     # Stack: History(3) Prompt(2) HistPos(1) EdState(0)
     dup ed-buffer  # Get buffer for potential fallback
     # Stack: History(4) Prompt(3) HistPos(2) EdState(1) Buffer(0)
-    4 pick history-length 3 pick i.> if
+    4 pick history-length 3 pick i.> [
       # Can go up: increment histpos, get history entry
       nip drop  # Drop EdState and Buffer -> History Prompt HistPos
       1 i.add  # History Prompt NewHistPos
       dup 3 pick swap history-get flatten-newlines  # History Prompt NewHistPos HistEntry
       swap  # History Prompt HistEntry NewHistPos
       vim-edit-with-histpos
-    else
+    ] [
       # Can't go up, restart with same buffer
       nip  # Drop EdState, keep Buffer
       swap vim-edit-with-histpos
-    then
-  else
-    dup edit-hist-dn i.= if
+    ] if
+  ] [
+    dup edit-hist-dn i.= [
       # Navigate down in history
       drop  # History Prompt HistPos EdState
       dup ed-buffer  # Get buffer
       # Stack: History(4) Prompt(3) HistPos(2) EdState(1) Buffer(0)
       # Check if can go down (HistPos > 0)
-      2 pick 0 i.> if
+      2 pick 0 i.> [
         # Can go down: decrement histpos
         nip drop  # Drop EdState and Buffer -> History Prompt HistPos
         1 i.subtract  # History Prompt NewHistPos
-        dup 0 i.= if
+        dup 0 i.= [
           # Back to position 0, use empty buffer
           "" swap  # History Prompt "" NewHistPos
           vim-edit-with-histpos
-        else
+        ] [
           # Get history entry at new position
           dup 3 pick swap history-get flatten-newlines  # History Prompt NewHistPos HistEntry
           swap  # History Prompt HistEntry NewHistPos
           vim-edit-with-histpos
-        then
-      else
+        ] if
+      ] [
         # Already at 0, restart with same buffer
         nip  # Drop EdState, keep Buffer
         swap vim-edit-with-histpos
-      then
-    else
+      ] if
+    ] [
       # Normal completion (edit-done)
       drop  # History(3) Prompt(2) HistPos(1) EdState(0)
       # Extract buffer from EdState
@@ -1445,29 +1447,29 @@ union UndoList {
       # Keep History and Buffer, drop Prompt and HistPos
       3 pick swap  # History Prompt HistPos History Buffer
       rot drop rot drop rot drop  # History Buffer
-    then
-  then ;
+    ] if
+  ] if ;
 
 # Check if a key (in normal mode) is a modifying key that should trigger undo save
 : is-modifying-key ( Int -- Bool )
-  dup 120 i.= if drop true else  # x - delete char
-  dup 114 i.= if drop true else  # r - replace char
-  dup 100 i.= if drop true else  # d - delete operator
-  dup 99 i.= if drop true else   # c - change operator
-  dup 68 i.= if drop true else   # D - delete to end
-  dup 67 i.= if drop true else   # C - change to end
-  dup 112 i.= if drop true else  # p - paste after
-  dup 80 i.= if drop true else   # P - paste before
+  dup 120 i.= [ drop true ] [  # x - delete char
+  dup 114 i.= [ drop true ] [  # r - replace char
+  dup 100 i.= [ drop true ] [  # d - delete operator
+  dup 99 i.= [ drop true ] [   # c - change operator
+  dup 68 i.= [ drop true ] [   # D - delete to end
+  dup 67 i.= [ drop true ] [   # C - change to end
+  dup 112 i.= [ drop true ] [  # p - paste after
+  dup 80 i.= [ drop true ] [   # P - paste before
   drop false
-  then then then then then then then then ;
+  ] if ] if ] if ] if ] if ] if ] if ] if ;
 
 # Check if a key (in insert mode) is a modifying key
 : is-insert-modifying-key ( Int -- Bool )
-  dup key-backspace i.= if drop true else
-  dup key-ctrl-h i.= if drop true else
-  dup 32 i.>= over 126 i.<= and if drop true else
+  dup key-backspace i.= [ drop true ] [
+  dup key-ctrl-h i.= [ drop true ] [
+  dup 32 i.>= over 126 i.<= and [ drop true ] [
   drop false
-  then then then ;
+  ] if ] if ] if ;
 
 # Core edit loop - returns EdState and ResultCode
 # ( History Prompt HistPos EdState UndoStack -- History Prompt HistPos EdState UndoStack ResultCode )
@@ -1477,34 +1479,34 @@ union UndoList {
   3 pick 2 pick vim-render-ed
   # Read a key (handles arrow key escape sequences)
   read-key
-  dup 0 i.< if
+  dup 0 i.< [
     # Error reading key, return done
     drop edit-done
-  else
+  ] [
     # Check for history navigation
     # Stack: History(5) Prompt(4) HistPos(3) EdState(2) UndoStack(1) Key(0)
     # Up arrow always navigates history
-    dup key-up i.= if
+    dup key-up i.= [
       drop edit-hist-up
-    else
+    ] [
       # k navigates history in normal mode
       # After dup+i.=: History(6) Prompt(5) HistPos(4) EdState(3) UndoStack(2) Key(1) Bool(0)
-      dup 107 i.= 3 pick ed-mode mode-normal i.= and if
+      dup 107 i.= 3 pick ed-mode mode-normal i.= and [
         drop edit-hist-up
-      else
+      ] [
         # Down arrow always navigates history
-        dup key-down i.= if
+        dup key-down i.= [
           drop edit-hist-dn
-        else
+        ] [
           # j navigates history in normal mode
           # Stack after dup+i.=: History(6) Prompt(5) HistPos(4) EdState(3) UndoStack(2) Key(1) Bool(0)
-          dup 106 i.= 3 pick ed-mode mode-normal i.= and if
+          dup 106 i.= 3 pick ed-mode mode-normal i.= and [
             drop edit-hist-dn
-          else
+          ] [
             # Check for undo (u in normal mode)
             # Stack: History(5) Prompt(4) HistPos(3) EdState(2) UndoStack(1) Key(0)
             # After dup+i.=: History(6) Prompt(5) HistPos(4) EdState(3) UndoStack(2) Key(1) Bool(0)
-            dup 117 i.= 3 pick ed-mode mode-normal i.= and if
+            dup 117 i.= 3 pick ed-mode mode-normal i.= and [
               # Undo - pop from undo stack
               drop  # Drop key
               # Stack: History(4) Prompt(3) HistPos(2) EdState(1) UndoStack(0)
@@ -1523,24 +1525,24 @@ union UndoList {
               rot drop
               # Stack: History(4) Prompt(3) HistPos(2) NewEdState(1) NewUndoStack(0)
               vim-edit-inner
-            else
+            ] [
               # Check if we should save undo state before this key
               # Stack: History(5) Prompt(4) HistPos(3) EdState(2) UndoStack(1) Key(0)
               # After dup: History(6) Prompt(5) HistPos(4) EdState(3) UndoStack(2) Key(1) Key(0)
-              dup 3 pick ed-mode mode-normal i.= if
+              dup 3 pick ed-mode mode-normal i.= [
                 is-modifying-key
-              else
+              ] [
                 is-insert-modifying-key
-              then
+              ] if
               # Stack: History(5) Prompt(4) HistPos(3) EdState(2) UndoStack(1) Key(0) ShouldSaveUndo
-              if
+              [
                 # Save undo state before modification
                 # Stack: History(5) Prompt(4) HistPos(3) EdState(2) UndoStack(1) Key(0)
                 swap  # History Prompt HistPos EdState Key UndoStack
                 2 pick ed-buffer 3 pick ed-cursor undo-push undo-limit
                 # Stack: History Prompt HistPos EdState Key NewUndoStack
                 swap  # History Prompt HistPos EdState NewUndoStack Key
-              then
+              ] when
               # Regular key handling
               # Stack: History(5) Prompt(4) HistPos(3) EdState(2) UndoStack(1) Key(0)
               # Need EdState Key on top for handle-key
@@ -1548,14 +1550,14 @@ union UndoList {
               handle-key    # History Prompt HistPos UndoStack NewEdState Continue?
               # Need NewEdState UndoStack Continue? for vim-edit-inner
               rot swap      # History Prompt HistPos NewEdState UndoStack Continue?
-              if
+              [
                 vim-edit-inner
-              else
+              ] [
                 edit-done
-              then
-            then
-          then
-        then
-      then
-    then
-  then ;
+              ] if
+            ] if
+          ] if
+        ] if
+      ] if
+    ] if
+  ] if ;
