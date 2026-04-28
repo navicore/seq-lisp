@@ -11,6 +11,8 @@
 #
 # All types are defined here to support mutual recursion.
 
+include std:control
+
 # ============================================
 # Type Definitions
 # ============================================
@@ -296,10 +298,10 @@ union SexprList {
       # Stack: ( head tail )
       swap sexpr-to-string  # ( tail head_str )
       swap                  # ( head_str tail )
-      dup snil? if
+      dup snil? [
         drop  # Last item, just return head_str
-      else
+      ] [
         " " swap list-items-to-string string.concat string.concat
-      then
+      ] if
   end
 ;

@@ -34,92 +34,92 @@ include "vim-line"
 
 : parse-all-loop ( TokenList SexprList -- SexprList )
     # Stack: Tokens Exprs
-    over tnil? if
+    over tnil? [
         nip  # No more tokens, return expressions
-    else
+    ] [
         swap parse-tokens  # -> Exprs ParseResult
         dup result-expr swap result-tokens  # -> Exprs Expr RemainingTokens
         rot rot swap scons  # -> RemainingTokens NewExprs
         parse-all-loop
-    then
+    ] if
 ;
 
 # Evaluate all expressions with persistent environment (no output)
 : eval-all-quiet ( SexprList Env -- Env )
     # Stack: Exprs Env -> FinalEnv
-    swap dup snil? if
+    swap dup snil? [
         drop  # Return env
-    else
+    ] [
         dup scar 2 pick eval-with-env
-        dup eval-define? if
+        dup eval-define? [
             dup eval-define-name swap eval-define-value
             3 pick env-extend
             rot drop swap scdr swap
             eval-all-quiet
-        else
-            dup eval-err? if
+        ] [
+            dup eval-err? [
                 # Check for exit signal
-                is-exit-signal? if
+                is-exit-signal? [
                     exit-signal-code os.exit
                     # Never reaches here - stack shaping for compiler
                     drop
-                else
+                ] [
                     # Print error but continue
                     format-eval-error io.write-line
                     scdr swap
                     eval-all-quiet
-                then
-            else
+                ] if
+            ] [
                 # EvalOk - drop result
                 drop scdr swap
                 eval-all-quiet
-            then
-        then
-    then
+            ] if
+        ] if
+    ] if
 ;
 
 # Evaluate all expressions, print non-trivial results
 : eval-all-print ( SexprList Env -- Env )
     # Stack: Exprs Env -> FinalEnv
-    swap dup snil? if
+    swap dup snil? [
         drop  # Return env
-    else
+    ] [
         dup scar 2 pick eval-with-env
-        dup eval-define? if
+        dup eval-define? [
             dup eval-define-name swap eval-define-value
             3 pick env-extend
             rot drop swap scdr swap
             eval-all-print
-        else
-            dup eval-err? if
+        ] [
+            dup eval-err? [
                 # Check for exit signal
-                is-exit-signal? if
+                is-exit-signal? [
                     exit-signal-code os.exit
                     # Never reaches here - stack shaping for compiler
                     drop
-                else
+                ] [
                     # Print error and continue
                     format-eval-error io.write-line
                     scdr swap
                     eval-all-print
-                then
-            else
+                ] if
+            ] [
                 # EvalOk result - unwrap and print if not empty list
                 eval-ok-value
-                dup variant.tag :SList symbol.= if
-                    dup slist-val snil? if
+                dup variant.tag :SList symbol.= [
+                    dup slist-val snil? [
                         drop
-                    else
+                    ] [
                         sexpr-to-string io.write-line
-                    then
-                else
+                    ] if
+                ] [
                     sexpr-to-string io.write-line
-                then
+                ] if
                 scdr swap
                 eval-all-print
-            then
-        then
-    then
+            ] if
+        ] if
+    ] if
 ;
 
 # Run a file
@@ -140,23 +140,23 @@ include "vim-line"
 : paren-balance-loop ( Int String Int -- Int )
     # Stack: Balance Str Pos
     # Check if Pos >= Length (done)
-    dup 2 pick string.length i.>= if
+    dup 2 pick string.length i.>= [
         # End of string - return Balance
         drop drop  # Drop Str Pos, leave Balance
-    else
+    ] [
         # Get char at pos
         over over string.char-at
-        dup 40 i.= if      # '('
+        dup 40 i.= [      # '('
             drop rot 1 i.add rot rot 1 i.add paren-balance-loop
-        else
-            dup 41 i.= if  # ')'
+        ] [
+            dup 41 i.= [  # ')'
                 drop rot 1 i.subtract rot rot 1 i.add paren-balance-loop
-            else
+            ] [
                 # Skip other chars
                 drop 1 i.add paren-balance-loop
-            then
-        then
-    then ;
+            ] if
+        ] if
+    ] if ;
 
 # Check if input has content (non-whitespace, non-comment)
 # Returns true if there's non-whitespace before any comment, false otherwise
@@ -166,24 +166,24 @@ include "vim-line"
 : has-content-loop ( Bool String Int -- Bool )
     # Stack: Found Str Pos
     # Check if Pos >= Length (done)
-    dup 2 pick string.length i.>= if
+    dup 2 pick string.length i.>= [
         # End of string - return Found
         drop drop  # Drop Str Pos, leave Found
-    else
+    ] [
         over over string.char-at
         # Stack: Found Str Pos CharCode
-        dup 59 i.= if  # ';' - comment starts, stop scanning
+        dup 59 i.= [  # ';' - comment starts, stop scanning
             # Return what we've found so far (false if nothing before comment)
             drop drop drop
-        else
-            dup 32 i.> if  # Non-whitespace - found content
+        ] [
+            dup 32 i.> [  # Non-whitespace - found content
                 drop drop drop drop true
-            else
+            ] [
                 # Whitespace - continue searching
                 drop 1 i.add has-content-loop
-            then
-        then
-    then ;
+            ] if
+        ] if
+    ] if ;
 
 # ============================================
 # Interactive REPL Mode
@@ -191,30 +191,30 @@ include "vim-line"
 
 # Get prompt string based on whether we're continuing a multi-line expression
 : get-prompt ( Int -- String )
-    0 i.= if
+    0 i.= [
         "> "
-    else
+    ] [
         "... "
-    then ;
+    ] if ;
 
 # Handle EOF in REPL
 : repl-handle-eof ( Sexpr String Env -- )
     # Stack: History Acc Env
     # Save history before exiting
     2 pick history-save
-    over has-content if
-        over paren-balance 0 i.= if
+    over has-content [
+        over paren-balance 0 i.= [
             # Balanced - evaluate remaining
             swap tokenize parse-all
             swap eval-all-print drop drop
             "Goodbye!" io.write-line
-        else
+        ] [
             # Unbalanced at EOF
             drop drop drop "Error: unbalanced parentheses" io.write-line
-        then
-    else
+        ] if
+    ] [
         drop drop drop "Goodbye!" io.write-line
-    then ;
+    ] if ;
 
 # Handle a line of input
 : repl-handle-line ( Sexpr String Env String -- )
@@ -226,16 +226,16 @@ include "vim-line"
     # Stack: History NewAcc Env
     over paren-balance
     # Stack: History NewAcc Env Balance
-    dup 0 i.< if
+    dup 0 i.< [
         # Negative balance - too many closing parens
         drop "Error: unexpected ')'" io.write-line
         swap drop "" swap repl-loop
-    else
+    ] [
         0 i.=
         # Stack: History NewAcc Env BalancedBool
         2 pick has-content
         # Stack: History NewAcc Env BalancedBool HasContentBool
-        and if
+        and [
             # Balanced and has content - evaluate and add to history
             # Stack: History(2) NewAcc(1) Env(0)
             # Reorder and call history-add, then restore stack order
@@ -244,11 +244,11 @@ include "vim-line"
             swap tokenize parse-all
             swap eval-all-print
             "" swap repl-loop
-        else
+        ] [
             # Need more input (positive balance or no content yet)
             repl-loop
-        then
-    then ;
+        ] if
+    ] if ;
 
 # Interactive REPL loop with multi-line support
 : repl-loop ( Sexpr String Env -- )
@@ -260,13 +260,13 @@ include "vim-line"
     3 pick swap "" vim-edit
     # Stack: History(4) Acc(3) Env(2) History(1) Buffer(0)
     # vim-edit returns (History, Buffer) where History is unchanged
-    dup "\x04" string.equal? if
+    dup "\x04" string.equal? [
         # EOF (Ctrl+D or Ctrl+C)
         drop  # History(3) Acc(2) Env(1) History(0)
         # History(0) is same as History(3), just drop the copy
         drop  # History(2) Acc(1) Env(0)
         repl-handle-eof
-    else
+    ] [
         # Got a line - add newline since vim-edit doesn't include it
         "\n" string.concat
         # Stack: OldHistory(4) Acc(3) Env(2) History(1) Line(0)
@@ -275,7 +275,7 @@ include "vim-line"
         nip
         # Stack: History(3) Acc(2) Env(1) Line(0)
         repl-handle-line
-    then ;
+    ] if ;
 
 # Start interactive REPL
 : run-repl ( -- )
@@ -288,26 +288,26 @@ include "vim-line"
 # Read all lines until EOF (preserves newlines for comments and line tracking)
 : read-all-stdin ( String -- String )
     io.read-line+
-    0 i.= if
+    0 i.= [
         # EOF reached
         drop
-    else
+    ] [
         # Got a line - append newline since io.read-line+ strips it
         "\n" string.concat
         string.concat
         read-all-stdin
-    then
+    ] if
 ;
 
 # Run from stdin (non-interactive, for piped input)
 : run-stdin ( -- )
     "" read-all-stdin
-    dup string.empty? if
+    dup string.empty? [
         drop
-    else
+    ] [
         tokenize parse-all
         env-empty eval-all-print drop
-    then ;
+    ] if ;
 
 # ============================================
 # Main Entry Point
@@ -315,20 +315,20 @@ include "vim-line"
 
 # Check if argument is a version flag
 : is-version-flag ( String -- Bool )
-    dup "--version" string.equal? if
+    dup "--version" string.equal? [
         drop true
-    else
+    ] [
         "-v" string.equal?
-    then
+    ] if
 ;
 
 # Check if argument is a help flag
 : is-help-flag ( String -- Bool )
-    dup "--help" string.equal? if
+    dup "--help" string.equal? [
         drop true
-    else
+    ] [
         "-h" string.equal?
-    then
+    ] if
 ;
 
 # Check if argument is LSP flag
@@ -359,52 +359,52 @@ include "vim-line"
 
 # Run a file safely (handle missing files)
 : run-file-safe ( String -- )
-    dup file.exists? if
-        file.slurp if
+    dup file.exists? [
+        file.slurp [
             # Stack: Content (success)
             tokenize parse-all
             env-empty eval-all-print drop
-        else
+        ] [
             drop  # Drop empty/error content
             "Error: Cannot read file" io.write-line
-        then
-    else
+        ] if
+    ] [
         "Error: Cannot read file '" swap string.concat "'" string.concat io.write-line
-    then
+    ] if
 ;
 
 # Run LSP server (load lib/lsp.slisp)
 : run-lsp ( -- )
-    "lib/lsp.slisp" file.exists? if
-        "lib/lsp.slisp" file.slurp if
+    "lib/lsp.slisp" file.exists? [
+        "lib/lsp.slisp" file.slurp [
             tokenize parse-all
             env-empty eval-all-quiet drop
-        else
+        ] [
             drop "Error: Cannot read lib/lsp.slisp" io.write-line
-        then
-    else
+        ] if
+    ] [
         "Error: Cannot find lib/lsp.slisp" io.write-line
-    then
+    ] if
 ;
 
 : main ( -- )
-    args.count 1 i.> if
+    args.count 1 i.> [
         1 args.at
-        dup is-version-flag if
+        dup is-version-flag [
             drop print-version
-        else
-            dup is-help-flag if
+        ] [
+            dup is-help-flag [
                 drop print-help
-            else
-                dup is-lsp-flag if
+            ] [
+                dup is-lsp-flag [
                     drop run-lsp
-                else
+                ] [
                     run-file-safe
-                then
-            then
-        then
-    else
+                ] if
+            ] if
+        ] if
+    ] [
         "SeqLisp " seqlisp-version string.concat io.write-line
         run-repl
-    then
+    ] if
 ;

@@ -34,7 +34,7 @@ union ParseResult {
 # Combine two spans: take start from first, end from second
 : span-combine ( SourceSpan SourceSpan -- SourceSpan )
   # Stack: span1 span2
-  over span? over span? and if
+  over span? over span? and [
     # Both have spans - combine them
     # Extract values carefully to avoid stack index errors
     dup span-end-col           # span1 span2 end-col
@@ -43,14 +43,14 @@ union ParseResult {
     4 pick span-start-line     # span1 span2 end-col end-line start-col start-line
     swap rot rot swap          # span1 span2 start-line start-col end-line end-col
     make-span nip nip          # combined-span
-  else
+  ] [
     # At least one has no span - prefer one that does, or return no-span
-    dup span? if
+    dup span? [
       nip  # return span2
-    else
+    ] [
       drop  # return span1
-    then
-  then
+    ] if
+  ] if
 ;
 
 # ============================================
@@ -80,11 +80,11 @@ union ParseResult {
 
 # Check if token is a string literal (starts with double quote)
 : is-string-token ( String -- Bool )
-  dup string.length 0 i.= if
+  dup string.length 0 i.= [
     drop false
-  else
+  ] [
     0 string.char-at 34 i.=  # char 34 is double quote
-  then
+  ] if
 ;
 
 # Check if char is a decimal point
@@ -97,53 +97,53 @@ union ParseResult {
 
 : has-decimal-loop ( String Int -- Bool )
   # Stack: str pos
-  over string.length over i.<= if
+  over string.length over i.<= [
     drop drop false  # Reached end, no decimal found
-  else
-    2dup string.char-at is-dot if
+  ] [
+    2dup string.char-at is-dot [
       drop drop true  # Found decimal
-    else
+    ] [
       1 i.add has-decimal-loop  # Check next char
-    then
-  then
+    ] if
+  ] if
 ;
 
 # Check if token is a float (number with decimal point)
 : is-float-token ( String -- Bool )
-  dup is-number-start? if
+  dup is-number-start? [
     has-decimal-point
-  else
+  ] [
     drop false
-  then
+  ] if
 ;
 
 # Check if token starts like a number (digit or minus-digit)
 : is-number-start? ( String -- Bool )
-  dup string.length 0 i.= if
+  dup string.length 0 i.= [
     drop false
-  else
+  ] [
     dup 0 string.char-at
-    dup 45 i.= if
+    dup 45 i.= [
       # Starts with minus - check if length > 1 and second char is digit
-      drop dup string.length 1 i.> if
+      drop dup string.length 1 i.> [
         1 string.char-at is-digit
-      else
+      ] [
         drop false
-      then
-    else
+      ] if
+    ] [
       is-digit nip
-    then
-  then
+    ] if
+  ] if
 ;
 
 : is-number-token ( String -- Bool )
   # Check if first char is a digit or minus followed by digit
   # and does NOT contain a decimal point (integers only)
-  dup is-number-start? if
+  dup is-number-start? [
     has-decimal-point not  # True if no decimal point
-  else
+  ] [
     drop false
-  then
+  ] if
 ;
 
 # ============================================
@@ -163,46 +163,46 @@ union ParseResult {
 
 : parse-tokens ( TokenList -- ParseResult )
   # TokenList is a token list, returns parse result
-  dup tnil? if
+  dup tnil? [
     # Empty token list - return nil expression
     snil slist swap make-parse-result
-  else
+  ] [
     # Get first token for both text and span
     dup tcar-token        # tokens token
     dup tok-text          # tokens token text
-    dup is-lparen if
+    dup is-lparen [
       # Start of list - parse list contents, passing opening paren span
       drop                # tokens token
       tok-span            # tokens lparen-span
       swap tcdr           # lparen-span rest-tokens
       parse-list-with-span
-    else
-      dup is-rparen if
+    ] [
+      dup is-rparen [
         # Unexpected ) - error, just skip
         drop drop tcdr parse-tokens
-      else
-        dup is-quote if
+      ] [
+        dup is-quote [
           # Quote: 'expr -> (quote expr)
           drop tok-span swap tcdr parse-quote-with-span
-        else
-          dup is-quasiquote if
+        ] [
+          dup is-quasiquote [
             # Quasiquote: `expr -> (quasiquote expr)
             drop tok-span swap tcdr parse-quasiquote-with-span
-          else
-            dup is-unquote-splice if
+          ] [
+            dup is-unquote-splice [
               # Unquote-splice: ,@expr -> (unquote-splicing expr)
               drop tok-span swap tcdr parse-unquote-splice-with-span
-            else
-              dup is-unquote if
+            ] [
+              dup is-unquote [
                 # Unquote: ,expr -> (unquote expr)
                 drop tok-span swap tcdr parse-unquote-with-span
-              else
+              ] [
                 # Atom (string, float, number, or symbol)
                 # Stack: tokens token text
                 over tok-span  # tokens token text span
                 swap           # tokens token span text
                 # Stack: tokens token span text
-                dup is-string-token if
+                dup is-string-token [
                   # String literal - strip quotes and create SString
                   # Stack: tokens token span text
                   dup string.length 2 i.subtract    # tokens token span text len
@@ -212,33 +212,33 @@ union ParseResult {
                   nip                             # tokens token span content
                   swap sstring-at                 # tokens token sexpr
                   nip swap tcdr make-parse-result
-                else
-                  dup is-float-token if
+                ] [
+                  dup is-float-token [
                     # Stack: tokens token span text
                     string->float drop            # tokens token span float-val
                     swap sfloat-at                # tokens token sexpr
                     nip swap tcdr make-parse-result
-                  else
-                    dup is-number-token if
+                  ] [
+                    dup is-number-token [
                       # Stack: tokens token span text
                       string->int drop            # tokens token span int-val
                       swap snum-at                # tokens token sexpr
                       nip swap tcdr make-parse-result
-                    else
+                    ] [
                       # Symbol
                       # Stack: tokens token span text
                       swap ssym-at                # tokens token sexpr
                       nip swap tcdr make-parse-result
-                    then
-                  then
-                then
-              then
-            then
-          then
-        then
-      then
-    then
-  then
+                    ] if
+                  ] if
+                ] if
+              ] if
+            ] if
+          ] if
+        ] if
+      ] if
+    ] if
+  ] if
 ;
 
 # Parse quote: expand 'expr to (quote expr)
@@ -333,12 +333,12 @@ union ParseResult {
 
 : parse-list-items-with-span ( SexprList SourceSpan TokenList -- ParseResult )
   # Stack: Acc LparenSpan Tokens (Tokens on top)
-  dup tnil? if
+  dup tnil? [
     # Ran out of tokens - return accumulated list with empty token list
     drop swap list-reverse swap slist-at tnil make-parse-result
-  else
+  ] [
     dup tcar-token        # Acc LparenSpan Tokens Token
-    dup tok-text is-rparen if
+    dup tok-text is-rparen [
       # End of list - combine lparen span with rparen span
       tok-span            # Acc LparenSpan Tokens RparenSpan
       rot                 # Acc Tokens RparenSpan LparenSpan
@@ -347,7 +347,7 @@ union ParseResult {
       swap slist-at       # Tokens Sexpr
       swap tcdr           # Sexpr RemainingTokens
       make-parse-result
-    else
+    ] [
       # Parse next element from Tokens
       # Stack: Acc LparenSpan Tokens Token
       drop                      # Acc LparenSpan Tokens
@@ -363,8 +363,8 @@ union ParseResult {
       rot                       # RemTokens NewAcc LparenSpan
       rot                       # NewAcc LparenSpan RemTokens
       parse-list-items-with-span
-    then
-  then
+    ] if
+  ] if
 ;
 
 # Reverse a cons list
@@ -372,9 +372,9 @@ union ParseResult {
   snil list-reverse-loop ;
 
 : list-reverse-loop ( SexprList SexprList -- SexprList )
-  swap dup snil? if drop else
+  swap dup snil? [ drop ] [
     dup scar rot scons swap scdr swap list-reverse-loop
-  then
+  ] if
 ;
 
 # ============================================

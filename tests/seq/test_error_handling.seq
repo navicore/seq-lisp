@@ -9,38 +9,38 @@ include "../../src/eval"
 : test-error ( String -- )
   # Stack: Input
   dup parse env-empty eval-with-env
-  dup eval-err? if
+  dup eval-err? [
     swap "PASS " swap string.concat ": " string.concat
     swap eval-err-message string.concat io.write-line
-  else
+  ] [
     drop "FAIL: expected error for " swap string.concat io.write-line
-  then ;
+  ] if ;
 
 # Helper to test successful evaluation
 : test-ok ( String String -- )
   # Stack: Input Expected
   swap dup  # -> Expected Input Input
   parse env-empty eval-with-env  # -> Expected Input EvalResult
-  dup eval-ok? if
+  dup eval-ok? [
     eval-ok-value sexpr-to-string  # -> Expected Input Actual
-    2 pick string.equal? if
+    2 pick string.equal? [
       drop "PASS: " swap string.concat io.write-line
-    else
+    ] [
       # -> Expected Input Actual
       "FAIL: " 2 pick string.concat  # FAIL: Input
       " expected " string.concat
       rot string.concat  # FAIL: Input expected Expected
       " but got " string.concat
       swap string.concat io.write-line  # FAIL: Input expected Expected but got Actual
-    then
-  else
+    ] if
+  ] [
     # -> Expected Input EvalResult
     eval-err-message  # -> Expected Input ErrMsg
     "FAIL: " 2 pick string.concat  # FAIL: Input
     " unexpected error: " string.concat
     swap string.concat io.write-line
     drop drop  # Clean up Expected
-  then ;
+  ] if ;
 
 : main ( -- )
   "=== Error Handling Tests ===" io.write-line

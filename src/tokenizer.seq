@@ -76,13 +76,13 @@ union TokState {
   tnil trev-loop ;
 
 : trev-loop ( TokenList TokenList -- TokenList )
-  swap dup tnil? if drop else
+  swap dup tnil? [ drop ] [
     dup tcar swap tcdr   # acc token rest
     rot                  # token rest acc
     rot                  # rest acc token
     swap tcons-tok       # rest new-acc (correct order for recursive call!)
     trev-loop            # NO swap needed - rest is list, new-acc is accumulator
-  then
+  ] if
 ;
 
 # ============================================
@@ -222,9 +222,7 @@ union TokState {
 
 # Emit current accumulated token (if non-empty) and reset accumulator
 : emit-token ( TokState -- TokState )
-  dup state-tok string.empty? if
-    # Nothing to emit - return state unchanged
-  else
+  dup state-tok string.empty? [
     # Build all components for new state, then assemble
     # Stack: state
 
@@ -250,7 +248,7 @@ union TokState {
     # make-state needs: input current accum tokens (tokens on top)
     # We have them in the right order!
     make-state nip
-  then
+  ] unless
 ;
 
 # Emit a single-char token at current position, then advance
@@ -305,61 +303,61 @@ union TokState {
 
 : tokenize-loop ( TokState -- TokState )
   dup state-input string.length
-  over state-pos i.<= if
+  over state-pos i.<= [
     # Done - return state (caller will flush)
-  else
+  ] [
     # Get current char code at position
     dup state-input over state-pos string.char-at
     # Stack: State CharCode
 
-    dup 10 i.= if
+    dup 10 i.= [
       # Newline - flush token and advance with line increment
       drop handle-newline tokenize-loop
-    else
-      dup 32 i.= over 9 i.= or over 13 i.= or if
+    ] [
+      dup 32 i.= over 9 i.= or over 13 i.= or [
         # Other whitespace (space, tab, CR)
         drop handle-space tokenize-loop
-      else
-        dup 59 i.= if
+      ] [
+        dup 59 i.= [
           # Semicolon - start of comment
           drop handle-comment tokenize-loop
-        else
-          dup 40 i.= if
+        ] [
+          dup 40 i.= [
             # Left paren
             drop handle-lparen tokenize-loop
-          else
-            dup 41 i.= if
+          ] [
+            dup 41 i.= [
               # Right paren
               drop handle-rparen tokenize-loop
-            else
-              dup 39 i.= if
+            ] [
+              dup 39 i.= [
                 # Single quote
                 drop handle-quote tokenize-loop
-              else
-                dup 96 i.= if
+              ] [
+                dup 96 i.= [
                   # Backtick (quasiquote)
                   drop handle-backtick tokenize-loop
-                else
-                  dup 44 i.= if
+                ] [
+                  dup 44 i.= [
                     # Comma (unquote/unquote-splicing)
                     drop handle-comma tokenize-loop
-                  else
-                    dup 34 i.= if
+                  ] [
+                    dup 34 i.= [
                       # Double quote - string literal
                       drop handle-string tokenize-loop
-                    else
+                    ] [
                       # Regular char - i.add to token
                       drop handle-char tokenize-loop
-                    then
-                  then
-                then
-              then
-            then
-          then
-        then
-      then
-    then
-  then
+                    ] if
+                  ] if
+                ] if
+              ] if
+            ] if
+          ] if
+        ] if
+      ] if
+    ] if
+  ] if
 ;
 
 # ============================================
@@ -401,17 +399,17 @@ union TokState {
   emit-token
   # Check if next char is @
   dup state-input string.length
-  over state-pos 1 i.add i.> if
+  over state-pos 1 i.add i.> [
     dup state-input over state-pos 1 i.add string.char-at
-    64 i.= if
+    64 i.= [
       # It's ,@ - emit as two-char token
       ",@" emit-two-char start-token
-    else
+    ] [
       "," emit-single-char start-token
-    then
-  else
+    ] if
+  ] [
     "," emit-single-char start-token
-  then
+  ] if
 ;
 
 # Emit a two-char token at current position, then advance by 2
@@ -449,10 +447,9 @@ union TokState {
 # Handle regular character: i.add to accumulator, advance
 : handle-char ( TokState -- TokState )
   # If accumulator is empty, this is the start of a new token
-  dup state-tok string.empty? if
+  dup state-tok string.empty? [
     start-token
-  else
-  then
+  ] when
   # Get current char as string
   dup state-input
   over state-pos
@@ -480,90 +477,90 @@ union TokState {
 : string-scan-loop ( TokState -- TokState )
   # Check if at end of input
   dup state-input string.length
-  over state-pos i.<= if
+  over state-pos i.<= [
     # End of input before closing quote - emit what we have with closing quote
     34 char->string append-to-token
     emit-token start-token
-  else
+  ] [
     # Get current char
     dup state-input over state-pos string.char-at
 
-    dup 34 i.= if
+    dup 34 i.= [
       # Closing quote - i.add it and emit
       drop
       34 char->string append-to-token
       advance-col
       emit-token start-token
-    else
-      dup 92 i.= if
+    ] [
+      dup 92 i.= [
         # Backslash - handle escape
         drop handle-string-escape string-scan-loop
-      else
-        dup 10 i.= if
+      ] [
+        dup 10 i.= [
           # Newline in string - i.add it and update line tracking
           drop
           10 char->string append-to-token
           advance-newline
           string-scan-loop
-        else
+        ] [
           # Regular char - i.add to string and advance
           char->string append-to-token
           advance-col
           string-scan-loop
-        then
-      then
-    then
-  then
+        ] if
+      ] if
+    ] if
+  ] if
 ;
 
 # Handle escape sequence in string
 : handle-string-escape ( TokState -- TokState )
   # Check if there's another char after backslash
   dup state-input string.length
-  over state-pos 1 i.add i.> if
+  over state-pos 1 i.add i.> [
     # Get escaped char
     dup state-input over state-pos 1 i.add string.char-at
 
-    dup 34 i.= if
+    dup 34 i.= [
       # backslash-quote -> i.add quote to string
       drop 34 char->string append-to-token
       advance-col advance-col
-    else
-      dup 92 i.= if
+    ] [
+      dup 92 i.= [
         # backslash-backslash -> i.add backslash to string
         drop 92 char->string append-to-token
         advance-col advance-col
-      else
-        dup 110 i.= if
+      ] [
+        dup 110 i.= [
           # backslash-n -> i.add newline to string
           drop 10 char->string append-to-token
           advance-col advance-col
-        else
-          dup 114 i.= if
+        ] [
+          dup 114 i.= [
             # backslash-r -> i.add carriage return to string
             drop 13 char->string append-to-token
             advance-col advance-col
-          else
-            dup 116 i.= if
+          ] [
+            dup 116 i.= [
               # backslash-t -> i.add tab to string
               drop 9 char->string append-to-token
               advance-col advance-col
-            else
+            ] [
               # Unknown escape - i.add backslash and the char
             char->string
             92 char->string swap string.concat
             append-to-token
             advance-col advance-col
-            then
-          then
-        then
-      then
-    then
-  else
+            ] if
+          ] if
+        ] if
+      ] if
+    ] if
+  ] [
     # No char after backslash - just i.add backslash
     92 char->string append-to-token
     advance-col
-  then
+  ] if
 ;
 
 # ============================================
@@ -578,19 +575,19 @@ union TokState {
 # Skip characters until newline or end of input
 : skip-to-eol ( TokState -- TokState )
   dup state-input string.length
-  over state-pos i.<= if
+  over state-pos i.<= [
     # End of input
     start-token
-  else
+  ] [
     dup state-input over state-pos string.char-at
-    10 i.= if
+    10 i.= [
       # Found newline - advance past it with line increment
       advance-newline start-token
-    else
+    ] [
       # Keep skipping
       advance-col skip-to-eol
-    then
-  then
+    ] if
+  ] if
 ;
 
 # ============================================
@@ -598,9 +595,9 @@ union TokState {
 # ============================================
 
 : print-tokens ( TokenList -- )
-  dup tnil? if drop else
+  dup tnil? [ drop ] [
     dup tcar tok-text io.write-line tcdr print-tokens
-  then
+  ] if
 ;
 
 # Debug function to print token with position
@@ -608,20 +605,20 @@ union TokState {
 : print-token-with-pos ( Token -- )
   dup tok-text                    # token text
   swap tok-span                   # text span
-  dup span? if
+  dup span? [
     dup span-start-line int->string   # text span line-str
     ":" string.concat                  # text span "line:"
     swap span-start-col int->string   # text "line:" col-str
     string.concat                      # text "line:col"
     " @ " swap string.concat           # text " @ line:col"
     string.concat io.write-line        # print "text @ line:col"
-  else
+  ] [
     drop io.write-line                 # just print text
-  then
+  ] if
 ;
 
 : print-tokens-with-pos ( TokenList -- )
-  dup tnil? if drop else
+  dup tnil? [ drop ] [
     dup tcar print-token-with-pos tcdr print-tokens-with-pos
-  then
+  ] if
 ;
