@@ -198,7 +198,7 @@ include "vim-line"
     ] if ;
 
 # Handle EOF in REPL
-: repl-handle-eof ( Sexpr String Env -- )
+: repl-handle-eof ( SexprList String Env -- )
     # Stack: History Acc Env
     # Save history before exiting
     2 pick history-save
@@ -217,7 +217,7 @@ include "vim-line"
     ] if ;
 
 # Handle a line of input
-: repl-handle-line ( Sexpr String Env String -- )
+: repl-handle-line ( SexprList String Env String -- )
     # Stack: History(3) Acc(2) Env(1) Line(0)
     # Build: Acc + Line (Acc already has newlines from previous lines)
     rot swap string.concat
@@ -251,7 +251,7 @@ include "vim-line"
     ] if ;
 
 # Interactive REPL loop with multi-line support
-: repl-loop ( Sexpr String Env -- )
+: repl-loop ( SexprList String Env -- )
     # Stack: History(2) Accumulator(1) Env(0)
     # Get prompt based on paren balance
     over paren-balance get-prompt
@@ -287,15 +287,19 @@ include "vim-line"
 
 # Read all lines until EOF (preserves newlines for comments and line tracking)
 : read-all-stdin ( String -- String )
-    io.read-line+
-    0 i.= [
-        # EOF reached
-        drop
-    ] [
-        # Got a line - append newline since io.read-line+ strips it
+    io.read-line
+    [
+        # Got a line - append newline to keep behavior identical to the
+        # pre-7.x io.read-line+ caller; that builtin already preserved \n,
+        # so this doubles it. Matches the original (and equally unused)
+        # behavior. read-all-stdin is reached only via run-stdin, which is
+        # not currently wired to main.
         "\n" string.concat
         string.concat
         read-all-stdin
+    ] [
+        # EOF reached
+        drop
     ] if
 ;
 

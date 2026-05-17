@@ -176,9 +176,9 @@ union EditorState {
 # Undo stack stores previous buffer/cursor states
 # Uses its own list type (not sexpr lists) to avoid type confusion
 
-union UndoList {
+union UndoStack {
     UndoNil { }
-    UndoCons { buffer: String, cursor: Int, tail: UndoList }
+    UndoCons { buffer: String, cursor: Int, tail: UndoStack }
 }
 
 # Maximum undo entries to keep
@@ -310,7 +310,7 @@ union UndoList {
 # We use the sexpr types from the Lisp implementation
 
 # Create empty history
-: history-empty ( -- History )
+: history-empty ( -- SexprList )
   snil ;
 
 # Strip trailing newlines and whitespace from a string
@@ -356,7 +356,7 @@ union UndoList {
     ] if
   ] if ;
 
-: history-add ( History String -- History )
+: history-add ( SexprList String -- SexprList )
   # Strip leading and trailing whitespace/newlines
   string-strip-leading string-strip-trailing
   # Check if string is empty
@@ -381,10 +381,10 @@ union UndoList {
   ] if ;
 
 # Get history length
-: history-length ( History -- Int )
+: history-length ( SexprList -- Int )
   0 history-length-loop ;
 
-: history-length-loop ( History Int -- Int )
+: history-length-loop ( SexprList Int -- Int )
   over snil? [
     nip
   ] [
@@ -393,7 +393,7 @@ union UndoList {
 
 # Get nth history entry (1-indexed, 1 = most recent)
 # Returns empty string if out of bounds
-: history-get ( History Int -- String )
+: history-get ( SexprList Int -- String )
   # Stack: History N
   dup 1 i.< [
     drop drop ""  # Invalid index
@@ -401,7 +401,7 @@ union UndoList {
     history-get-loop
   ] if ;
 
-: history-get-loop ( History Int -- String )
+: history-get-loop ( SexprList Int -- String )
   # Stack: History N
   over snil? [
     drop drop ""  # Past end of history
@@ -431,10 +431,10 @@ union UndoList {
   ] if ;
 
 # Reverse a history list (for saving oldest-first)
-: history-reverse ( History -- History )
+: history-reverse ( SexprList -- SexprList )
   snil history-reverse-loop ;
 
-: history-reverse-loop ( History Acc -- Acc )
+: history-reverse-loop ( SexprList SexprList -- SexprList )
   over snil? [
     nip
   ] [
@@ -444,10 +444,10 @@ union UndoList {
   ] if ;
 
 # Convert history to string (one entry per line, oldest first)
-: history-to-string ( History -- String )
+: history-to-string ( SexprList -- String )
   history-reverse "" history-to-string-loop ;
 
-: history-to-string-loop ( History String -- String )
+: history-to-string-loop ( SexprList String -- String )
   over snil? [
     nip
   ] [
@@ -460,7 +460,7 @@ union UndoList {
   ] if ;
 
 # Save history to file
-: history-save ( History -- )
+: history-save ( SexprList -- )
   dup snil? [
     drop  # Nothing to save
   ] [
@@ -470,7 +470,7 @@ union UndoList {
   ] if ;
 
 # Load history from file (returns history list, newest first)
-: history-load ( -- History )
+: history-load ( -- SexprList )
   history-file-path
   dup file.exists? [
     file.slurp [
@@ -485,7 +485,7 @@ union UndoList {
 
 # Parse lines from file content into history
 # File has oldest entries first, we prepend each so newest ends up first
-: history-load-lines ( History String -- History )
+: history-load-lines ( SexprList String -- SexprList )
   dup string.empty? [
     drop  # Done, return history
   ] [
@@ -1372,7 +1372,7 @@ union UndoList {
 
 # Edit a string with vim keybindings
 # ( History Prompt InitialBuffer -- History FinalBuffer )
-: vim-edit ( Sexpr String String -- Sexpr String )
+: vim-edit ( SexprList String String -- SexprList String )
   # Stack: History Prompt Buffer
   true terminal.raw-mode
   0 vim-edit-with-histpos  # Start with HistPos=0
@@ -1381,7 +1381,7 @@ union UndoList {
 
 # Inner editor that handles history position
 # ( History Prompt Buffer HistPos -- History FinalBuffer )
-: vim-edit-with-histpos ( Sexpr String String Int -- Sexpr String )
+: vim-edit-with-histpos ( SexprList String String Int -- SexprList String )
   # Stack: History Prompt Buffer HistPos
   # Create EditorState from buffer
   swap dup string.length mode-normal "" ed-make
@@ -1473,7 +1473,7 @@ union UndoList {
 
 # Core edit loop - returns EdState and ResultCode
 # ( History Prompt HistPos EdState UndoStack -- History Prompt HistPos EdState UndoStack ResultCode )
-: vim-edit-inner ( Sexpr String Int EditorState UndoStack -- Sexpr String Int EditorState UndoStack Int )
+: vim-edit-inner ( SexprList String Int EditorState UndoStack -- SexprList String Int EditorState UndoStack Int )
   # Render current state: vim-render-ed(Prompt EdState)
   # Stack: History(4) Prompt(3) HistPos(2) EdState(1) UndoStack(0)
   3 pick 2 pick vim-render-ed

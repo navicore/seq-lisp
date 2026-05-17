@@ -1,0 +1,48 @@
+name: Deep CI
+
+# Runs the self-hosted TCO suite at depth 10000. This is slow (~10 min) and
+# is intentionally kept out of `just ci` so routine PR feedback stays fast.
+# Triggered on pushes to main and on demand via the Actions tab.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  deep-tco:
+    name: Deep TCO (self-hosted, depth 10000)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Install libedit
+        run: sudo apt-get update && sudo apt-get install -y libedit-dev
+
+      - name: Install just
+        uses: extractions/setup-just@v2
+
+      - name: Install seqc
+        run: cargo install seq-compiler --force
+
+      - name: Run deep TCO suite
+        run: just deep-tco
