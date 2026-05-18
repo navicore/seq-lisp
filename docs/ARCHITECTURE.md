@@ -239,6 +239,27 @@ SeqLisp leverages Seq's native TCO by ensuring that tail calls in Lisp map to ta
   (if (<= n 1) acc (factorial-tail (- n 1) (* acc n))))
 ```
 
+**How CI verifies TCO didn't regress**
+
+The 5 TCO tests in `tests/lisp/reader/eval.slisp` exercise the
+self-hosted meta-evaluator at depth 1000 across the five tail
+positions (if / cond / begin / let / through-macro). Depth 1000 was
+chosen empirically — it is well past the broken-TCO crash threshold:
+
+| variant | depth | observed result |
+|---|---|---|
+| non-TCO `sum` (self-hosted) | 200 | passes |
+| non-TCO `sum` (self-hosted) | 500 | crashes — stack overflow |
+| TCO `sum` (self-hosted) | 1000 | passes |
+| TCO `sum` (self-hosted) | 5000 | passes |
+
+So if TCO regresses at *either* layer — Seq's native TCO (host) or
+the meta-evaluator's trampoline (self-hosted) — the routine
+depth-1000 tests crash with a stack-overflow signature rather than
+silently passing. The host's TCO is independently verified by
+`tests/lisp/functions/tco.slisp` at depth 10000 (runs in
+milliseconds because it's native through `seqc`).
+
 ### Future Improvements
 
 - Explicit recursion depth limits

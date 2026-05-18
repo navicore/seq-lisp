@@ -145,23 +145,6 @@ reader-test: build
         > "$tmp"
     ./target/seqlisp "$tmp"
 
-# Run the self-hosted TCO tests at depth 10000 (slow: ~10 min).
-# Kept out of `just ci` so routine runs stay fast; exercised by .github/workflows/deep-ci.yml.
-deep-tco: build
-    #!/usr/bin/env bash
-    set -euo pipefail
-    echo "Running self-hosted deep TCO tests (depth 10000)..."
-    tmp=$(mktemp)
-    trap "rm -f \"$tmp\"" EXIT
-    cat lib/test.slisp \
-        lib/reader/tokenizer.slisp \
-        lib/reader/parser.slisp \
-        lib/reader/load.slisp \
-        lib/reader/eval.slisp \
-        tests/lisp/reader/eval-deep-tco.slisp \
-        > "$tmp"
-    ./target/seqlisp "$tmp"
-
 # Run LSP integration tests
 lsp-test: build
     #!/usr/bin/env bash
