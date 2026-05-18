@@ -2003,13 +2003,13 @@ union EvalResult {
     nip nip nip
   ] [
     drop drop drop drop
-    io.read-line+
-    0 i.= [
+    io.read-line
+    [
+      # Got a line - return as string (with trailing \n preserved by io.read-line)
+      sstring eval-ok
+    ] [
       # EOF - return #f
       drop "#f" ssym eval-ok
-    ] [
-      # Got a line - return as string
-      sstring eval-ok
     ] if
   ] if
 ;
@@ -2212,10 +2212,10 @@ union EvalResult {
 ;
 
 # Helper: convert Seq List of strings to SexprList of SStrings
-: string-list-to-sexpr-list ( List -- Sexpr )
+: string-list-to-sexpr-list ( Variant -- Sexpr )
   snil swap 0 string-list-to-sexpr-loop list-reverse slist ;
 
-: string-list-to-sexpr-loop ( SexprList List Int -- SexprList )
+: string-list-to-sexpr-loop ( SexprList Variant Int -- SexprList )
   # Stack: Acc SeqList Idx
   over list.length over i.<= [
     drop drop  # Done, return Acc

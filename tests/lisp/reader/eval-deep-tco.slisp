@@ -1,0 +1,34 @@
+; Deep tail-call optimization tests for the self-hosted evaluator.
+;
+; Mirrors the TCO tests in tests/lisp/reader/eval.slisp but at depth 10000
+; to exercise the full TCO contract from ARCHITECTURE.md. Each call
+; interprets a 10000-step recursion through the self-hosted meta-evaluator,
+; so the suite takes roughly 10 minutes — it lives outside `just ci` and
+; runs via `just deep-tco` (and the deep-ci GitHub workflow) instead.
+
+(run-suite "Self-hosted Evaluator: Deep TCO"
+
+  (test "eval TCO via if (depth 10000)"
+    (assert-eq (seval-string
+      "(define (sum n acc) (if (= n 0) acc (sum (- n 1) (+ acc n)))) (sum 10000 0)")
+      50005000))
+
+  (test "eval TCO via cond (depth 10000)"
+    (assert-eq (seval-string
+      "(define (countdown n) (cond ((= n 0) 'done) (else (countdown (- n 1))))) (countdown 10000)")
+      'done))
+
+  (test "eval TCO via begin (depth 10000)"
+    (assert-eq (seval-string
+      "(define (loop n) (if (= n 0) 'ok (begin (loop (- n 1))))) (loop 10000)")
+      'ok))
+
+  (test "eval TCO via let (depth 10000)"
+    (assert-eq (seval-string
+      "(define (loop n) (if (= n 0) 'ok (let x (- n 1) (loop x)))) (loop 10000)")
+      'ok))
+
+  (test "eval TCO through macro (depth 10000)"
+    (assert-eq (seval-string
+      "(defmacro (when test body) `(if ,test ,body '())) (define (loop n) (when (> n 0) (loop (- n 1)))) (loop 10000)")
+      '())))
