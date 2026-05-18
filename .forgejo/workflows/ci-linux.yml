@@ -3,8 +3,6 @@ name: CI - Linux
 on:
   pull_request:
     branches: [main]
-  push:
-    branches: [main]
   workflow_dispatch:
 
 # This workflow only calls `just` commands. The justfile is the source

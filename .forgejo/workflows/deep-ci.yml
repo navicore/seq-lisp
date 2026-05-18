@@ -1,11 +1,11 @@
 name: Deep CI
 
 # Runs the self-hosted TCO suite at depth 10000 (~10 min). Kept out of
-# routine `just ci` so PR feedback stays fast. Triggered on pushes to
+# routine `just ci` so PR feedback stays fast. Triggered on PRs against
 # main and on demand via the Actions tab.
 
 on:
-  push:
+  pull_request:
     branches: [main]
   workflow_dispatch:
 
