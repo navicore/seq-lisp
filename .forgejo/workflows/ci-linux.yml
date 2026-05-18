@@ -1,0 +1,61 @@
+name: CI - Linux
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# This workflow only calls `just` commands. The justfile is the source
+# of truth for all build/test logic, preventing drift between local
+# development and CI.
+#
+# `runs-on: navicore-rust` targets the custom job image at
+# git.navicore.tech/navicore/navicore-forgejo-runner:latest, which has
+# Rust, clang, and just pre-installed. Do NOT add a
+# dtolnay/rust-toolchain step — act mirrors third-party actions from
+# data.forgejo.org, which does not host that action.
+
+jobs:
+  ci-linux:
+    name: CI - Linux x86_64
+    runs-on: navicore-rust
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify toolchain
+        run: |
+          rustc --version
+          cargo --version
+          just --version
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: linux-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: linux-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache seqc binary
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/seqc
+          key: linux-seqc-7.4.0
+
+      - name: Install seqc
+        run: |
+          if ! command -v seqc >/dev/null; then
+            cargo install seq-compiler --force
+          fi
+          seqc --version
+
+      - name: Run CI checks (just ci)
+        run: just ci
