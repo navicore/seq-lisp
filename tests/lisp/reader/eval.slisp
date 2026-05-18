@@ -188,9 +188,9 @@
     (assert-eq (seval-string "(string-length \"a\\nb\")") 3))
 
   ; --- Tail-call optimization ---
-  ; Depth 1000 here keeps routine `just ci` fast. The deeper depth-10000
-  ; versions live in tests/lisp/reader/eval-deep-tco.slisp and run via
-  ; the deep-ci workflow.
+  ; Depth 1000 is past the empirically-measured broken-TCO crash
+  ; threshold (~200-500 in self-hosted eval). See ARCHITECTURE.md
+  ; "How CI verifies TCO didn't regress" for the measurement table.
   (test "eval TCO via if"
     (assert-eq (seval-string
       "(define (sum n acc) (if (= n 0) acc (sum (- n 1) (+ acc n)))) (sum 1000 0)")
