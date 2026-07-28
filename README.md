@@ -4,10 +4,6 @@ A Lisp interpreter written in [Seq](https://git.navicore.tech/navicore/patch-seq
 
 **Home Code Repository** is at [git.navicore.tech](https://git.navicore.tech/navicore/seq-lisp)
 
-**PRs and issues** welcome at [codeberg.org mirror](https://codeberg.org/navicore/seq-lisp)
-
-**Home Code Repository** is at [git.navicore.tech](https://git.navicore.tech/navicore/seq-lisp)
-
 **PRs and issues** welcome at the [GitHub mirror](https://github.com/navicore/seq-lisp)
 
 ## Requirements
