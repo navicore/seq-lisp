@@ -42,17 +42,16 @@ jobs:
           path: ~/.cargo/git
           key: linux-cargo-git-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Cache seqc binary
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/bin/seqc
-          key: linux-seqc-7.4.0
-
-      - name: Install seqc
+      - name: Install seqc (latest)
+        # seqc tracks the latest released version on crates.io.
+        # `cargo install seq-compiler --force` always pulls latest, so
+        # there is no version pin to maintain here. We deliberately do
+        # NOT cache the binary — a static cache key would silently pin
+        # us to a stale seqc, and `command -v` would then skip the
+        # upgrade. The cargo registry/git caches below keep the build
+        # fast by avoiding crate re-downloads.
         run: |
-          if ! command -v seqc >/dev/null; then
-            cargo install seq-compiler --force
-          fi
+          cargo install seq-compiler --force
           seqc --version
 
       - name: Run CI checks (just ci)
